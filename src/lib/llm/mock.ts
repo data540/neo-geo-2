@@ -62,15 +62,19 @@ export function mockRunPrompt(input: MockRunInput): MockRunOutput {
   };
 }
 
+function isKeySet(value: string | undefined): boolean {
+  return (value?.trim() ?? "").length > 0;
+}
+
 export function hasApiKey(provider: LlmProviderKey): boolean {
   switch (provider) {
     case "chatgpt":
-      return Boolean(process.env.OPENAI_API_KEY);
+      return isKeySet(process.env.OPENAI_API_KEY);
     case "claude":
-      return Boolean(process.env.ANTHROPIC_API_KEY);
+      return isKeySet(process.env.ANTHROPIC_API_KEY);
     case "gemini":
-      return Boolean(process.env.GEMINI_API_KEY);
+      return isKeySet(process.env.GEMINI_API_KEY);
     case "perplexity":
-      return Boolean(process.env.PERPLEXITY_API_KEY);
+      return isKeySet(process.env.PERPLEXITY_API_KEY);
   }
 }

@@ -1,9 +1,9 @@
 export const PROMPT_GENERATOR_TEMPLATE = `
 Actúa como especialista en GEO, SEO conversacional e investigación de intención de búsqueda para motores de IA.
 
-Tu tarea es generar un set de prompts realistas que un usuario podría escribir en ChatGPT, Gemini, Claude o Perplexity cuando está buscando, comparando o evaluando marcas dentro de una categoría.
+Tu tarea es generar un set de prompts realistas que un usuario escribiría en ChatGPT, Gemini, Claude o Perplexity cuando busca, compara o evalúa marcas en una categoría.
 
-No generes keywords. Genera preguntas conversacionales completas, naturales y específicas.
+IMPORTANTE: No generes keywords ni frases cortas. Genera preguntas conversacionales completas, en primera persona cuando sea natural, con el nivel de detalle que un usuario real incluiría.
 
 Datos del workspace:
 - Marca principal: {{brand_name}}
@@ -17,36 +17,38 @@ Datos del workspace:
 - Competidores conocidos: {{competitors}}
 - Diferenciadores de la marca: {{differentiators}}
 
-Tipos de prompts que DEBES cubrir (distribuye equitativamente):
-1. Descubrimiento genérico sin marca (discovery)
-2. Comparación entre opciones (comparison)
-3. Preguntas por criterio de decisión (decision)
-4. Preguntas reputacionales (reputation)
-5. Preguntas con marca (branded)
-6. Preguntas por especialidad o servicio (product_specific)
-7. Preguntas por ubicación (local)
-8. Preguntas de precio/valor (price)
-9. Preguntas de empleabilidad/salidas (employability)
-10. Preguntas formuladas por diferentes perfiles (padres, jóvenes, profesionales)
+Tipos de prompts que DEBES cubrir (al menos 1 de cada tipo):
+1. DESCUBRIMIENTO sin marca — "¿Qué opciones hay para X en {{location}}?"
+2. COMPARACIÓN — "Comparativa entre las principales opciones de {{category}} en {{country}}"
+3. DECISIÓN con criterio específico — "Necesito X, ¿qué opción me da más facilidades en {{location}}?"
+4. REPUTACIÓN/OPINIONES — "Opiniones reales sobre [marca/servicio] en {{country}}"
+5. CON MARCA — "¿Vale la pena [servicio específico] de {{brand_name}}?"
+6. ESPECIALIDAD/SERVICIO — Pregunta sobre una característica concreta del servicio o producto
+7. LOCAL con geolocalización específica — Ciudad, aeropuerto, barrio o ruta concreta dentro de {{location}}
+8. PRECIO/VALOR — "¿Qué opción ofrece mejor relación calidad-precio para [caso de uso]?"
+9. ACCIÓN PRÁCTICA — "¿Cómo solicito/gestiono/contacto con...?" o "¿Qué necesito para...?"
+10. CONFIANZA/FIABILIDAD — "¿Es fiable X para [situación crítica]?", "¿Cuál no me dejará tirado si...?"
+11. URGENCIA/TIEMPO REAL — Situación con límite de tiempo o necesidad inmediata
+12. NECESIDADES ESPECIALES — Personas con movilidad reducida, familias, mascotas, dietas, idiomas
 
-Reglas estrictas:
-- La mayoría de prompts (al menos 60%) NO deben incluir la marca principal.
-- Los prompts deben sonar naturales, como preguntas reales de usuario.
-- Evita prompts artificiales o escritos como keywords.
-- Incluye contexto personal cuando sea útil ("Tengo 18 años...", "Soy padre...", etc.).
-- No favorezcas artificialmente a la marca principal.
+Reglas ESTRICTAS:
+- Al menos 60% de prompts NO deben incluir el nombre de {{brand_name}}.
+- SIEMPRE incluye contexto situacional en primera persona cuando el perfil lo permite: "Estoy embarazada de 7 meses...", "Tengo un perro de asistencia...", "Mi hijo viaja solo por primera vez...", "Tengo una lesión en la rodilla...".
+- Varía la geografía: usa aeropuertos concretos, ciudades de origen/destino, rutas específicas dentro del mercado {{country}}/{{location}}.
+- Incluye referencias temporales cuando sean relevantes: "en 2026", "de última hora", "a tiempo real".
+- Algunos prompts deben mencionar marcas aliadas, certificaciones, estándares del sector o competidores para medir visibilidad relativa.
+- Varía el estilo: preguntas directas, con contexto personal, comparativas, prácticas ("Cómo..."), valorativas ("¿Vale la pena...?").
 - No generes preguntas duplicadas semánticamente.
-- Prioriza prompts con valor comercial o estratégico.
-- Varía el estilo: algunas preguntas directas, otras con contexto, otras comparativas.
+- No uses frases genéricas de marketing; los prompts deben reflejar dudas reales, no comunicados de prensa.
 
 Devuelve ÚNICAMENTE un JSON array válido con exactamente {{number_of_prompts}} objetos, sin texto adicional:
 
 [
   {
-    "prompt": "pregunta conversacional completa",
+    "prompt": "pregunta conversacional completa tal como la escribiría un usuario real",
     "intent": "discovery|comparison|reputation|branded|decision|local|price|employability|product_specific",
     "funnel_stage": "top|middle|bottom",
-    "persona": "descripción del perfil de usuario que haría esta pregunta",
+    "persona": "perfil específico: quién hace esta pregunta, en qué situación, qué necesidad tiene",
     "country": "código ISO de 2 letras",
     "language": "es",
     "includes_brand": false,
@@ -56,7 +58,7 @@ Devuelve ÚNICAMENTE un JSON array válido con exactamente {{number_of_prompts}}
     "ai_search_likelihood": 9,
     "priority_score": 75,
     "tags": ["tag1", "tag2"],
-    "reason": "Por qué este prompt es importante para monitorizar visibilidad GEO"
+    "reason": "Por qué este prompt es estratégico para monitorizar la visibilidad GEO de {{brand_name}}"
   }
 ]
 `.trim();
@@ -64,7 +66,7 @@ Devuelve ÚNICAMENTE un JSON array válido con exactamente {{number_of_prompts}}
 export const COVERAGE_AUDITOR_TEMPLATE = `
 Actúa como auditor de cobertura de prompts GEO para una plataforma de AI Visibility.
 
-Tu tarea es revisar si un set de prompts representa correctamente las preguntas habituales que un usuario haría a un motor de IA antes de elegir una marca, producto o servicio.
+Tu tarea es revisar si un set de prompts representa correctamente las preguntas que un usuario real haría a ChatGPT, Gemini, Claude o Perplexity antes de elegir una marca, producto o servicio.
 
 Datos:
 - Marca: {{brand_name}}
@@ -74,17 +76,19 @@ Datos:
 - Competidores: {{competitors}}
 - Prompts generados: {{prompts_json}}
 
-Evalúa estos 10 aspectos:
-1. Si hay demasiados prompts con marca (>40% está mal).
-2. Si faltan prompts genéricos sin marca.
-3. Si faltan prompts comparativos.
-4. Si faltan prompts de intención comercial alta.
-5. Si faltan prompts locales.
-6. Si faltan prompts por criterio de decisión.
-7. Si faltan prompts reputacionales.
-8. Si hay duplicados semánticos.
-9. Si los prompts suenan naturales.
-10. Si el set permite medir visibilidad real, no visibilidad inducida.
+Evalúa estos 12 aspectos:
+1. Si hay demasiados prompts con marca (>40% está mal — debe ser al mínimo posible).
+2. Si faltan prompts genéricos sin marca (descubrimiento puro).
+3. Si faltan prompts comparativos entre competidores.
+4. Si faltan prompts de intención comercial alta (decision, bottom funnel).
+5. Si faltan prompts con geolocalización específica (aeropuerto, ciudad, ruta concreta).
+6. Si faltan prompts por criterio de decisión concreto (precio, comodidad, fiabilidad).
+7. Si faltan prompts reputacionales (opiniones, experiencias reales).
+8. Si faltan prompts de acción práctica ("Cómo solicitar...", "Qué necesito para...").
+9. Si faltan prompts de confianza/fiabilidad ("¿Es seguro?", "¿Qué aerolínea no me deja tirado?").
+10. Si faltan prompts para perfiles con necesidades especiales (movilidad reducida, familias, mascotas, embarazadas, menores no acompañados).
+11. Si hay duplicados semánticos o prompts que suenan artificiales o a copy de marketing.
+12. Si el set en conjunto permite medir visibilidad real frente a competidores, no visibilidad inducida por la marca.
 
 Devuelve ÚNICAMENTE un JSON válido sin texto adicional:
 
@@ -92,8 +96,8 @@ Devuelve ÚNICAMENTE un JSON válido sin texto adicional:
   "coverageScore": 75,
   "mainGaps": ["lista de huecos principales encontrados"],
   "duplicatedOrWeakPrompts": ["prompts con problemas"],
-  "recommendedNewPrompts": ["nuevas preguntas para cubrir huecos"],
-  "promptsToRemove": ["prompts a eliminar por ser débiles"],
+  "recommendedNewPrompts": ["nuevas preguntas conversacionales completas para cubrir huecos"],
+  "promptsToRemove": ["prompts a eliminar por ser débiles o artificiales"],
   "finalRecommendation": "recomendación concisa sobre la calidad del set"
 }
 `.trim();
