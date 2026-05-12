@@ -30,11 +30,7 @@ interface Props {
 
 const COUNTRIES = [
   { code: "ES", name: "España" },
-  { code: "MX", name: "México" },
-  { code: "AR", name: "Argentina" },
   { code: "CO", name: "Colombia" },
-  { code: "US", name: "Estados Unidos" },
-  { code: "GB", name: "Reino Unido" },
 ];
 
 export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props) {
@@ -69,7 +65,7 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
             id="domain"
             name="domain"
             defaultValue={defaultValues.domain}
-            placeholder="ej. escuela-ces.es"
+            placeholder="ej. aerolinea.com"
             disabled={loading}
           />
         </div>
@@ -105,49 +101,55 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
 
         <div className="space-y-1.5">
           <Label htmlFor="location">Ciudad o mercado principal</Label>
-          <Input id="location" name="location" placeholder="ej. Madrid" disabled={loading} />
+          <Input
+            id="location"
+            name="location"
+            placeholder="ej. Madrid, Barcelona, Bogota"
+            disabled={loading}
+          />
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="category">Categoría de negocio</Label>
+        <Label htmlFor="category">Segmento de operaciones de aerolinea</Label>
         <Input
           id="category"
           name="category"
-          placeholder="ej. Escuelas audiovisuales, FP Imagen y Sonido"
+          defaultValue="Vuelos comerciales de pasajeros"
+          placeholder="ej. Vuelos nacionales, vuelos internacionales, soporte posventa"
           required
           disabled={loading}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="productsServices">Productos o servicios principales</Label>
+        <Label htmlFor="productsServices">Servicios principales de la aerolinea</Label>
         <Textarea
           id="productsServices"
           name="productsServices"
           rows={2}
-          placeholder="ej. FP Imagen y Sonido, Curso de realización, Máster en postproducción"
+          placeholder="ej. Check-in online, equipaje facturado, cambios y reembolsos, asistencia en aeropuerto"
           disabled={loading}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="targetAudience">Audiencia objetivo</Label>
+        <Label htmlFor="targetAudience">Audiencia objetivo de pasajeros</Label>
         <Input
           id="targetAudience"
           name="targetAudience"
-          placeholder="ej. Jóvenes de 18-25 años interesados en audiovisual, padres que buscan FP"
+          placeholder="ej. Viajeros frecuentes, familias, pasajeros de negocios, rutas Espana-Colombia"
           disabled={loading}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="differentiators">Diferenciadores de la marca</Label>
+        <Label htmlFor="differentiators">Diferenciadores operativos de la marca</Label>
         <Textarea
           id="differentiators"
           name="differentiators"
           rows={2}
-          placeholder="ej. Titulación oficial del Ministerio, 30 años de historia, 95% inserción laboral"
+          placeholder="ej. Mejor puntualidad, politicas flexibles de cambio, soporte rapido en incidencias"
           disabled={loading}
         />
       </div>
@@ -161,7 +163,7 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
           id="competitors"
           name="competitors"
           defaultValue={defaultValues.competitors.join(", ")}
-          placeholder="ej. ESCAC, EFTI, TAI"
+          placeholder="ej. Iberia, Vueling, Avianca, LATAM"
           disabled={loading}
         />
       </div>

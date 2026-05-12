@@ -38,6 +38,17 @@ export function PromptCandidateGrid({ candidates, onContinue, loading }: Props) 
   }
 
   const selectedCount = selectedIds.size;
+  const selectedCandidates = candidates.filter((candidate) => selectedIds.has(candidate.id));
+  const funnelCounts = {
+    top: selectedCandidates.filter((candidate) => candidate.funnel_stage === "top").length,
+    middle: selectedCandidates.filter((candidate) => candidate.funnel_stage === "middle").length,
+    bottom: selectedCandidates.filter((candidate) => candidate.funnel_stage === "bottom").length,
+  };
+  const missingFunnelStages = [
+    funnelCounts.top === 0 ? "top" : null,
+    funnelCounts.middle === 0 ? "middle" : null,
+    funnelCounts.bottom === 0 ? "bottom" : null,
+  ].filter(Boolean) as string[];
 
   return (
     <div className="space-y-4">
@@ -63,6 +74,28 @@ export function PromptCandidateGrid({ candidates, onContinue, loading }: Props) 
             Deseleccionar
           </button>
         </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <p className="text-xs font-medium text-slate-700 mb-2">Balance por funnel (seleccionados)</p>
+        <div className="flex flex-wrap gap-2">
+          <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-700">
+            Top: {funnelCounts.top}
+          </span>
+          <span className="px-2 py-1 rounded text-xs bg-amber-100 text-amber-700">
+            Middle: {funnelCounts.middle}
+          </span>
+          <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-700">
+            Bottom: {funnelCounts.bottom}
+          </span>
+        </div>
+        {missingFunnelStages.length > 0 ? (
+          <p className="text-xs text-rose-600 mt-2">
+            Falta cobertura en: {missingFunnelStages.join(", ")}. Debes incluir top, middle y bottom.
+          </p>
+        ) : (
+          <p className="text-xs text-emerald-700 mt-2">Cobertura completa de funnel lista para auditar.</p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

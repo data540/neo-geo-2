@@ -24,11 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 const COUNTRIES = [
   { code: "ES", name: "🇪🇸 España" },
-  { code: "MX", name: "🇲🇽 México" },
-  { code: "AR", name: "🇦🇷 Argentina" },
   { code: "CO", name: "🇨🇴 Colombia" },
-  { code: "US", name: "🇺🇸 Estados Unidos" },
-  { code: "GB", name: "🇬🇧 Reino Unido" },
 ];
 
 interface Props {
@@ -75,13 +71,13 @@ export function AddPromptButton({ workspaceId, workspaceCountry }: Props) {
             <Textarea
               id="text"
               name="text"
-              placeholder="ej. ¿Cuál es la mejor escuela audiovisual en Madrid para estudiar imagen y sonido?"
+              placeholder="ej. ¿Que aerolinea conviene mas para volar Madrid-Bogota con equipaje facturado?"
               rows={4}
               required
               disabled={loading}
             />
             <p className="text-xs text-slate-400">
-              Escribe la pregunta tal como un usuario la haría a ChatGPT, Gemini o Claude.
+              Solo prompts de aerolinea: vuelos, equipaje, check-in, cancelaciones, reembolsos o compensaciones.
             </p>
           </div>
 

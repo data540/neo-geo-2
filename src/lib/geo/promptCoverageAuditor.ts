@@ -20,11 +20,19 @@ function getMockAuditResult(candidates: PromptCandidate[]): CoverageAuditResult 
   if (brandedPercent > 40)
     gaps.push("Demasiados prompts con la marca (>40%). Añade más prompts genéricos sin marca.");
   if (!candidates.some((c) => c.intent === "comparison"))
-    gaps.push("Faltan prompts comparativos entre opciones.");
+    gaps.push("Faltan prompts comparativos entre aerolineas.");
   if (!candidates.some((c) => c.intent === "local"))
-    gaps.push("Faltan prompts con criterio geográfico/local.");
+    gaps.push("Faltan prompts con criterio geografico/local en aeropuertos o rutas.");
   if (!candidates.some((c) => c.intent === "price"))
-    gaps.push("Faltan prompts de precio y relación calidad-precio.");
+    gaps.push("Faltan prompts de precio y relacion calidad-precio por ruta.");
+  if (!candidates.some((c) => /cancel|demor|reembolso|equipaje|check-?in|reubic/i.test(c.prompt)))
+    gaps.push("Faltan prompts de incidencias clave: cancelaciones, demoras, equipaje, check-in o reembolsos.");
+  if (!candidates.some((c) => c.funnel_stage === "top"))
+    gaps.push("Faltan prompts top-funnel de descubrimiento inicial.");
+  if (!candidates.some((c) => c.funnel_stage === "middle"))
+    gaps.push("Faltan prompts middle-funnel de comparacion y evaluacion.");
+  if (!candidates.some((c) => c.funnel_stage === "bottom"))
+    gaps.push("Faltan prompts bottom-funnel de decision o conversion.");
 
   const score = Math.max(40, 100 - gaps.length * 15);
 
@@ -33,7 +41,11 @@ function getMockAuditResult(candidates: PromptCandidate[]): CoverageAuditResult 
     mainGaps: gaps,
     duplicatedOrWeakPrompts: [],
     recommendedNewPrompts:
-      gaps.length > 0 ? ["¿Qué alternativas existen en el mercado para esta categoría?"] : [],
+      gaps.length > 0
+        ? [
+            "Si me cancelan un vuelo Madrid-Bogota, ¿que aerolinea responde mejor con reubicacion o reembolso?",
+          ]
+        : [],
     promptsToRemove: [],
     finalRecommendation:
       gaps.length === 0

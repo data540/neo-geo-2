@@ -23,6 +23,5 @@ export default async function HomePage() {
     redirect("/onboarding");
   }
 
-  const workspace = member.workspaces as unknown as { slug: string };
-  redirect(`/${workspace.slug}/prompts`);
+  redirect("/workspaces");
 }

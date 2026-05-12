@@ -3,7 +3,7 @@
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
-import type { PromptPerformanceRow, Sentiment } from "@/types";
+import type { PromptPerformanceRow, RunStatus, Sentiment } from "@/types";
 import { getVisibilityStatus } from "@/types";
 import { ConsistencyIndicator } from "./cells/ConsistencyIndicator";
 import { CountryBadge } from "./cells/CountryBadge";
@@ -12,6 +12,7 @@ import { SentimentBadge } from "./cells/SentimentBadge";
 import { SovBar } from "./cells/SovBar";
 import { TagsCell } from "./cells/TagsCell";
 import { DeletePromptButton } from "./DeletePromptButton";
+import { PromptStatusCell } from "./PromptStatusCell";
 import { PromptStatusToggle } from "./PromptStatusToggle";
 import { RunPromptButton } from "./RunPromptButton";
 
@@ -27,6 +28,7 @@ interface Props {
   llmKey: string;
   availableTags: Tag[];
   promptTags: Record<string, Tag[]>;
+  latestStatusByPrompt: Record<string, RunStatus>;
 }
 
 const BORDER_CLASS: Record<string, string> = {
@@ -42,6 +44,7 @@ export function PromptPerformanceTable({
   llmKey,
   availableTags,
   promptTags,
+  latestStatusByPrompt,
 }: Props) {
   const [query, setQuery] = useState("");
 
@@ -68,6 +71,9 @@ export function PromptPerformanceTable({
             <tr className="border-b border-slate-100 bg-slate-50">
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
                 Prompt
+              </th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide w-28">
+                Estado
               </th>
               <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide w-24">
                 País
@@ -96,7 +102,7 @@ export function PromptPerformanceTable({
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-slate-400 text-sm">
+                <td colSpan={10} className="px-4 py-12 text-center text-slate-400 text-sm">
                   {query
                     ? "No hay prompts que coincidan con la búsqueda."
                     : "No hay prompts todavía."}
@@ -112,6 +118,9 @@ export function PromptPerformanceTable({
                   <tr key={row.prompt_id} className={`hover:bg-slate-50/50 ${borderClass}`}>
                     <td className="px-4 py-3">
                       <p className="text-slate-800 leading-snug line-clamp-2">{row.prompt_text}</p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <PromptStatusCell status={latestStatusByPrompt[row.prompt_id] ?? null} />
                     </td>
                     <td className="px-3 py-3">
                       <CountryBadge country={row.prompt_country} />

@@ -1,4 +1,4 @@
-import type { PromptPerformanceRow } from "@/types";
+import type { PromptPerformanceRow, RunStatus } from "@/types";
 import { PromptPerformanceTable } from "./PromptPerformanceTable";
 import { PromptVisibilityLegend } from "./PromptVisibilityLegend";
 
@@ -14,6 +14,7 @@ interface Props {
   llmKey: string;
   availableTags: Tag[];
   promptTags: Record<string, Tag[]>;
+  latestStatusByPrompt: Record<string, RunStatus>;
 }
 
 export function PromptPerformanceCard({
@@ -22,6 +23,7 @@ export function PromptPerformanceCard({
   llmKey,
   availableTags,
   promptTags,
+  latestStatusByPrompt,
 }: Props) {
   return (
     <div className="space-y-4">
@@ -36,6 +38,7 @@ export function PromptPerformanceCard({
         llmKey={llmKey}
         availableTags={availableTags}
         promptTags={promptTags}
+        latestStatusByPrompt={latestStatusByPrompt}
       />
     </div>
   );

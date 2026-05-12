@@ -40,9 +40,13 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
 
 async function runChatGPT(prompt: string): Promise<RunPromptOutput> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAI({
+    apiKey: process.env.OPENROUTER_API_KEY,
+    baseURL: "https://openrouter.ai/api/v1",
+  });
+  const model = process.env.OPENROUTER_MODEL ?? "openai/gpt-5-nano";
   const response = await client.chat.completions.create({
-    model: "gpt-3.5-turbo",
+    model,
     messages: [{ role: "user", content: prompt }],
     max_tokens: 1000,
   });

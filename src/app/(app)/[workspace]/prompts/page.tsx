@@ -3,7 +3,7 @@ import { PromptKpiCards } from "@/components/prompts/PromptKpiCards";
 import { PromptPerformanceCard } from "@/components/prompts/PromptPerformanceCard";
 import { PromptsPageHeader } from "@/components/prompts/PromptsPageHeader";
 import { createClient } from "@/lib/supabase/server";
-import type { PromptPerformanceRow, WorkspaceKpis } from "@/types";
+import type { PromptPerformanceRow, RunStatus, WorkspaceKpis } from "@/types";
 
 interface Props {
   params: Promise<{ workspace: string }>;
@@ -50,6 +50,8 @@ export default async function PromptsPage({ params, searchParams }: Props) {
   const promptIds = promptRows.map((r) => r.prompt_id);
 
   const promptTags: Record<string, { id: string; name: string; color: string }[]> = {};
+  const latestStatusByPrompt: Record<string, RunStatus> = {};
+
   if (promptIds.length > 0) {
     const { data: assignments } = await supabase
       .from("prompt_tag_assignments")
@@ -61,6 +63,28 @@ export default async function PromptsPage({ params, searchParams }: Props) {
         if (!promptTags[a.prompt_id]) promptTags[a.prompt_id] = [];
         const tag = a.prompt_tags as unknown as { id: string; name: string; color: string };
         promptTags[a.prompt_id]?.push(tag);
+      }
+    }
+
+    // Obtener el status del último run de cada prompt para el LLM activo
+    const { data: provider } = await supabase
+      .from("llm_providers")
+      .select("id")
+      .eq("key", llm)
+      .single();
+
+    if (provider) {
+      const { data: latestRuns } = await supabase
+        .from("prompt_runs")
+        .select("prompt_id, status, created_at")
+        .in("prompt_id", promptIds)
+        .eq("llm_provider_id", provider.id)
+        .order("created_at", { ascending: false });
+
+      for (const r of latestRuns ?? []) {
+        if (!latestStatusByPrompt[r.prompt_id]) {
+          latestStatusByPrompt[r.prompt_id] = r.status as RunStatus;
+        }
       }
     }
   }
@@ -101,6 +125,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
         llmKey={llm}
         availableTags={allTags ?? []}
         promptTags={promptTags}
+        latestStatusByPrompt={latestStatusByPrompt}
       />
     </div>
   );

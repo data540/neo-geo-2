@@ -1,5 +1,12 @@
 # AGENTS
 
+## Client and domain scope (critical)
+- This app is now single-vertical and single-client: one specific airline.
+- Do **not** design generic multi-sector prompts; all prompts, analytics, and workflows must target airline operations.
+- Geographic focus is Spain first and Colombia second; prioritize regulations, customer expectations, and route context for these markets.
+- Treat prompt use cases as airline support and operations intelligence (e.g., cancellations, delays, baggage, check-in, refunds, rebooking, compensation, disruptions).
+- When changing prompt logic, schema, or analysis features, ensure outputs are airline-specific and aligned to this client context.
+
 ## Repo reality checks
 - `README.md` is the default Next.js template and does **not** describe this app; trust `src/`, `supabase/migrations/`, and `package.json` instead.
 - Use `pnpm` (lockfile is `pnpm-lock.yaml`).

@@ -1,7 +1,7 @@
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 
-dotenv.config({ path: ".env.local" });
+dotenv.config({ path: ".env" });
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -17,14 +17,12 @@ const supabase = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
 });
 
-// ── Datos Escuela CES ──────────────────────────────────────────────────────────
-
-const WORKSPACE_SLUG = "escuela-ces";
-const BRAND_NAME = "Escuela CES";
+const WORKSPACE_SLUG = "iberia-mvp";
+const BRAND_NAME = "Iberia";
 const USER_EMAIL = process.env.SEED_USER_EMAIL ?? "david@kpi360.net";
 
-// Prompts: 4/10 mencionan la marca
-// Consistency = 2/10 = 20% (solo prompts 1 y 3 tienen consistency ≥ 70%)
+// 4/10 prompts mencionan la marca
+// Consistency = 2/10 = 20% (prompts 4 y 5 tienen consistency ≥ 70%)
 // Avg position = (2+1+1+3)/4 = 1.75 → #2
 
 const PROMPTS: Array<{
@@ -40,117 +38,117 @@ const PROMPTS: Array<{
   consistency_score: number;
 }> = [
   {
-    text: "¿Cuáles son las mejores escuelas de FP audiovisual en Madrid con buenas prácticas en producción?",
+    text: "¿Cuáles son las mejores aerolíneas para volar entre Madrid y Bogotá?",
     country: "ES",
     intent: "discovery",
     funnel_stage: "top",
     brand_mentioned: true,
     brand_position: 2,
-    competitor_count: 1,
-    sov: 100,
-    sentiment: "positive",
-    consistency_score: 100, // ≥ 70% → cuenta para consistencia
-  },
-  {
-    text: "¿Dónde estudiar edición de vídeo en Madrid con equipos de última generación?",
-    country: "ES",
-    intent: "product_specific",
-    funnel_stage: "middle",
-    brand_mentioned: true,
-    brand_position: 1,
-    competitor_count: 0,
-    sov: 100,
-    sentiment: "positive",
-    consistency_score: 50, // < 70% → no cuenta
-  },
-  {
-    text: "¿Qué escuelas de FP de sonido en Madrid ofrecen título oficial del Ministerio de Educación?",
-    country: "ES",
-    intent: "product_specific",
-    funnel_stage: "middle",
-    brand_mentioned: true,
-    brand_position: 1,
     competitor_count: 2,
     sov: 33.3,
     sentiment: "positive",
-    consistency_score: 100, // ≥ 70% → cuenta para consistencia
+    consistency_score: 50,
   },
   {
-    text: "¿Cuáles son las mejores escuelas audiovisuales en Madrid para estudiar cine y televisión?",
+    text: "¿Qué aerolínea low cost opera vuelos nacionales en España?",
     country: "ES",
     intent: "discovery",
     funnel_stage: "top",
+    brand_mentioned: false,
+    brand_position: null,
+    competitor_count: 3,
+    sov: 0,
+    sentiment: "no_data",
+    consistency_score: 0,
+  },
+  {
+    text: "¿Cuál es la aerolínea más puntual en vuelos domésticos en Colombia?",
+    country: "CO",
+    intent: "discovery",
+    funnel_stage: "top",
+    brand_mentioned: false,
+    brand_position: null,
+    competitor_count: 3,
+    sov: 0,
+    sentiment: "no_data",
+    consistency_score: 0,
+  },
+  {
+    text: "Compara Iberia con sus principales competidores en precio y servicio",
+    country: "ES",
+    intent: "comparison",
+    funnel_stage: "middle",
     brand_mentioned: true,
-    brand_position: 3,
+    brand_position: 1,
     competitor_count: 2,
     sov: 50,
+    sentiment: "positive",
+    consistency_score: 100,
+  },
+  {
+    text: "¿Qué opinan los pasajeros sobre Iberia? ¿Vale la pena volar con ellos?",
+    country: "ES",
+    intent: "reputation",
+    funnel_stage: "middle",
+    brand_mentioned: true,
+    brand_position: 1,
+    competitor_count: 0,
+    sov: 100,
+    sentiment: "positive",
+    consistency_score: 100,
+  },
+  {
+    text: "¿Qué franquicia de equipaje incluye Iberia en sus vuelos?",
+    country: "ES",
+    intent: "product_specific",
+    funnel_stage: "middle",
+    brand_mentioned: true,
+    brand_position: 3,
+    competitor_count: 1,
+    sov: 50,
     sentiment: "neutral",
-    consistency_score: 0, // 0% → no cuenta
-  },
-  {
-    text: "¿Qué salidas laborales tiene estudiar imagen y sonido en Madrid?",
-    country: "ES",
-    intent: "employability",
-    funnel_stage: "top",
-    brand_mentioned: false,
-    brand_position: null,
-    competitor_count: 0,
-    sov: 0,
-    sentiment: "no_data",
     consistency_score: 0,
   },
   {
-    text: "¿Dónde estudiar fotografía profesional en Madrid y tener salida laboral?",
-    country: "ES",
-    intent: "discovery",
-    funnel_stage: "top",
-    brand_mentioned: false,
-    brand_position: null,
-    competitor_count: 0,
-    sov: 0,
-    sentiment: "no_data",
-    consistency_score: 0,
-  },
-  {
-    text: "¿Cuál es la mejor escuela de producción audiovisual en Barcelona?",
-    country: "ES",
-    intent: "local",
-    funnel_stage: "top",
-    brand_mentioned: false,
-    brand_position: null,
-    competitor_count: 0,
-    sov: null,
-    sentiment: "no_data",
-    consistency_score: 0,
-  },
-  {
-    text: "¿Qué escuelas de diseño gráfico hay en Madrid con programas de empleo?",
-    country: "ES",
-    intent: "discovery",
-    funnel_stage: "top",
-    brand_mentioned: false,
-    brand_position: null,
-    competitor_count: 0,
-    sov: 0,
-    sentiment: "no_data",
-    consistency_score: 0,
-  },
-  {
-    text: "¿Dónde estudiar cursos de realización televisiva en Madrid con prácticas?",
+    text: "¿Cómo es el proceso de check-in online de las aerolíneas en España?",
     country: "ES",
     intent: "product_specific",
     funnel_stage: "middle",
     brand_mentioned: false,
     brand_position: null,
+    competitor_count: 2,
+    sov: 0,
+    sentiment: "no_data",
+    consistency_score: 0,
+  },
+  {
+    text: "¿Por qué elegir Iberia para volar a Latinoamérica frente a otras aerolíneas?",
+    country: "ES",
+    intent: "decision",
+    funnel_stage: "bottom",
+    brand_mentioned: false,
+    brand_position: null,
     competitor_count: 0,
     sov: 0,
     sentiment: "no_data",
     consistency_score: 0,
   },
   {
-    text: "¿Cuál es el mejor máster de postproducción en España para trabajar en Netflix?",
+    text: "¿Cuánto cuesta cambiar o cancelar un vuelo con una aerolínea española?",
     country: "ES",
-    intent: "decision",
+    intent: "price",
+    funnel_stage: "bottom",
+    brand_mentioned: false,
+    brand_position: null,
+    competitor_count: 0,
+    sov: 0,
+    sentiment: "no_data",
+    consistency_score: 0,
+  },
+  {
+    text: "¿Cómo reclamar compensación por vuelo cancelado o con retraso en España?",
+    country: "ES",
+    intent: "reputation",
     funnel_stage: "bottom",
     brand_mentioned: false,
     brand_position: null,
@@ -162,9 +160,8 @@ const PROMPTS: Array<{
 ];
 
 async function seed() {
-  console.log("🌱 Iniciando seed de Escuela CES…\n");
+  console.log("🌱 Iniciando seed Iberia MVP (aerolíneas)…\n");
 
-  // 1. Obtener o crear usuario
   const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers();
   if (usersError) {
     console.error("Error al listar usuarios:", usersError.message);
@@ -200,7 +197,6 @@ async function seed() {
     console.log(`✓ Usuario encontrado: ${user.email} (${user.id})`);
   }
 
-  // 2. Crear o recuperar workspace
   let workspaceId: string;
 
   const { data: existing } = await supabase
@@ -217,11 +213,11 @@ async function seed() {
       .from("workspaces")
       .insert({
         slug: WORKSPACE_SLUG,
-        name: "Escuela CES",
+        name: "Iberia",
         brand_name: BRAND_NAME,
-        domain: "escuela-ces.es",
+        domain: "iberia.com",
         brand_statement:
-          "Escuela de cine y artes audiovisuales en Madrid con más de 30 años de historia y titulaciones oficiales del Ministerio de Educación.",
+          "Aerolínea de bandera española con vuelos a más de 130 destinos en Europa, América, África y Oriente Medio.",
         country: "ES",
       })
       .select("id")
@@ -236,7 +232,6 @@ async function seed() {
     console.log(`✓ Workspace creado: ${WORKSPACE_SLUG} (${workspaceId})`);
   }
 
-  // 3. Asegurar membership
   await supabase
     .from("workspace_members")
     .upsert(
@@ -245,7 +240,6 @@ async function seed() {
     );
   console.log("✓ Membership owner asignada");
 
-  // 4. Crear brand propia
   const { data: ownBrand } = await supabase
     .from("brands")
     .select("id")
@@ -262,8 +256,8 @@ async function seed() {
       .insert({
         workspace_id: workspaceId,
         name: BRAND_NAME,
-        domain: "escuela-ces.es",
-        aliases: ["CES", "Escuela de Cine CES"],
+        domain: "iberia.com",
+        aliases: ["Iberia Airlines", "Iberia Express"],
         type: "own",
       })
       .select("id")
@@ -277,10 +271,9 @@ async function seed() {
   }
   console.log(`✓ Brand propia: ${BRAND_NAME} (${brandId})`);
 
-  // 5. Crear competidores
   const competitors = [
-    { name: "ESCAC", domain: "escac.es", aliases: ["Escola Superior de Cinema i Audiovisuals"] },
-    { name: "EFTI", domain: "efti.es", aliases: ["Centro Internacional de Fotografía y Cine"] },
+    { name: "Vueling", domain: "vueling.com", aliases: ["Vueling Airlines"] },
+    { name: "Air Europa", domain: "aireuropa.com", aliases: ["Air Europa Líneas Aéreas"] },
   ];
 
   for (const comp of competitors) {
@@ -301,9 +294,8 @@ async function seed() {
       });
     }
   }
-  console.log("✓ Competidores creados: ESCAC, EFTI");
+  console.log("✓ Competidores creados: Vueling, Air Europa");
 
-  // 6. Obtener proveedor chatgpt
   const { data: provider } = await supabase
     .from("llm_providers")
     .select("id")
@@ -317,7 +309,6 @@ async function seed() {
 
   const today = new Date().toISOString().split("T")[0];
 
-  // 7. Crear prompts y métricas
   const { data: existingPrompts } = await supabase
     .from("prompts")
     .select("id")
@@ -337,7 +328,6 @@ async function seed() {
     const p = PROMPTS[i];
     if (!p) continue;
 
-    // Insertar prompt
     const { data: prompt, error: promptError } = await supabase
       .from("prompts")
       .insert({
@@ -356,7 +346,6 @@ async function seed() {
       continue;
     }
 
-    // Crear prompt_run
     const { data: run, error: runError } = await supabase
       .from("prompt_runs")
       .insert({
@@ -376,7 +365,6 @@ async function seed() {
       continue;
     }
 
-    // Crear mención si la marca fue mencionada
     if (p.brand_mentioned) {
       await supabase.from("mentions").insert({
         workspace_id: workspaceId,
@@ -390,7 +378,6 @@ async function seed() {
       });
     }
 
-    // Upsert daily_prompt_metrics
     await supabase.from("daily_prompt_metrics").upsert(
       {
         workspace_id: workspaceId,
@@ -412,13 +399,17 @@ async function seed() {
     );
   }
 
-  // 8. Upsert daily_workspace_metrics
   const mentionedCount = PROMPTS.filter((p) => p.brand_mentioned).length;
   const positions = PROMPTS.filter((p) => p.brand_position !== null).map(
     (p) => p.brand_position as number
   );
   const avgPos =
     positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null;
+  const sovValues = PROMPTS.filter((p) => p.sov !== null && p.sov > 0);
+  const avgSov =
+    sovValues.length > 0
+      ? sovValues.reduce((a, p) => a + (p.sov ?? 0), 0) / sovValues.length
+      : 0;
 
   await supabase.from("daily_workspace_metrics").upsert(
     {
@@ -428,10 +419,8 @@ async function seed() {
       active_prompts_count: PROMPTS.length,
       brand_mentions_count: mentionedCount,
       avg_position: avgPos,
-      brand_consistency: 20, // 2/10 prompts con consistency ≥ 70%
-      avg_sov:
-        PROMPTS.filter((p) => p.sov !== null).reduce((a, p) => a + (p.sov ?? 0), 0) /
-        PROMPTS.filter((p) => p.sov !== null).length,
+      brand_consistency: 20,
+      avg_sov: avgSov,
     },
     { onConflict: "workspace_id,llm_provider_id,date" }
   );
@@ -440,6 +429,7 @@ async function seed() {
   console.log(`  Brand Mentions: ${mentionedCount}/${PROMPTS.length}`);
   console.log(`  Avg Position: #${avgPos ? Math.round(avgPos) : "—"}`);
   console.log(`  Brand Consistency: 20%`);
+  console.log(`  Avg SoV: ${avgSov.toFixed(1)}%`);
   console.log(`\n✅ Seed completado. Accede a /${WORKSPACE_SLUG}/prompts\n`);
 }
 

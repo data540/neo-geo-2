@@ -15,7 +15,7 @@ export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
 
 export const createPromptSchema = z.object({
   text: z.string().min(10, "El prompt debe tener al menos 10 caracteres").max(500),
-  country: z.string().length(2).default("ES"),
+  country: z.enum(["ES", "CO"]).default("ES"),
   workspaceId: z.string().uuid(),
 });
 
@@ -25,7 +25,7 @@ export const updatePromptSchema = z.object({
   promptId: z.string().uuid(),
   workspaceId: z.string().uuid(),
   text: z.string().min(10).max(500).optional(),
-  country: z.string().length(2).optional(),
+  country: z.enum(["ES", "CO"]).optional(),
   status: z.enum(["active", "paused"]).optional(),
 });
 
@@ -96,9 +96,9 @@ export const geoResearchInputSchema = z.object({
   brandName: z.string().min(2).max(100),
   domain: z.string().max(200).default(""),
   brandStatement: z.string().max(500).default(""),
-  country: z.string().length(2).default("ES"),
+  country: z.enum(["ES", "CO"]).default("ES"),
   location: z.string().max(100).default(""),
-  category: z.string().min(2).max(100),
+  category: z.string().min(2).max(100).default("Vuelos comerciales de pasajeros"),
   productsServices: z.string().max(300).default(""),
   targetAudience: z.string().max(300).default(""),
   competitors: z.array(z.string()).default([]),
