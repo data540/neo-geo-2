@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { RunStatus } from "@/types";
 
@@ -14,6 +16,7 @@ interface AdminLogRow {
   output_tokens: number | null;
   cost_usd: number | null;
   error_message: string | null;
+  raw_response: string | null;
   prompt_text: string;
   provider_name: string;
 }
@@ -55,6 +58,8 @@ function formatDate(iso: string): string {
 }
 
 export function AdminLogsTable({ rows }: AdminLogsTableProps) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (rows.length === 0) {
     return (
       <div className="text-center py-16 text-slate-400 text-sm">
@@ -80,6 +85,7 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
+              <th className="w-8 px-3 py-3" />
               <th className="text-left px-4 py-3 text-slate-500 font-medium">Fecha</th>
               <th className="text-left px-4 py-3 text-slate-500 font-medium">Prompt</th>
               <th className="text-left px-4 py-3 text-slate-500 font-medium">Modelo</th>
@@ -92,44 +98,88 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {rows.map((row) => (
-              <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
-                  {formatDate(row.created_at)}
-                </td>
-                <td className="px-4 py-3 text-slate-700 max-w-xs">
-                  <span className="line-clamp-1" title={row.prompt_text}>
-                    {row.prompt_text}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-slate-500 whitespace-nowrap font-mono text-xs">
-                  {row.model ?? "—"}
-                </td>
-                <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                  {row.provider_name}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-600 whitespace-nowrap">
-                  {row.input_tokens != null ? `${row.input_tokens.toLocaleString()} tok` : "—"}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-600 whitespace-nowrap">
-                  {row.output_tokens != null ? `${row.output_tokens.toLocaleString()} tok` : "—"}
-                </td>
-                <td className="px-4 py-3 text-right font-mono text-xs text-slate-700 whitespace-nowrap">
-                  {row.cost_usd != null ? `$${row.cost_usd.toFixed(6)}` : "—"}
-                </td>
-                <td className="px-4 py-3 text-right text-slate-500 whitespace-nowrap text-xs">
-                  {formatDuration(row.started_at, row.completed_at)}
-                </td>
-                <td className="px-4 py-3">
-                  {statusBadge(row.status)}
-                  {row.error_message && (
-                    <p className="text-xs text-red-500 mt-0.5 max-w-xs truncate" title={row.error_message}>
-                      {row.error_message}
-                    </p>
+            {rows.map((row) => {
+              const isExpanded = expandedId === row.id;
+              const hasResponse = !!row.raw_response;
+
+              return (
+                <>
+                  <tr
+                    key={row.id}
+                    onClick={() => hasResponse && setExpandedId(isExpanded ? null : row.id)}
+                    className={[
+                      "transition-colors",
+                      hasResponse ? "cursor-pointer hover:bg-slate-50" : "",
+                      isExpanded ? "bg-slate-50" : "",
+                    ].join(" ")}
+                  >
+                    <td className="px-3 py-3 text-slate-400">
+                      {hasResponse ? (
+                        isExpanded
+                          ? <ChevronDown className="w-4 h-4" />
+                          : <ChevronRight className="w-4 h-4" />
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
+                      {formatDate(row.created_at)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 max-w-xs">
+                      <span className="line-clamp-1" title={row.prompt_text}>
+                        {row.prompt_text}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap font-mono text-xs">
+                      {row.model ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                      {row.provider_name}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-600 whitespace-nowrap">
+                      {row.input_tokens != null ? `${row.input_tokens.toLocaleString()} tok` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-600 whitespace-nowrap">
+                      {row.output_tokens != null ? `${row.output_tokens.toLocaleString()} tok` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono text-xs text-slate-700 whitespace-nowrap">
+                      {row.cost_usd != null ? `$${row.cost_usd.toFixed(6)}` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-slate-500 whitespace-nowrap text-xs">
+                      {formatDuration(row.started_at, row.completed_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {statusBadge(row.status)}
+                      {row.error_message && (
+                        <p className="text-xs text-red-500 mt-0.5 max-w-xs truncate" title={row.error_message}>
+                          {row.error_message}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+
+                  {isExpanded && (
+                    <tr key={`${row.id}-expanded`} className="bg-slate-50">
+                      <td colSpan={10} className="px-6 pb-5 pt-0">
+                        <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">
+                          <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+                            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                              Respuesta del LLM
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              {row.model} · {row.output_tokens != null ? `${row.output_tokens} tokens` : ""}
+                            </span>
+                          </div>
+                          <div className="px-4 py-4">
+                            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                              {row.raw_response}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                </td>
-              </tr>
-            ))}
+                </>
+              );
+            })}
           </tbody>
         </table>
       </div>

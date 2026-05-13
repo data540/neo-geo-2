@@ -40,7 +40,7 @@ export default async function AdminPage({ params }: AdminPageProps) {
     .from("prompt_runs")
     .select(`
       id, status, model, input_tokens, output_tokens, cost_usd,
-      started_at, completed_at, created_at, error_message,
+      started_at, completed_at, created_at, error_message, raw_response,
       prompts!inner(text),
       llm_providers(name)
     `)
@@ -59,6 +59,7 @@ export default async function AdminPage({ params }: AdminPageProps) {
     output_tokens: r.output_tokens as number | null,
     cost_usd: r.cost_usd as number | null,
     error_message: r.error_message as string | null,
+    raw_response: r.raw_response as string | null,
     prompt_text: (r.prompts as unknown as { text: string }).text,
     provider_name: (r.llm_providers as unknown as { name: string } | null)?.name ?? "—",
   }));

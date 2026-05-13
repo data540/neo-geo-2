@@ -1,7 +1,8 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import { Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import type { PromptPerformanceRow, RunStatus, Sentiment } from "@/types";
 import { getVisibilityStatus } from "@/types";
@@ -46,12 +47,21 @@ export function PromptPerformanceTable({
   promptTags,
   latestStatusByPrompt,
 }: Props) {
+  const PAGE_SIZE = 25;
   const [query, setQuery] = useState("");
+  const [visible, setVisible] = useState(PAGE_SIZE);
 
   const filtered = useMemo(
     () => rows.filter((r) => r.prompt_text.toLowerCase().includes(query.toLowerCase())),
     [rows, query]
   );
+
+  useEffect(() => {
+    setVisible(PAGE_SIZE);
+  }, [query]);
+
+  const displayed = filtered.slice(0, visible);
+  const hasMore = visible < filtered.length;
 
   return (
     <div className="space-y-3">
@@ -109,7 +119,7 @@ export function PromptPerformanceTable({
                 </td>
               </tr>
             ) : (
-              filtered.map((row) => {
+              displayed.map((row) => {
                 const visibility = getVisibilityStatus(row);
                 const borderClass = BORDER_CLASS[visibility] ?? BORDER_CLASS.no_data;
                 const tags = promptTags[row.prompt_id] ?? [];
@@ -176,6 +186,28 @@ export function PromptPerformanceTable({
           </tbody>
         </table>
       </div>
+
+      {hasMore && (
+        <div className="flex flex-col items-center gap-1 pt-1">
+          <button
+            type="button"
+            onClick={() => setVisible((v) => v + PAGE_SIZE)}
+            className="flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            <ChevronDown className="w-4 h-4" />
+            Mostrar más
+            <span className="text-slate-400">
+              ({displayed.length} de {filtered.length})
+            </span>
+          </button>
+        </div>
+      )}
+
+      {!hasMore && filtered.length > PAGE_SIZE && (
+        <p className="text-center text-xs text-slate-400 pt-1">
+          Mostrando todos los {filtered.length} prompts
+        </p>
+      )}
     </div>
   );
 }
