@@ -119,7 +119,8 @@ function getMockCandidates(input: GeoResearchInput): PromptCandidate[] {
       coverage_area: "price-value",
     },
     {
-      prompt: "Mi vuelo se cancelo hoy, ¿que pasos debo seguir para reembolso o reubicacion rapida?",
+      prompt:
+        "Mi vuelo se cancelo hoy, ¿que pasos debo seguir para reembolso o reubicacion rapida?",
       intent: "product_specific" as const,
       funnel_stage: "top" as const,
       persona: "Pasajero afectado por una cancelacion con urgencia",
@@ -141,7 +142,8 @@ function getMockCandidates(input: GeoResearchInput): PromptCandidate[] {
       coverage_area: "local-airport-operations",
     },
     {
-      prompt: "Viajo con un menor no acompanado entre Espana y Colombia, ¿que aerolineas gestionan mejor este servicio?",
+      prompt:
+        "Viajo con un menor no acompanado entre Espana y Colombia, ¿que aerolineas gestionan mejor este servicio?",
       intent: "decision" as const,
       funnel_stage: "middle" as const,
       persona: "Padre o madre con necesidad especial de viaje",

@@ -1,6 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { WorkspaceSelector } from "@/app/(app)/workspaces/WorkspaceSelector";
+import { createClient } from "@/lib/supabase/server";
 import type { Workspace } from "@/types";
 
 export default async function WorkspacesPage() {

@@ -28,9 +28,9 @@ interface AdminLogsTableProps {
 function statusBadge(status: RunStatus) {
   const variants: Record<RunStatus, { label: string; className: string }> = {
     completed: { label: "completed", className: "bg-green-50 text-green-700 border-green-200" },
-    running:   { label: "running",   className: "bg-blue-50 text-blue-700 border-blue-200" },
-    queued:    { label: "queued",    className: "bg-slate-50 text-slate-600 border-slate-200" },
-    failed:    { label: "failed",    className: "bg-red-50 text-red-700 border-red-200" },
+    running: { label: "running", className: "bg-blue-50 text-blue-700 border-blue-200" },
+    queued: { label: "queued", className: "bg-slate-50 text-slate-600 border-slate-200" },
+    failed: { label: "failed", className: "bg-red-50 text-red-700 border-red-200" },
   };
   const v = variants[status];
   return (
@@ -75,10 +75,20 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
   return (
     <div className="space-y-4">
       <div className="flex gap-6 text-sm text-slate-500">
-        <span><span className="font-medium text-slate-700">{rows.length}</span> ejecuciones</span>
-        <span><span className="font-medium text-slate-700">{totalInputTokens.toLocaleString()}</span> tokens entrada</span>
-        <span><span className="font-medium text-slate-700">{totalOutputTokens.toLocaleString()}</span> tokens salida</span>
-        <span><span className="font-medium text-slate-700">${totalCost.toFixed(6)}</span> coste total</span>
+        <span>
+          <span className="font-medium text-slate-700">{rows.length}</span> ejecuciones
+        </span>
+        <span>
+          <span className="font-medium text-slate-700">{totalInputTokens.toLocaleString()}</span>{" "}
+          tokens entrada
+        </span>
+        <span>
+          <span className="font-medium text-slate-700">{totalOutputTokens.toLocaleString()}</span>{" "}
+          tokens salida
+        </span>
+        <span>
+          <span className="font-medium text-slate-700">${totalCost.toFixed(6)}</span> coste total
+        </span>
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -115,9 +125,11 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
                   >
                     <td className="px-3 py-3 text-slate-400">
                       {hasResponse ? (
-                        isExpanded
-                          ? <ChevronDown className="w-4 h-4" />
-                          : <ChevronRight className="w-4 h-4" />
+                        isExpanded ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap text-xs">
@@ -138,7 +150,9 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
                       {row.input_tokens != null ? `${row.input_tokens.toLocaleString()} tok` : "—"}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-600 whitespace-nowrap">
-                      {row.output_tokens != null ? `${row.output_tokens.toLocaleString()} tok` : "—"}
+                      {row.output_tokens != null
+                        ? `${row.output_tokens.toLocaleString()} tok`
+                        : "—"}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-xs text-slate-700 whitespace-nowrap">
                       {row.cost_usd != null ? `$${row.cost_usd.toFixed(6)}` : "—"}
@@ -149,7 +163,10 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
                     <td className="px-4 py-3">
                       {statusBadge(row.status)}
                       {row.error_message && (
-                        <p className="text-xs text-red-500 mt-0.5 max-w-xs truncate" title={row.error_message}>
+                        <p
+                          className="text-xs text-red-500 mt-0.5 max-w-xs truncate"
+                          title={row.error_message}
+                        >
                           {row.error_message}
                         </p>
                       )}
@@ -165,7 +182,8 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
                               Respuesta del LLM
                             </span>
                             <span className="text-xs text-slate-400">
-                              {row.model} · {row.output_tokens != null ? `${row.output_tokens} tokens` : ""}
+                              {row.model} ·{" "}
+                              {row.output_tokens != null ? `${row.output_tokens} tokens` : ""}
                             </span>
                           </div>
                           <div className="px-4 py-4">

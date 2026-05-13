@@ -1,4 +1,5 @@
 import { AddPromptButton } from "./AddPromptButton";
+import { BulkUploadPromptsButton } from "./BulkUploadPromptsButton";
 
 interface Props {
   workspaceId: string;
@@ -16,7 +17,10 @@ export function PromptsPageHeader({ workspaceId, workspaceCountry, totalActive }
           {totalActive !== 1 ? "s" : ""}
         </p>
       </div>
-      <AddPromptButton workspaceId={workspaceId} workspaceCountry={workspaceCountry} />
+      <div className="flex items-center gap-2">
+        <BulkUploadPromptsButton workspaceId={workspaceId} workspaceCountry={workspaceCountry} />
+        <AddPromptButton workspaceId={workspaceId} workspaceCountry={workspaceCountry} />
+      </div>
     </div>
   );
 }

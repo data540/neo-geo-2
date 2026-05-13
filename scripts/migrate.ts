@@ -310,7 +310,7 @@ create policy "wm: authenticated insert" on workspace_members
 create policy "wm: admin delete" on workspace_members
   for delete using (can_manage_workspace(workspace_id));
 
-do \$\$ declare t text; begin
+do $$ declare t text; begin
   foreach t in array array[
     'brands', 'brand_profiles', 'prompts', 'prompt_tags',
     'prompt_runs', 'mentions', 'sources',
@@ -333,7 +333,7 @@ do \$\$ declare t text; begin
       t, t
     );
   end loop;
-end \$\$;
+end $$;
 
 create policy "pta: member select" on prompt_tag_assignments
   for select using (
@@ -628,7 +628,7 @@ function question(prompt: string): Promise<string> {
 async function migrate() {
   console.log("🚀 neo-geo Database Migration\n");
 
-  let connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL;
 
   if (!connectionString) {
     console.error("❌ DATABASE_URL no está en .env.local");

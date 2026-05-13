@@ -1,19 +1,22 @@
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { detectBrands } from "@/lib/detection/detectBrands";
+import {
+  detectBrands,
+  extractPotentialCompetitorsFromResponse,
+} from "@/lib/detection/detectBrands";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import type { Brand, LlmProvider, LlmProviderKey, Workspace } from "@/types";
 import { runPrompt } from "./runner";
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  "gpt-3.5-turbo":            { input: 0.0000005,   output: 0.0000015   },
-  "gpt-3.5-turbo-0125":       { input: 0.0000005,   output: 0.0000015   },
-  "gpt-4o-mini":              { input: 0.00000015,  output: 0.0000006   },
-  "gpt-4o-mini-2024-07-18":   { input: 0.00000015,  output: 0.0000006   },
-  "gpt-4o":                   { input: 0.000005,    output: 0.000015    },
-  "gpt-4.1-mini":             { input: 0.0000004,   output: 0.0000016   },
-  "claude-haiku-4-5-20251001":{ input: 0.00000025,  output: 0.00000125  },
-  "claude-sonnet-4-5":        { input: 0.000003,    output: 0.000015    },
+  "gpt-3.5-turbo": { input: 0.0000005, output: 0.0000015 },
+  "gpt-3.5-turbo-0125": { input: 0.0000005, output: 0.0000015 },
+  "gpt-4o-mini": { input: 0.00000015, output: 0.0000006 },
+  "gpt-4o-mini-2024-07-18": { input: 0.00000015, output: 0.0000006 },
+  "gpt-4o": { input: 0.000005, output: 0.000015 },
+  "gpt-4.1-mini": { input: 0.0000004, output: 0.0000016 },
+  "claude-haiku-4-5-20251001": { input: 0.00000025, output: 0.00000125 },
+  "claude-sonnet-4-5": { input: 0.000003, output: 0.000015 },
 };
 
 function estimateCost(model: string, inputTokens?: number, outputTokens?: number): number | null {
@@ -34,6 +37,89 @@ function getServiceClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
+
+const AIRLINE_NAME_HINTS = [
+  "air",
+  "airlines",
+  "airways",
+  "avianca",
+  "iberia",
+  "latam",
+  "ryanair",
+  "vueling",
+  "wizz",
+  "easyjet",
+  "klm",
+  "lufthansa",
+  "turkish",
+  "aeromexico",
+  "volaris",
+  "copa",
+  "delta",
+  "united",
+  "american",
+  "jetblue",
+  "emirates",
+  "qatar",
+  "etihad",
+  "air europa",
+  "air france",
+];
+
+function shouldKeepCompetitorCandidate(name: string): boolean {
+  const normalized = name.toLowerCase().trim();
+  return AIRLINE_NAME_HINTS.some((hint) => normalized.includes(hint));
+}
+
+async function autoAddCompetitorsFromResponse(params: {
+  supabase: ReturnType<typeof getServiceClient>;
+  workspaceId: string;
+  promptRunId: string;
+  ownBrand: Pick<Brand, "name">;
+  existingCompetitors: Pick<Brand, "name">[];
+  rawResponse: string;
+}) {
+  const { supabase, workspaceId, promptRunId, ownBrand, existingCompetitors, rawResponse } = params;
+  const existing = new Set(
+    [ownBrand.name, ...existingCompetitors.map((c) => c.name)].map((n) => n.toLowerCase().trim())
+  );
+
+  const candidates = extractPotentialCompetitorsFromResponse(rawResponse)
+    .filter(shouldKeepCompetitorCandidate)
+    .filter((name) => !existing.has(name.toLowerCase().trim()));
+
+  if (candidates.length === 0) return;
+
+  const normalizedCandidates = candidates.slice(0, 10).map((name) => ({
+    name,
+    normalized_name: name.toLowerCase().trim().replace(/\s+/g, " "),
+  }));
+
+  const { data: existingPending } = await supabase
+    .from("competitor_suggestions")
+    .select("normalized_name")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "pending")
+    .in(
+      "normalized_name",
+      normalizedCandidates.map((c) => c.normalized_name)
+    );
+
+  const pendingSet = new Set((existingPending ?? []).map((r) => r.normalized_name as string));
+  const toInsert = normalizedCandidates.filter((c) => !pendingSet.has(c.normalized_name));
+
+  if (toInsert.length === 0) return;
+
+  await supabase.from("competitor_suggestions").insert(
+    toInsert.map((c) => ({
+      workspace_id: workspaceId,
+      prompt_run_id: promptRunId,
+      name: c.name,
+      normalized_name: c.normalized_name,
+      status: "pending",
+    }))
   );
 }
 
@@ -112,6 +198,15 @@ export async function executePromptRun(runId: string): Promise<void> {
       .eq("id", runId);
 
     // 6) Detectar marcas
+    await autoAddCompetitorsFromResponse({
+      supabase,
+      workspaceId: run.workspace_id,
+      promptRunId: runId,
+      ownBrand: { name: ownBrand.name },
+      existingCompetitors: (competitorBrands ?? []) as Brand[],
+      rawResponse: llmResult.rawResponse,
+    });
+
     const detection = detectBrands({
       rawResponse: llmResult.rawResponse,
       ownBrand: { id: ownBrand.id, name: ownBrand.name, aliases: ownBrand.aliases },
@@ -243,6 +338,15 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
     });
 
     // 4) Detectar marcas en memoria
+    await autoAddCompetitorsFromResponse({
+      supabase,
+      workspaceId: ctx.workspace.id,
+      promptRunId: runId,
+      ownBrand: { name: ctx.ownBrand.name },
+      existingCompetitors: ctx.competitors,
+      rawResponse: llmResult.rawResponse,
+    });
+
     const detection = detectBrands({
       rawResponse: llmResult.rawResponse,
       ownBrand: { id: ctx.ownBrand.id, name: ctx.ownBrand.name, aliases: ctx.ownBrand.aliases },

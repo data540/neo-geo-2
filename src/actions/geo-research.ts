@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { findNonAirlinePrompts, isAllowedAirlineCountry } from "@/lib/airline/guardrails";
 import { generatePromptCandidates } from "@/lib/geo/conversationalPromptGenerator";
 import { auditPromptCoverage } from "@/lib/geo/promptCoverageAuditor";
 import { prioritizePrompts } from "@/lib/geo/promptPrioritizer";
-import { findNonAirlinePrompts, isAllowedAirlineCountry } from "@/lib/airline/guardrails";
 import { createClient } from "@/lib/supabase/server";
 import { acceptPromptsSchema, geoResearchInputSchema } from "@/lib/validations/schemas";
 import type {

@@ -69,7 +69,7 @@ function isKeySet(value: string | undefined): boolean {
 export function hasApiKey(provider: LlmProviderKey): boolean {
   switch (provider) {
     case "chatgpt":
-      return isKeySet(process.env.OPENROUTER_API_KEY);
+      return isKeySet(process.env.OPENAI_API_KEY);
     case "claude":
       return isKeySet(process.env.ANTHROPIC_API_KEY);
     case "gemini":

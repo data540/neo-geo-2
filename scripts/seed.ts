@@ -1,5 +1,5 @@
-import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
+import dotenv from "dotenv";
 
 dotenv.config({ path: ".env" });
 
@@ -407,9 +407,7 @@ async function seed() {
     positions.length > 0 ? positions.reduce((a, b) => a + b, 0) / positions.length : null;
   const sovValues = PROMPTS.filter((p) => p.sov !== null && p.sov > 0);
   const avgSov =
-    sovValues.length > 0
-      ? sovValues.reduce((a, p) => a + (p.sov ?? 0), 0) / sovValues.length
-      : 0;
+    sovValues.length > 0 ? sovValues.reduce((a, p) => a + (p.sov ?? 0), 0) / sovValues.length : 0;
 
   await supabase.from("daily_workspace_metrics").upsert(
     {

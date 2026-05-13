@@ -77,7 +77,9 @@ export function PromptCandidateGrid({ candidates, onContinue, loading }: Props) 
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <p className="text-xs font-medium text-slate-700 mb-2">Balance por funnel (seleccionados)</p>
+        <p className="text-xs font-medium text-slate-700 mb-2">
+          Balance por funnel (seleccionados)
+        </p>
         <div className="flex flex-wrap gap-2">
           <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-700">
             Top: {funnelCounts.top}
@@ -91,10 +93,13 @@ export function PromptCandidateGrid({ candidates, onContinue, loading }: Props) 
         </div>
         {missingFunnelStages.length > 0 ? (
           <p className="text-xs text-rose-600 mt-2">
-            Falta cobertura en: {missingFunnelStages.join(", ")}. Debes incluir top, middle y bottom.
+            Falta cobertura en: {missingFunnelStages.join(", ")}. Debes incluir top, middle y
+            bottom.
           </p>
         ) : (
-          <p className="text-xs text-emerald-700 mt-2">Cobertura completa de funnel lista para auditar.</p>
+          <p className="text-xs text-emerald-700 mt-2">
+            Cobertura completa de funnel lista para auditar.
+          </p>
         )}
       </div>
 

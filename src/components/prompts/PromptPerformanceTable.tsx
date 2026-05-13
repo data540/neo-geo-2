@@ -1,7 +1,6 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { Search } from "lucide-react";
+import { ChevronDown, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import type { PromptPerformanceRow, RunStatus, Sentiment } from "@/types";
@@ -30,6 +29,7 @@ interface Props {
   availableTags: Tag[];
   promptTags: Record<string, Tag[]>;
   latestStatusByPrompt: Record<string, RunStatus>;
+  llmsByPrompt: Record<string, string[]>;
 }
 
 const BORDER_CLASS: Record<string, string> = {
@@ -46,6 +46,7 @@ export function PromptPerformanceTable({
   availableTags,
   promptTags,
   latestStatusByPrompt,
+  llmsByPrompt,
 }: Props) {
   const PAGE_SIZE = 25;
   const [query, setQuery] = useState("");
@@ -100,6 +101,9 @@ export function PromptPerformanceTable({
               <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide w-28">
                 Consistencia
               </th>
+              <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide w-44">
+                LLMs usados
+              </th>
               <th className="px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
                 Etiquetas
               </th>
@@ -112,7 +116,7 @@ export function PromptPerformanceTable({
           <tbody className="divide-y divide-slate-50">
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-12 text-center text-slate-400 text-sm">
+                <td colSpan={11} className="px-4 py-12 text-center text-slate-400 text-sm">
                   {query
                     ? "No hay prompts que coincidan con la búsqueda."
                     : "No hay prompts todavía."}
@@ -149,6 +153,13 @@ export function PromptPerformanceTable({
                     </td>
                     <td className="px-3 py-3">
                       <ConsistencyIndicator consistency={row.consistency_score} />
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="text-xs text-slate-600 line-clamp-2">
+                        {(llmsByPrompt[row.prompt_id] ?? []).length > 0
+                          ? (llmsByPrompt[row.prompt_id] ?? []).join(", ")
+                          : "Sin ejecuciones"}
+                      </p>
                     </td>
                     <td className="px-3 py-3">
                       <TagsCell

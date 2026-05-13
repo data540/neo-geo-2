@@ -117,3 +117,76 @@ export async function deleteCompetitorAction(
 
   return { success: true };
 }
+
+export async function approveCompetitorSuggestionAction(
+  suggestionId: string,
+  workspaceId: string
+): Promise<ActionResult> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: suggestion } = await supabase
+    .from("competitor_suggestions")
+    .select("id, name, status")
+    .eq("id", suggestionId)
+    .eq("workspace_id", workspaceId)
+    .single();
+
+  if (!suggestion || suggestion.status !== "pending") {
+    return { success: false, error: "Sugerencia no disponible" };
+  }
+
+  const { error: brandError } = await supabase.from("brands").insert({
+    workspace_id: workspaceId,
+    name: suggestion.name,
+    aliases: [],
+    type: "competitor",
+  });
+
+  if (brandError) {
+    return { success: false, error: "No se pudo crear el competidor" };
+  }
+
+  await supabase
+    .from("competitor_suggestions")
+    .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: user?.id ?? null })
+    .eq("id", suggestionId)
+    .eq("workspace_id", workspaceId);
+
+  const slug = await getWorkspaceSlug(workspaceId);
+  if (slug) revalidatePath(`/${slug}/competitors`);
+
+  return { success: true };
+}
+
+export async function rejectCompetitorSuggestionAction(
+  suggestionId: string,
+  workspaceId: string
+): Promise<ActionResult> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from("competitor_suggestions")
+    .update({ status: "rejected", reviewed_at: new Date().toISOString(), reviewed_by: user?.id ?? null })
+    .eq("id", suggestionId)
+    .eq("workspace_id", workspaceId)
+    .eq("status", "pending");
+
+  if (error) return { success: false, error: "No se pudo rechazar la sugerencia" };
+
+  const slug = await getWorkspaceSlug(workspaceId);
+  if (slug) revalidatePath(`/${slug}/competitors`);
+
+  return { success: true };
+}

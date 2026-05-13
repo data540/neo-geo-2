@@ -1,10 +1,15 @@
 "use server";
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { revalidatePath } from "next/cache";
 import { executeRunsInBackground } from "@/lib/llm/enqueueWorkspaceRuns";
 import { generateWorkspacePrompts } from "@/lib/llm/generateWorkspacePrompts";
 import { createClient } from "@/lib/supabase/server";
-import { createWorkspaceSchema } from "@/lib/validations/schemas";
+import {
+  createWorkspaceSchema,
+  inviteWorkspaceMemberSchema,
+  removeWorkspaceSchema,
+} from "@/lib/validations/schemas";
 import type { ActionResult } from "@/types";
 
 const PROMPTS_PER_WORKSPACE = 10;
@@ -174,4 +179,100 @@ export async function createWorkspaceAction(
   }
 
   return { success: true, data: { slug } };
+}
+
+export async function inviteWorkspaceMemberByEmailAction(
+  formData: FormData
+): Promise<ActionResult> {
+  const raw = {
+    workspaceId: formData.get("workspaceId") as string,
+    email: formData.get("email") as string,
+    role: ((formData.get("role") as string) || "member") as "admin" | "member" | "viewer",
+  };
+
+  const parsed = inviteWorkspaceMemberSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const { workspaceId, email, role } = parsed.data;
+  const supabase = await createClient();
+
+  const { data: canManage } = await supabase.rpc("can_manage_workspace", {
+    p_workspace_id: workspaceId,
+  });
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("email", normalizedEmail)
+    .single();
+
+  if (!profile) {
+    return {
+      success: false,
+      error:
+        "No existe un usuario registrado con ese correo. Pidele que cree su cuenta primero para poder anadirlo al team.",
+    };
+  }
+
+  const { error } = await supabase.from("workspace_members").upsert(
+    {
+      workspace_id: workspaceId,
+      user_id: profile.id,
+      role,
+    },
+    { onConflict: "workspace_id,user_id" }
+  );
+
+  if (error) return { success: false, error: "No se pudo anadir el colaborador" };
+
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("slug")
+    .eq("id", workspaceId)
+    .single();
+  if (workspace?.slug) revalidatePath(`/${workspace.slug}/team`);
+
+  return { success: true };
+}
+
+export async function deleteWorkspaceAction(data: unknown): Promise<ActionResult> {
+  const parsed = removeWorkspaceSchema.safeParse(data);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const { workspaceId, workspaceSlug, confirmationText } = parsed.data;
+  if (confirmationText.trim().toLowerCase() !== workspaceSlug.trim().toLowerCase()) {
+    return {
+      success: false,
+      error: "El texto de confirmacion no coincide con el slug del workspace",
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "No autenticado" };
+
+  const { data: ownerMembership } = await supabase
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!ownerMembership || ownerMembership.role !== "owner") {
+    return { success: false, error: "Solo el owner puede eliminar el workspace" };
+  }
+
+  const { error } = await supabase.from("workspaces").delete().eq("id", workspaceId);
+  if (error) return { success: false, error: "No se pudo eliminar el workspace" };
+
+  revalidatePath("/workspaces");
+  return { success: true };
 }

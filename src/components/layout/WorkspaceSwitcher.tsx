@@ -3,12 +3,7 @@
 import { Building2, ChevronsUpDown, Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WorkspaceForm } from "@/components/workspace/WorkspaceForm";
 import type { Workspace } from "@/types";
 
@@ -58,7 +53,9 @@ export function WorkspaceSwitcher({ workspaces, currentWorkspace }: WorkspaceSwi
             style={{ minWidth: "240px" }}
           >
             <div className="px-3 py-1.5">
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Workspaces</p>
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">
+                Workspaces
+              </p>
             </div>
             <div className="h-px bg-slate-100 mx-1 my-1" />
             {workspaces.map((ws) => (

@@ -26,7 +26,9 @@ function getMockAuditResult(candidates: PromptCandidate[]): CoverageAuditResult 
   if (!candidates.some((c) => c.intent === "price"))
     gaps.push("Faltan prompts de precio y relacion calidad-precio por ruta.");
   if (!candidates.some((c) => /cancel|demor|reembolso|equipaje|check-?in|reubic/i.test(c.prompt)))
-    gaps.push("Faltan prompts de incidencias clave: cancelaciones, demoras, equipaje, check-in o reembolsos.");
+    gaps.push(
+      "Faltan prompts de incidencias clave: cancelaciones, demoras, equipaje, check-in o reembolsos."
+    );
   if (!candidates.some((c) => c.funnel_stage === "top"))
     gaps.push("Faltan prompts top-funnel de descubrimiento inicial.");
   if (!candidates.some((c) => c.funnel_stage === "middle"))

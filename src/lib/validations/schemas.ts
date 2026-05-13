@@ -19,6 +19,12 @@ export const createPromptSchema = z.object({
   workspaceId: z.string().uuid(),
 });
 
+export const bulkCreatePromptsSchema = z.object({
+  workspaceId: z.string().uuid(),
+  country: z.enum(["ES", "CO"]).default("ES"),
+  prompts: z.array(z.string().min(10).max(500)).min(1).max(500),
+});
+
 export type CreatePromptInput = z.infer<typeof createPromptSchema>;
 
 export const updatePromptSchema = z.object({
@@ -46,6 +52,20 @@ export const runPromptSchema = z.object({
 });
 
 export type RunPromptInput = z.infer<typeof runPromptSchema>;
+
+// ── Teams / Workspace management ──────────────────────────────────────────────
+
+export const inviteWorkspaceMemberSchema = z.object({
+  workspaceId: z.string().uuid(),
+  email: z.email("Email inválido").max(320),
+  role: z.enum(["admin", "member", "viewer"]).default("member"),
+});
+
+export const removeWorkspaceSchema = z.object({
+  workspaceId: z.string().uuid(),
+  workspaceSlug: z.string().min(2).max(100),
+  confirmationText: z.string().min(2).max(100),
+});
 
 // ── Tags ──────────────────────────────────────────────────────────────────────
 

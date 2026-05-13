@@ -15,6 +15,7 @@ interface Props {
   availableTags: Tag[];
   promptTags: Record<string, Tag[]>;
   latestStatusByPrompt: Record<string, RunStatus>;
+  llmsByPrompt: Record<string, string[]>;
 }
 
 export function PromptPerformanceCard({
@@ -24,6 +25,7 @@ export function PromptPerformanceCard({
   availableTags,
   promptTags,
   latestStatusByPrompt,
+  llmsByPrompt,
 }: Props) {
   return (
     <div className="space-y-4">
@@ -39,6 +41,7 @@ export function PromptPerformanceCard({
         availableTags={availableTags}
         promptTags={promptTags}
         latestStatusByPrompt={latestStatusByPrompt}
+        llmsByPrompt={llmsByPrompt}
       />
     </div>
   );

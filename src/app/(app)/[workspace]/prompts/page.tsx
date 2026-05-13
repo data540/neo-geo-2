@@ -51,6 +51,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
 
   const promptTags: Record<string, { id: string; name: string; color: string }[]> = {};
   const latestStatusByPrompt: Record<string, RunStatus> = {};
+  const llmsByPrompt: Record<string, string[]> = {};
 
   if (promptIds.length > 0) {
     const { data: assignments } = await supabase
@@ -85,6 +86,22 @@ export default async function PromptsPage({ params, searchParams }: Props) {
         if (!latestStatusByPrompt[r.prompt_id]) {
           latestStatusByPrompt[r.prompt_id] = r.status as RunStatus;
         }
+      }
+    }
+
+    const { data: llmRuns } = await supabase
+      .from("prompt_runs")
+      .select("prompt_id, llm_providers(name)")
+      .in("prompt_id", promptIds)
+      .not("llm_provider_id", "is", null);
+
+    for (const run of llmRuns ?? []) {
+      const promptId = run.prompt_id as string;
+      const llmName = (run.llm_providers as { name?: string } | null)?.name;
+      if (!llmName) continue;
+      if (!llmsByPrompt[promptId]) llmsByPrompt[promptId] = [];
+      if (!llmsByPrompt[promptId]?.includes(llmName)) {
+        llmsByPrompt[promptId]?.push(llmName);
       }
     }
   }
@@ -126,6 +143,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
         availableTags={allTags ?? []}
         promptTags={promptTags}
         latestStatusByPrompt={latestStatusByPrompt}
+        llmsByPrompt={llmsByPrompt}
       />
     </div>
   );

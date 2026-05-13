@@ -20,6 +20,19 @@ interface CompetitorDetection {
   confidence: number;
 }
 
+const GENERIC_NON_BRANDS = new Set([
+  "espana",
+  "colombia",
+  "europa",
+  "madrid",
+  "bogota",
+  "medellin",
+  "barcelona",
+  "airline",
+  "aerolinea",
+  "aerolineas",
+]);
+
 export interface DetectBrandsOutput {
   ownBrandMentioned: boolean;
   ownBrandPosition: number | null;
@@ -179,4 +192,30 @@ export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
     sentiment,
     confidence: ownBrandMentioned ? 0.9 : 1.0,
   };
+}
+
+export function extractPotentialCompetitorsFromResponse(rawResponse: string): string[] {
+  const candidates = new Set<string>();
+
+  const quotedMatches = rawResponse.matchAll(/"([A-Z][A-Za-z0-9&\-\s]{2,40})"/g);
+  for (const match of quotedMatches) {
+    const value = (match[1] ?? "").trim();
+    if (value) candidates.add(value);
+  }
+
+  const namedMatches = rawResponse.matchAll(
+    /\b([A-Z][A-Za-z0-9&-]{1,20}(?:\s+[A-Z][A-Za-z0-9&-]{1,20}){0,3})\b/g
+  );
+
+  for (const match of namedMatches) {
+    const candidate = (match[1] ?? "").trim();
+    const lower = candidate.toLowerCase();
+    if (candidate.length < 3) continue;
+    if (GENERIC_NON_BRANDS.has(lower)) continue;
+    if (/^(Top|Ruta|Vuelo|Clase|Programa|Tarifa|Equipaje|Check)$/i.test(candidate)) continue;
+    if (/[0-9]{2,}/.test(candidate)) continue;
+    candidates.add(candidate);
+  }
+
+  return Array.from(candidates).slice(0, 25);
 }

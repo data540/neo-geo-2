@@ -77,7 +77,8 @@ export function AddPromptButton({ workspaceId, workspaceCountry }: Props) {
               disabled={loading}
             />
             <p className="text-xs text-slate-400">
-              Solo prompts de aerolinea: vuelos, equipaje, check-in, cancelaciones, reembolsos o compensaciones.
+              Solo prompts de aerolinea: vuelos, equipaje, check-in, cancelaciones, reembolsos o
+              compensaciones.
             </p>
           </div>
 

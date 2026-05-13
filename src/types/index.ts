@@ -61,6 +61,20 @@ export interface BrandProfile {
   updated_at: string;
 }
 
+export type CompetitorSuggestionStatus = "pending" | "approved" | "rejected";
+
+export interface CompetitorSuggestion {
+  id: string;
+  workspace_id: string;
+  prompt_run_id: string;
+  name: string;
+  normalized_name: string;
+  status: CompetitorSuggestionStatus;
+  created_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+}
+
 // ── LLM Providers ─────────────────────────────────────────────────────────────
 
 export type LlmProviderKey = "chatgpt" | "claude" | "gemini" | "perplexity";
