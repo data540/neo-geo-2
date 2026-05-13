@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Search,
+  ShieldCheck,
   Swords,
   Users,
 } from "lucide-react";
@@ -26,6 +27,7 @@ const getNavItems = (slug: string) => [
   { href: `/${slug}/sources`, label: "Sources", icon: Globe },
   { href: `/${slug}/competitors`, label: "Competitors", icon: Swords },
   { href: `/${slug}/team`, label: "Team", icon: Users },
+  { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck },
 ];
 
 export function MainNav({ workspaceSlug, collapsed = false }: MainNavProps) {

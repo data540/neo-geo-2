@@ -129,6 +129,10 @@ export interface PromptRun {
   llm_provider_id: string | null;
   status: RunStatus;
   raw_response: string | null;
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
   error_message: string | null;
   started_at: string | null;
   completed_at: string | null;

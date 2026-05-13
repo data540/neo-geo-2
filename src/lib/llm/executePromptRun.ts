@@ -5,6 +5,23 @@ import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import type { Brand, LlmProvider, LlmProviderKey, Workspace } from "@/types";
 import { runPrompt } from "./runner";
 
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "gpt-3.5-turbo":            { input: 0.0000005,   output: 0.0000015   },
+  "gpt-3.5-turbo-0125":       { input: 0.0000005,   output: 0.0000015   },
+  "gpt-4o-mini":              { input: 0.00000015,  output: 0.0000006   },
+  "gpt-4o-mini-2024-07-18":   { input: 0.00000015,  output: 0.0000006   },
+  "gpt-4o":                   { input: 0.000005,    output: 0.000015    },
+  "gpt-4.1-mini":             { input: 0.0000004,   output: 0.0000016   },
+  "claude-haiku-4-5-20251001":{ input: 0.00000025,  output: 0.00000125  },
+  "claude-sonnet-4-5":        { input: 0.000003,    output: 0.000015    },
+};
+
+function estimateCost(model: string, inputTokens?: number, outputTokens?: number): number | null {
+  const pricing = MODEL_PRICING[model];
+  if (!pricing || inputTokens === undefined || outputTokens === undefined) return null;
+  return pricing.input * inputTokens + pricing.output * outputTokens;
+}
+
 export interface SharedRunContext {
   workspace: Pick<Workspace, "id" | "slug">;
   ownBrand: Pick<Brand, "id" | "name" | "aliases">;
@@ -85,6 +102,10 @@ export async function executePromptRun(runId: string): Promise<void> {
       .from("prompt_runs")
       .update({
         raw_response: llmResult.rawResponse,
+        model: llmResult.model,
+        input_tokens: llmResult.inputTokens ?? null,
+        output_tokens: llmResult.outputTokens ?? null,
+        cost_usd: estimateCost(llmResult.model, llmResult.inputTokens, llmResult.outputTokens),
         status: "completed",
         completed_at: new Date().toISOString(),
       })
@@ -268,6 +289,10 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
         .from("prompt_runs")
         .update({
           raw_response: llmResult.rawResponse,
+          model: llmResult.model,
+          input_tokens: llmResult.inputTokens ?? null,
+          output_tokens: llmResult.outputTokens ?? null,
+          cost_usd: estimateCost(llmResult.model, llmResult.inputTokens, llmResult.outputTokens),
           status: "completed",
           completed_at: new Date().toISOString(),
         })

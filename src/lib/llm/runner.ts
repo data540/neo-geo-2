@@ -12,6 +12,8 @@ export interface RunPromptInput {
 export interface RunPromptOutput {
   rawResponse: string;
   model: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput> {
@@ -40,19 +42,17 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
 
 async function runChatGPT(prompt: string): Promise<RunPromptOutput> {
   const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({
-    apiKey: process.env.OPENROUTER_API_KEY,
-    baseURL: "https://openrouter.ai/api/v1",
-  });
-  const model = process.env.OPENROUTER_MODEL ?? "openai/gpt-5-nano";
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await client.chat.completions.create({
-    model,
+    model: "gpt-3.5-turbo",
     messages: [{ role: "user", content: prompt }],
     max_tokens: 1000,
   });
   return {
     rawResponse: response.choices[0]?.message?.content ?? "",
     model: response.model,
+    inputTokens: response.usage?.prompt_tokens,
+    outputTokens: response.usage?.completion_tokens,
   };
 }
 
@@ -68,6 +68,8 @@ async function runClaude(prompt: string): Promise<RunPromptOutput> {
   return {
     rawResponse: content?.type === "text" ? content.text : "",
     model: response.model,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
   };
 }
 
@@ -97,9 +99,12 @@ async function runPerplexity(prompt: string): Promise<RunPromptOutput> {
   const data = (await response.json()) as {
     choices: Array<{ message: { content: string } }>;
     model: string;
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
   };
   return {
     rawResponse: data.choices[0]?.message?.content ?? "",
     model: data.model,
+    inputTokens: data.usage?.prompt_tokens,
+    outputTokens: data.usage?.completion_tokens,
   };
 }

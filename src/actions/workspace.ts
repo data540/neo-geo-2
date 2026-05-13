@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createWorkspaceSchema } from "@/lib/validations/schemas";
 import type { ActionResult } from "@/types";
 
-const PROMPTS_PER_WORKSPACE = 50;
+const PROMPTS_PER_WORKSPACE = 10;
 
 function getServiceClient() {
   return createSupabaseClient(
