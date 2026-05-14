@@ -2,7 +2,6 @@
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
-import { isAirlinePromptText, isAllowedAirlineCountry } from "@/lib/airline/guardrails";
 import { executePromptRun } from "@/lib/llm/executePromptRun";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -50,18 +49,6 @@ export async function createPromptAction(
   }
 
   const { text, country, workspaceId } = parsed.data;
-
-  if (!isAllowedAirlineCountry(country)) {
-    return { success: false, error: "Mercado no permitido. Solo ES y CO." };
-  }
-
-  if (!isAirlinePromptText(text)) {
-    return {
-      success: false,
-      error:
-        "El prompt debe estar relacionado con aerolineas (vuelos, equipaje, check-in, cancelaciones, reembolsos, etc.).",
-    };
-  }
 
   const canManage = await requireManage(workspaceId);
   if (!canManage) {
@@ -208,22 +195,9 @@ export async function createPromptsBulkAction(
     return { success: false, error: "Sin permisos" };
   }
 
-  if (!isAllowedAirlineCountry(country)) {
-    return { success: false, error: "Mercado no permitido. Solo ES y CO." };
-  }
-
   const normalizedPrompts = Array.from(
     new Set(prompts.map((p) => p.trim()).filter((p) => p.length > 0))
   );
-
-  const invalid = normalizedPrompts.find((p) => !isAirlinePromptText(p));
-  if (invalid) {
-    return {
-      success: false,
-      error:
-        "Hay prompts fuera del scope de aerolinea. Incluye vuelos, equipaje, check-in, cancelaciones o reembolsos.",
-    };
-  }
 
   const supabase = await createClient();
   const { error } = await supabase.from("prompts").insert(

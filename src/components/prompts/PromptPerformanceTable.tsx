@@ -77,7 +77,8 @@ export function PromptPerformanceTable({
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-        <table className="w-full text-sm">
+        <div className="max-h-[65vh] overflow-y-auto overflow-x-auto">
+          <table className="w-full text-sm min-w-[1100px]">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
               <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
@@ -127,6 +128,8 @@ export function PromptPerformanceTable({
                 const visibility = getVisibilityStatus(row);
                 const borderClass = BORDER_CLASS[visibility] ?? BORDER_CLASS.no_data;
                 const tags = promptTags[row.prompt_id] ?? [];
+                const latestStatus = latestStatusByPrompt[row.prompt_id] ?? null;
+                const canRun = latestStatus !== "completed";
 
                 return (
                   <tr key={row.prompt_id} className={`hover:bg-slate-50/50 ${borderClass}`}>
@@ -134,7 +137,7 @@ export function PromptPerformanceTable({
                       <p className="text-slate-800 leading-snug line-clamp-2">{row.prompt_text}</p>
                     </td>
                     <td className="px-3 py-3">
-                      <PromptStatusCell status={latestStatusByPrompt[row.prompt_id] ?? null} />
+                      <PromptStatusCell status={latestStatus} />
                     </td>
                     <td className="px-3 py-3">
                       <CountryBadge country={row.prompt_country} />
@@ -178,11 +181,13 @@ export function PromptPerformanceTable({
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center gap-0.5">
-                        <RunPromptButton
-                          promptId={row.prompt_id}
-                          workspaceId={workspaceId}
-                          llmKey={llmKey}
-                        />
+                        {canRun ? (
+                          <RunPromptButton
+                            promptId={row.prompt_id}
+                            workspaceId={workspaceId}
+                            llmKey={llmKey}
+                          />
+                        ) : null}
                         <DeletePromptButton
                           promptId={row.prompt_id}
                           workspaceId={workspaceId}
@@ -195,7 +200,8 @@ export function PromptPerformanceTable({
               })
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       {hasMore && (

@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { findNonAirlinePrompts, isAllowedAirlineCountry } from "@/lib/airline/guardrails";
 import { generatePromptCandidates } from "@/lib/geo/conversationalPromptGenerator";
 import { auditPromptCoverage } from "@/lib/geo/promptCoverageAuditor";
 import { prioritizePrompts } from "@/lib/geo/promptPrioritizer";
@@ -13,43 +12,6 @@ import type {
   PrioritizedPrompt,
   PromptCandidate,
 } from "@/types";
-
-function hasCoverageKeyword(text: string, pattern: RegExp): boolean {
-  return pattern.test(text.toLowerCase());
-}
-
-function validateRequiredAirlineCoverage(prompts: string[]): string[] {
-  const checks: Array<{ key: string; pattern: RegExp; label: string }> = [
-    { key: "cancellations", pattern: /cancel|anulad/, label: "cancelaciones/anulaciones" },
-    { key: "baggage", pattern: /equipaje|maleta/, label: "equipaje" },
-    { key: "checkin", pattern: /check-?in|embarque|boarding/, label: "check-in/embarque" },
-    {
-      key: "refunds",
-      pattern: /reembolso|devolucion|compensacion|indemnizacion/,
-      label: "reembolsos/compensaciones",
-    },
-  ];
-
-  const missing = checks
-    .filter((check) => !prompts.some((prompt) => hasCoverageKeyword(prompt, check.pattern)))
-    .map((check) => check.label);
-
-  return missing;
-}
-
-function validateFunnelCoverage(candidates: PromptCandidate[]): string[] {
-  const selectedStages = new Set(
-    candidates.map((candidate) => candidate.funnel_stage).filter(Boolean) as Array<
-      "top" | "middle" | "bottom"
-    >
-  );
-
-  const missing: string[] = [];
-  if (!selectedStages.has("top")) missing.push("top");
-  if (!selectedStages.has("middle")) missing.push("middle");
-  if (!selectedStages.has("bottom")) missing.push("bottom");
-  return missing;
-}
 
 async function requireManage(workspaceId: string): Promise<boolean> {
   const supabase = await createClient();
@@ -88,22 +50,10 @@ export async function generatePromptsAction(
 
   const { workspaceId, ...researchInput } = parsed.data;
 
-  if (!isAllowedAirlineCountry(researchInput.country)) {
-    return { success: false, error: "Mercado no permitido. Solo ES y CO." };
-  }
-
   const canManage = await requireManage(workspaceId);
   if (!canManage) return { success: false, error: "Sin permisos" };
 
   const candidates = await generatePromptCandidates(researchInput);
-  const nonAirlineCandidates = findNonAirlinePrompts(candidates.map((c) => c.prompt));
-  if (nonAirlineCandidates.length > 0) {
-    return {
-      success: false,
-      error:
-        "La generacion devolvio prompts fuera del alcance aerolinea. Ajusta contexto y vuelve a intentar.",
-    };
-  }
 
   const sessionId = crypto.randomUUID();
   const supabase = await createClient();
@@ -251,35 +201,6 @@ export async function acceptPromptsAction(data: unknown): Promise<ActionResult> 
 
   if (!candidates || candidates.length === 0) {
     return { success: false, error: "No se encontraron candidatos seleccionados" };
-  }
-
-  const nonAirlineCandidates = findNonAirlinePrompts(
-    (candidates as PromptCandidate[]).map((c) => c.prompt)
-  );
-  if (nonAirlineCandidates.length > 0) {
-    return {
-      success: false,
-      error:
-        "No se pueden activar prompts fuera del alcance aerolinea. Revisa la seleccion de candidatos.",
-    };
-  }
-
-  const missingCoverage = validateRequiredAirlineCoverage(
-    (candidates as PromptCandidate[]).map((c) => c.prompt)
-  );
-  if (missingCoverage.length > 0) {
-    return {
-      success: false,
-      error: `No se puede activar: faltan prompts para ${missingCoverage.join(", ")}.`,
-    };
-  }
-
-  const missingFunnelStages = validateFunnelCoverage(candidates as PromptCandidate[]);
-  if (missingFunnelStages.length > 0) {
-    return {
-      success: false,
-      error: `No se puede activar: faltan prompts en etapas del funnel (${missingFunnelStages.join(", ")}).`,
-    };
   }
 
   const { data: workspace } = await supabase

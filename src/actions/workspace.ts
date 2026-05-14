@@ -270,9 +270,44 @@ export async function deleteWorkspaceAction(data: unknown): Promise<ActionResult
     return { success: false, error: "Solo el owner puede eliminar el workspace" };
   }
 
-  const { error } = await supabase.from("workspaces").delete().eq("id", workspaceId);
-  if (error) return { success: false, error: "No se pudo eliminar el workspace" };
+  // Ejecutamos el borrado con service role para asegurar cascada completa de datos
+  // (prompts, runs, mentions, sources, métricas, miembros, etc.).
+  const service = getServiceClient();
+
+  // Comprobación adicional: el slug debe corresponder al workspace solicitado.
+  const { data: targetWorkspace } = await service
+    .from("workspaces")
+    .select("id, slug")
+    .eq("id", workspaceId)
+    .single();
+
+  if (!targetWorkspace) {
+    return { success: false, error: "Workspace no encontrado" };
+  }
+
+  if (targetWorkspace.slug !== workspaceSlug) {
+    return { success: false, error: "El slug de confirmación no coincide con el workspace" };
+  }
+
+  const { error } = await service.from("workspaces").delete().eq("id", workspaceId);
+  if (error) {
+    return { success: false, error: `No se pudo eliminar el workspace: ${error.message}` };
+  }
+
+  // Verificamos que desapareció efectivamente.
+  const { data: stillExists } = await service
+    .from("workspaces")
+    .select("id")
+    .eq("id", workspaceId)
+    .maybeSingle();
+
+  if (stillExists) {
+    return { success: false, error: "El workspace no se eliminó completamente" };
+  }
 
   revalidatePath("/workspaces");
+  revalidatePath(`/${workspaceSlug}/team`);
+  revalidatePath(`/${workspaceSlug}/prompts`);
+  revalidatePath(`/${workspaceSlug}/dashboard`);
   return { success: true };
 }

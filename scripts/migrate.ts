@@ -659,11 +659,12 @@ async function migrate() {
       try {
         await client.query(migration.sql);
         console.log(`  ✓ Completado\n`);
-      } catch (error: any) {
-        if (error.message.includes("already exists")) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("already exists")) {
           console.log(`  ⚠ Saltado (ya existe)\n`);
         } else {
-          console.error(`  ❌ Error: ${error.message}\n`);
+          console.error(`  ❌ Error: ${errorMessage}\n`);
           throw error;
         }
       }

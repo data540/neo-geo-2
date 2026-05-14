@@ -83,8 +83,9 @@ export function TeamManagementPanel({
 
     if (result.success) {
       toast.success("Workspace eliminado correctamente");
-      router.push("/workspaces");
+      router.replace("/workspaces");
       router.refresh();
+      window.location.assign("/workspaces");
     } else {
       toast.error(result.error ?? "No se pudo eliminar el workspace");
     }

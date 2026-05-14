@@ -42,8 +42,17 @@ export function CompetitorSuggestionActions({ suggestionId, workspaceId, name }:
 
   return (
     <div className="flex items-center gap-2">
-      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={approve} disabled={pending}>
-        {pending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+      <Button
+        size="sm"
+        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+        onClick={approve}
+        disabled={pending}
+      >
+        {pending ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <Check className="w-3.5 h-3.5" />
+        )}
         Aprobar
       </Button>
       <Button size="sm" variant="outline" onClick={reject} disabled={pending}>

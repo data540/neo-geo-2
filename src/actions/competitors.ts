@@ -154,7 +154,11 @@ export async function approveCompetitorSuggestionAction(
 
   await supabase
     .from("competitor_suggestions")
-    .update({ status: "approved", reviewed_at: new Date().toISOString(), reviewed_by: user?.id ?? null })
+    .update({
+      status: "approved",
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: user?.id ?? null,
+    })
     .eq("id", suggestionId)
     .eq("workspace_id", workspaceId);
 
@@ -178,7 +182,11 @@ export async function rejectCompetitorSuggestionAction(
 
   const { error } = await supabase
     .from("competitor_suggestions")
-    .update({ status: "rejected", reviewed_at: new Date().toISOString(), reviewed_by: user?.id ?? null })
+    .update({
+      status: "rejected",
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: user?.id ?? null,
+    })
     .eq("id", suggestionId)
     .eq("workspace_id", workspaceId)
     .eq("status", "pending");

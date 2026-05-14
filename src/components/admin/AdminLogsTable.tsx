@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { RunStatus } from "@/types";
 
@@ -113,9 +113,8 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
               const hasResponse = !!row.raw_response;
 
               return (
-                <>
+                <Fragment key={row.id}>
                   <tr
-                    key={row.id}
                     onClick={() => hasResponse && setExpandedId(isExpanded ? null : row.id)}
                     className={[
                       "transition-colors",
@@ -174,7 +173,7 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
                   </tr>
 
                   {isExpanded && (
-                    <tr key={`${row.id}-expanded`} className="bg-slate-50">
+                    <tr className="bg-slate-50">
                       <td colSpan={10} className="px-6 pb-5 pt-0">
                         <div className="border border-slate-200 rounded-lg bg-white overflow-hidden">
                           <div className="px-4 py-2 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
@@ -195,7 +194,7 @@ export function AdminLogsTable({ rows }: AdminLogsTableProps) {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

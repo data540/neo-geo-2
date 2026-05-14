@@ -114,37 +114,54 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     avgSov: null,
   };
 
-  const workspaceKpis: WorkspaceKpis = kpis
+  const rawKpis = (kpis ?? null) as
+    | {
+        activePromptsCount?: number;
+        brandMentionsCount?: number;
+        avgPosition?: number | null;
+        brandConsistency?: number;
+        avgSov?: number | null;
+        active_prompts_count?: number;
+        brand_mentions_count?: number;
+        avg_position?: number | null;
+        brand_consistency?: number;
+        avg_sov?: number | null;
+      }
+    | null;
+
+  const workspaceKpis: WorkspaceKpis = rawKpis
     ? {
-        activePromptsCount: (kpis as WorkspaceKpis).activePromptsCount ?? 0,
-        brandMentionsCount: (kpis as WorkspaceKpis).brandMentionsCount ?? 0,
-        avgPosition: (kpis as WorkspaceKpis).avgPosition ?? null,
-        brandConsistency: (kpis as WorkspaceKpis).brandConsistency ?? 0,
-        avgSov: (kpis as WorkspaceKpis).avgSov ?? null,
+        activePromptsCount: rawKpis.activePromptsCount ?? rawKpis.active_prompts_count ?? 0,
+        brandMentionsCount: rawKpis.brandMentionsCount ?? rawKpis.brand_mentions_count ?? 0,
+        avgPosition: rawKpis.avgPosition ?? rawKpis.avg_position ?? null,
+        brandConsistency: rawKpis.brandConsistency ?? rawKpis.brand_consistency ?? 0,
+        avgSov: rawKpis.avgSov ?? rawKpis.avg_sov ?? null,
       }
     : defaultKpis;
 
   const activeCount = promptRows.filter((r) => r.prompt_status === "active").length;
 
   return (
-    <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
-      <PromptsPageHeader
-        workspaceId={workspace.id}
-        workspaceCountry={workspace.country ?? "ES"}
-        totalActive={activeCount}
-      />
+    <div className="flex-1 overflow-auto min-h-0">
+      <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
+        <PromptsPageHeader
+          workspaceId={workspace.id}
+          workspaceCountry={workspace.country ?? "ES"}
+          totalActive={activeCount}
+        />
 
-      <PromptKpiCards kpis={workspaceKpis} />
+        <PromptKpiCards kpis={workspaceKpis} />
 
-      <PromptPerformanceCard
-        rows={promptRows}
-        workspaceId={workspace.id}
-        llmKey={llm}
-        availableTags={allTags ?? []}
-        promptTags={promptTags}
-        latestStatusByPrompt={latestStatusByPrompt}
-        llmsByPrompt={llmsByPrompt}
-      />
+        <PromptPerformanceCard
+          rows={promptRows}
+          workspaceId={workspace.id}
+          llmKey={llm}
+          availableTags={allTags ?? []}
+          promptTags={promptTags}
+          latestStatusByPrompt={latestStatusByPrompt}
+          llmsByPrompt={llmsByPrompt}
+        />
+      </div>
     </div>
   );
 }

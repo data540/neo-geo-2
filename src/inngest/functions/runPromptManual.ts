@@ -2,6 +2,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { detectBrands } from "@/lib/detection/detectBrands";
+import { extractSourcesFromResponse } from "@/lib/detection/extractSources";
 import { runPrompt } from "@/lib/llm/runner";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -117,6 +118,23 @@ export const runPromptManual = inngest.createFunction(
         })
       )
     );
+
+    // 5.1 Detectar e insertar fuentes citadas
+    await step.run("insert-sources", async () => {
+      const sources = extractSourcesFromResponse(llmResult.rawResponse);
+      if (sources.length === 0) return;
+
+      await supabase.from("sources").insert(
+        sources.map((s) => ({
+          workspace_id: workspaceId,
+          prompt_run_id: runId,
+          url: s.url,
+          domain: s.domain,
+          title: s.title,
+          cited_by_llm: true,
+        }))
+      );
+    });
 
     // 6. Insertar mentions
     await step.run("insert-mentions", async () => {

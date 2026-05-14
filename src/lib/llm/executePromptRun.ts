@@ -4,6 +4,7 @@ import {
   detectBrands,
   extractPotentialCompetitorsFromResponse,
 } from "@/lib/detection/detectBrands";
+import { extractSourcesFromResponse } from "@/lib/detection/extractSources";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import type { Brand, LlmProvider, LlmProviderKey, Workspace } from "@/types";
 import { runPrompt } from "./runner";
@@ -123,6 +124,28 @@ async function autoAddCompetitorsFromResponse(params: {
   );
 }
 
+async function upsertSourcesFromResponse(params: {
+  supabase: ReturnType<typeof getServiceClient>;
+  workspaceId: string;
+  promptRunId: string;
+  rawResponse: string;
+}) {
+  const { supabase, workspaceId, promptRunId, rawResponse } = params;
+  const extracted = extractSourcesFromResponse(rawResponse);
+  if (extracted.length === 0) return;
+
+  const rows = extracted.map((source) => ({
+    workspace_id: workspaceId,
+    prompt_run_id: promptRunId,
+    url: source.url,
+    domain: source.domain,
+    title: source.title,
+    cited_by_llm: true,
+  }));
+
+  await supabase.from("sources").insert(rows);
+}
+
 export async function executePromptRun(runId: string): Promise<void> {
   const supabase = getServiceClient();
 
@@ -204,6 +227,13 @@ export async function executePromptRun(runId: string): Promise<void> {
       promptRunId: runId,
       ownBrand: { name: ownBrand.name },
       existingCompetitors: (competitorBrands ?? []) as Brand[],
+      rawResponse: llmResult.rawResponse,
+    });
+
+    await upsertSourcesFromResponse({
+      supabase,
+      workspaceId: run.workspace_id,
+      promptRunId: runId,
       rawResponse: llmResult.rawResponse,
     });
 
@@ -344,6 +374,13 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
       promptRunId: runId,
       ownBrand: { name: ctx.ownBrand.name },
       existingCompetitors: ctx.competitors,
+      rawResponse: llmResult.rawResponse,
+    });
+
+    await upsertSourcesFromResponse({
+      supabase,
+      workspaceId: ctx.workspace.id,
+      promptRunId: runId,
       rawResponse: llmResult.rawResponse,
     });
 
