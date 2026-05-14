@@ -22,7 +22,13 @@ export const createPromptSchema = z.object({
 export const bulkCreatePromptsSchema = z.object({
   workspaceId: z.string().uuid(),
   country: z.string().length(2, "Código de país de 2 letras").default("ES"),
-  prompts: z.array(z.string().min(10).max(500)).min(1).max(500),
+  prompts: z.array(z.string().min(1)).optional().default([]),
+  rawText: z.string().optional().default(""),
+  runAfterImport: z.boolean().optional().default(false),
+  llmKey: z
+    .enum(["chatgpt", "claude", "gemini", "perplexity", "deepseek"])
+    .optional()
+    .default("chatgpt"),
 });
 
 export type CreatePromptInput = z.infer<typeof createPromptSchema>;
@@ -48,7 +54,7 @@ export type TogglePromptStatusInput = z.infer<typeof togglePromptStatusSchema>;
 export const runPromptSchema = z.object({
   promptId: z.string().uuid(),
   workspaceId: z.string().uuid(),
-  llmKey: z.enum(["chatgpt", "claude", "gemini", "perplexity"]).default("chatgpt"),
+  llmKey: z.enum(["chatgpt", "claude", "gemini", "perplexity", "deepseek"]).default("chatgpt"),
 });
 
 export type RunPromptInput = z.infer<typeof runPromptSchema>;
@@ -166,3 +172,6 @@ export const acceptPromptsSchema = z.object({
 });
 
 export type AcceptPromptsInput = z.infer<typeof acceptPromptsSchema>;
+
+
+

@@ -5,26 +5,10 @@ import {
   extractPotentialCompetitorsFromResponse,
 } from "@/lib/detection/detectBrands";
 import { extractSourcesFromResponse } from "@/lib/detection/extractSources";
+import { estimateCostForModel } from "@/lib/llm/pricing";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import type { Brand, LlmProvider, LlmProviderKey, Workspace } from "@/types";
 import { runPrompt } from "./runner";
-
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  "gpt-3.5-turbo": { input: 0.0000005, output: 0.0000015 },
-  "gpt-3.5-turbo-0125": { input: 0.0000005, output: 0.0000015 },
-  "gpt-4o-mini": { input: 0.00000015, output: 0.0000006 },
-  "gpt-4o-mini-2024-07-18": { input: 0.00000015, output: 0.0000006 },
-  "gpt-4o": { input: 0.000005, output: 0.000015 },
-  "gpt-4.1-mini": { input: 0.0000004, output: 0.0000016 },
-  "claude-haiku-4-5-20251001": { input: 0.00000025, output: 0.00000125 },
-  "claude-sonnet-4-5": { input: 0.000003, output: 0.000015 },
-};
-
-function estimateCost(model: string, inputTokens?: number, outputTokens?: number): number | null {
-  const pricing = MODEL_PRICING[model];
-  if (!pricing || inputTokens === undefined || outputTokens === undefined) return null;
-  return pricing.input * inputTokens + pricing.output * outputTokens;
-}
 
 export interface SharedRunContext {
   workspace: Pick<Workspace, "id" | "slug">;
@@ -38,6 +22,54 @@ function getServiceClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
+
+async function upsertDailyWorkspaceMetricsFromPromptMetrics(params: {
+  supabase: ReturnType<typeof getServiceClient>;
+  workspaceId: string;
+  llmProviderId: string;
+  date: string;
+}) {
+  const { supabase, workspaceId, llmProviderId, date } = params;
+
+  const { data: metrics } = await supabase
+    .from("daily_prompt_metrics")
+    .select("brand_mentioned, brand_position, sov, consistency_score")
+    .eq("workspace_id", workspaceId)
+    .eq("llm_provider_id", llmProviderId)
+    .eq("date", date);
+
+  const rows = metrics ?? [];
+  if (rows.length === 0) return;
+
+  const activePrompts = rows.length;
+  const brandMentions = rows.filter((m) => m.brand_mentioned).length;
+  const positions = rows
+    .filter((m) => m.brand_mentioned && m.brand_position !== null)
+    .map((m) => m.brand_position as number);
+  const avgPosition = positions.length
+    ? Math.round((positions.reduce((a, b) => a + b, 0) / positions.length) * 10) / 10
+    : null;
+  const consistencyHigh = rows.filter((m) => (m.consistency_score ?? 0) >= 70).length;
+  const brandConsistency = Math.round((consistencyHigh / activePrompts) * 1000) / 10;
+  const sovValues = rows.filter((m) => m.sov !== null).map((m) => m.sov as number);
+  const avgSov = sovValues.length
+    ? Math.round((sovValues.reduce((a, b) => a + b, 0) / sovValues.length) * 10) / 10
+    : null;
+
+  await supabase.from("daily_workspace_metrics").upsert(
+    {
+      workspace_id: workspaceId,
+      llm_provider_id: llmProviderId,
+      date,
+      active_prompts_count: activePrompts,
+      brand_mentions_count: brandMentions,
+      avg_position: avgPosition,
+      brand_consistency: brandConsistency,
+      avg_sov: avgSov,
+    },
+    { onConflict: "workspace_id,llm_provider_id,date" }
   );
 }
 
@@ -206,6 +238,12 @@ export async function executePromptRun(runId: string): Promise<void> {
       })),
     });
 
+    const estimatedCost = await estimateCostForModel(
+      llmResult.model,
+      llmResult.inputTokens,
+      llmResult.outputTokens
+    );
+
     // 5) Guardar respuesta y marcar como completed
     await supabase
       .from("prompt_runs")
@@ -214,7 +252,7 @@ export async function executePromptRun(runId: string): Promise<void> {
         model: llmResult.model,
         input_tokens: llmResult.inputTokens ?? null,
         output_tokens: llmResult.outputTokens ?? null,
-        cost_usd: estimateCost(llmResult.model, llmResult.inputTokens, llmResult.outputTokens),
+        cost_usd: estimatedCost,
         status: "completed",
         completed_at: new Date().toISOString(),
       })
@@ -316,6 +354,15 @@ export async function executePromptRun(runId: string): Promise<void> {
       },
       { onConflict: "prompt_id,llm_provider_id,date" }
     );
+
+    if (run.llm_provider_id) {
+      await upsertDailyWorkspaceMetricsFromPromptMetrics({
+        supabase,
+        workspaceId: run.workspace_id,
+        llmProviderId: run.llm_provider_id,
+        date: today,
+      });
+    }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[executePromptRun] run ${runId} failed:`, errMsg);
@@ -366,6 +413,12 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
       brand: { name: ctx.ownBrand.name, aliases: ctx.ownBrand.aliases },
       competitors: ctx.competitors.map((c) => ({ name: c.name, aliases: c.aliases })),
     });
+
+    const estimatedCost = await estimateCostForModel(
+      llmResult.model,
+      llmResult.inputTokens,
+      llmResult.outputTokens
+    );
 
     // 4) Detectar marcas en memoria
     await autoAddCompetitorsFromResponse({
@@ -433,7 +486,7 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
           model: llmResult.model,
           input_tokens: llmResult.inputTokens ?? null,
           output_tokens: llmResult.outputTokens ?? null,
-          cost_usd: estimateCost(llmResult.model, llmResult.inputTokens, llmResult.outputTokens),
+          cost_usd: estimatedCost,
           status: "completed",
           completed_at: new Date().toISOString(),
         })
@@ -455,6 +508,13 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
         { onConflict: "prompt_id,llm_provider_id,date" }
       ),
     ]);
+
+    await upsertDailyWorkspaceMetricsFromPromptMetrics({
+      supabase,
+      workspaceId: ctx.workspace.id,
+      llmProviderId: ctx.llmProvider.id,
+      date: today,
+    });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[executePromptRunFast] run ${runId} failed:`, errMsg);

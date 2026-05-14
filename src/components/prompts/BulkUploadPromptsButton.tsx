@@ -33,11 +33,45 @@ const COUNTRIES = [
   { code: "CO", name: "Colombia" },
 ];
 
+const PROMPT_HEADER_TOKENS = new Set([
+  "prompt",
+  "prompts",
+  "pregunta",
+  "preguntas",
+  "question",
+  "questions",
+  "texto",
+  "text",
+  "contenido",
+  "content",
+  "mensaje",
+  "mensajes",
+  "query",
+  "consulta",
+]);
+
+function normalizeHeaderToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/["'`]/g, "");
+}
+
+function isHeaderLikeLine(value: string): boolean {
+  const normalized = normalizeHeaderToken(value);
+  return PROMPT_HEADER_TOKENS.has(normalized);
+}
+
+function isHeaderLikeRow(values: string[]): boolean {
+  const meaningful = values.map((value) => value.trim()).filter(Boolean);
+  if (meaningful.length === 0) return false;
+  return meaningful.every((value) => isHeaderLikeLine(value));
+}
+
 function parseCsvLike(text: string): string[] {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = splitPromptLines(text);
 
   if (lines.length === 0) return [];
 
@@ -46,14 +80,35 @@ function parseCsvLike(text: string): string[] {
   if (!hasSeparators) return lines;
 
   const candidates: string[] = [];
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     const cols = line.split(/[;,\t]/).map((c) => c.trim());
-    const promptCol = cols.find(
-      (c) => c.length >= 10 && /\?|aeroline|vuelo|equipaje|check|cancel/i.test(c)
-    );
+    if (index === 0 && isHeaderLikeRow(cols)) continue;
+
+    const promptCol = cols
+      .filter((c) => c.length > 0)
+      .sort((a, b) => b.length - a.length)[0];
     if (promptCol) candidates.push(promptCol);
   }
   return candidates.length > 0 ? candidates : lines;
+}
+
+function splitPromptLines(text: string): string[] {
+  const hasRealLineBreak = /[\r\n\u2028\u2029]/u.test(text);
+  const normalizedText = hasRealLineBreak
+    ? text.replace(/\r\n|\r|\u2028|\u2029/gu, "\n")
+    : text.replace(/\\r\\n|\\n|\\r/g, "\n");
+
+  const lines = normalizedText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const firstLine = lines[0];
+  if (typeof firstLine === "string" && isHeaderLikeLine(firstLine)) {
+    return lines.slice(1);
+  }
+
+  return lines;
 }
 
 export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props) {
@@ -62,12 +117,12 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
   const [country, setCountry] = useState(workspaceCountry);
   const [plainText, setPlainText] = useState("");
   const [parsedFromFile, setParsedFromFile] = useState<string[]>([]);
+  const [runAfterImport, setRunAfterImport] = useState(true);
+  const [llmKey, setLlmKey] = useState("chatgpt");
 
   const previewPrompts = useMemo(() => {
     const typed = parseCsvLike(plainText);
-    return Array.from(
-      new Set([...parsedFromFile, ...typed].map((p) => p.trim()).filter(Boolean))
-    ).slice(0, 200);
+    return Array.from(new Set([...parsedFromFile, ...typed].map((p) => p.trim()).filter(Boolean)));
   }, [plainText, parsedFromFile]);
 
   async function handleFileChange(file: File | null) {
@@ -77,7 +132,11 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
     try {
       if (name.endsWith(".csv") || name.endsWith(".txt")) {
         const content = await file.text();
-        setParsedFromFile(parseCsvLike(content));
+        if (name.endsWith(".txt")) {
+          setParsedFromFile(splitPromptLines(content));
+        } else {
+          setParsedFromFile(parseCsvLike(content));
+        }
         return;
       }
 
@@ -95,13 +154,14 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
         });
 
         const prompts: string[] = [];
-        for (const row of rows) {
+        for (const [index, row] of rows.entries()) {
           const values = row
             .map((v) => String(v ?? "").trim())
-            .filter(Boolean)
-            .filter((v) => v.length >= 10);
-          const prompt =
-            values.find((v) => /\?|aeroline|vuelo|equipaje|check|cancel/i.test(v)) ?? values[0];
+            .filter(Boolean);
+
+          if (index === 0 && isHeaderLikeRow(values)) continue;
+
+          const prompt = values[0];
           if (prompt) prompts.push(prompt);
         }
 
@@ -121,10 +181,19 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
       workspaceId,
       country,
       prompts: previewPrompts,
+      rawText: plainText,
+      runAfterImport,
+      llmKey,
     });
 
     if (result.success) {
-      toast.success(`Importados ${result.data?.created ?? 0} prompts`);
+      const created = result.data?.created ?? 0;
+      const queued = result.data?.queued ?? 0;
+      toast.success(
+        runAfterImport
+          ? `Importados ${created} prompts y encolados ${queued} runs`
+          : `Importados ${created} prompts`
+      );
       setOpen(false);
       setPlainText("");
       setParsedFromFile([]);
@@ -137,11 +206,14 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors">
+      <DialogTrigger
+        type="button"
+        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors"
+      >
         <FileUp className="w-4 h-4" />
         Subida masiva
       </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>Importar prompts</DialogTitle>
           <DialogDescription>
@@ -149,7 +221,7 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto pr-1">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="country-bulk">Pais</Label>
@@ -192,6 +264,34 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
             />
           </div>
 
+          <div className="rounded-lg border border-slate-200 p-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={runAfterImport}
+                onChange={(e) => setRunAfterImport(e.target.checked)}
+              />
+              Importar y ejecutar automáticamente
+            </label>
+            {runAfterImport && (
+              <div className="space-y-1.5">
+                <Label htmlFor="llm-bulk-run">LLM para ejecución</Label>
+                <Select value={llmKey} onValueChange={(value) => setLlmKey(value ?? "chatgpt")}>
+                  <SelectTrigger id="llm-bulk-run">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="chatgpt">ChatGPT</SelectItem>
+                    <SelectItem value="claude">Claude</SelectItem>
+                    <SelectItem value="gemini">Gemini</SelectItem>
+                    <SelectItem value="perplexity">Perplexity</SelectItem>
+                    <SelectItem value="deepseek">DeepSeek</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs font-medium text-slate-600 mb-2">
               Preview ({previewPrompts.length} prompt{previewPrompts.length !== 1 ? "s" : ""})
@@ -209,11 +309,12 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={loading}>
+          <div className="flex justify-end gap-2 sticky bottom-0 bg-white pt-3 border-t border-slate-100">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>
               Cancelar
             </Button>
             <Button
+              type="button"
               className="bg-indigo-600 hover:bg-indigo-700 text-white"
               disabled={loading || previewPrompts.length === 0}
               onClick={handleImport}

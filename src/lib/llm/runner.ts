@@ -16,6 +16,31 @@ export interface RunPromptOutput {
   outputTokens?: number;
 }
 
+type OpenRouterResponse = {
+  choices?: Array<{ message?: { content?: string } }>;
+  model?: string;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+};
+
+const DEFAULT_OPENROUTER_MODEL: Record<LlmProviderKey, string> = {
+  chatgpt: "openai/gpt-4.1-nano",
+  claude: "anthropic/claude-3.5-haiku",
+  gemini: "google/gemini-2.0-flash-001",
+  perplexity: "perplexity/sonar",
+  deepseek: "deepseek/deepseek-chat-v3-0324",
+};
+
+function getOpenRouterModel(provider: LlmProviderKey): string {
+  const envMap: Record<LlmProviderKey, string | undefined> = {
+    chatgpt: process.env.OPENROUTER_MODEL_CHATGPT,
+    claude: process.env.OPENROUTER_MODEL_CLAUDE,
+    gemini: process.env.OPENROUTER_MODEL_GEMINI,
+    perplexity: process.env.OPENROUTER_MODEL_PERPLEXITY,
+    deepseek: process.env.OPENROUTER_MODEL_DEEPSEEK,
+  };
+  return envMap[provider]?.trim() || DEFAULT_OPENROUTER_MODEL[provider];
+}
+
 export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput> {
   const { provider, prompt, brand, competitors } = input;
 
@@ -28,82 +53,32 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
     });
   }
 
-  switch (provider) {
-    case "chatgpt":
-      return runChatGPT(prompt);
-    case "claude":
-      return runClaude(prompt);
-    case "gemini":
-      return runGemini(prompt);
-    case "perplexity":
-      return runPerplexity(prompt);
-  }
-}
-
-async function runChatGPT(prompt: string): Promise<RunPromptOutput> {
-  const { default: OpenAI } = await import("openai");
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.chat.completions.create({
-    model: "gpt-3.5-turbo",
-    messages: [{ role: "user", content: prompt }],
-    max_tokens: 1000,
-  });
-  return {
-    rawResponse: response.choices[0]?.message?.content ?? "",
-    model: response.model,
-    inputTokens: response.usage?.prompt_tokens,
-    outputTokens: response.usage?.completion_tokens,
-  };
-}
-
-async function runClaude(prompt: string): Promise<RunPromptOutput> {
-  const Anthropic = await import("@anthropic-ai/sdk");
-  const client = new Anthropic.default({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1000,
-    messages: [{ role: "user", content: prompt }],
-  });
-  const content = response.content[0];
-  return {
-    rawResponse: content?.type === "text" ? content.text : "",
-    model: response.model,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-  };
-}
-
-async function runGemini(prompt: string): Promise<RunPromptOutput> {
-  const { GoogleGenerativeAI } = await import("@google/generative-ai");
-  const client = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? "");
-  const model = client.getGenerativeModel({ model: "gemini-1.5-flash" });
-  const result = await model.generateContent(prompt);
-  return {
-    rawResponse: result.response.text(),
-    model: "gemini-1.5-flash",
-  };
-}
-
-async function runPerplexity(prompt: string): Promise<RunPromptOutput> {
-  const response = await fetch("https://api.perplexity.ai/chat/completions", {
+  const model = getOpenRouterModel(provider);
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",
+      "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+      "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
     },
     body: JSON.stringify({
-      model: "llama-3.1-sonar-small-128k-online",
+      model,
       messages: [{ role: "user", content: prompt }],
+      max_tokens: 1000,
+      temperature: 0.2,
     }),
   });
-  const data = (await response.json()) as {
-    choices: Array<{ message: { content: string } }>;
-    model: string;
-    usage?: { prompt_tokens?: number; completion_tokens?: number };
-  };
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`OpenRouter error (${response.status}): ${body}`);
+  }
+
+  const data = (await response.json()) as OpenRouterResponse;
   return {
-    rawResponse: data.choices[0]?.message?.content ?? "",
-    model: data.model,
+    rawResponse: data.choices?.[0]?.message?.content ?? "",
+    model: data.model ?? model,
     inputTokens: data.usage?.prompt_tokens,
     outputTokens: data.usage?.completion_tokens,
   };

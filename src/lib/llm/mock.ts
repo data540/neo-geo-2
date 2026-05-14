@@ -67,14 +67,9 @@ function isKeySet(value: string | undefined): boolean {
 }
 
 export function hasApiKey(provider: LlmProviderKey): boolean {
-  switch (provider) {
-    case "chatgpt":
-      return isKeySet(process.env.OPENAI_API_KEY);
-    case "claude":
-      return isKeySet(process.env.ANTHROPIC_API_KEY);
-    case "gemini":
-      return isKeySet(process.env.GEMINI_API_KEY);
-    case "perplexity":
-      return isKeySet(process.env.PERPLEXITY_API_KEY);
-  }
+  const openRouterKeySet = isKeySet(process.env.OPENROUTER_API_KEY);
+  // El runner actual usa OpenRouter para todos los proveedores.
+  // Si falta esta key, forzamos modo mock para evitar runs "failed" por 401.
+  void provider;
+  return openRouterKeySet;
 }

@@ -1,5 +1,4 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
 interface GenerateArgs {
@@ -42,7 +41,7 @@ Tu tarea: generar exactamente ${count} prompts en español que un usuario realis
 6. No repitas frases. Cada prompt debe explorar un ángulo distinto.
 
 ## Formato de salida
-Responde **únicamente** con un JSON válido con esta estructura:
+Responde únicamente con un JSON válido con esta estructura:
 {"prompts": ["prompt 1", "prompt 2", ...]}
 
 No incluyas markdown, ni explicaciones, ni texto fuera del JSON. Exactamente ${count} prompts en el array.`;
@@ -62,7 +61,6 @@ function extractJson(text: string): string {
 
 function getFallbackPrompts(brandName: string, count: number): string[] {
   const templates = [
-    // Discovery (sin marca)
     `¿Cuáles son las mejores aerolíneas para volar entre Madrid y Bogotá?`,
     `¿Qué aerolínea low cost opera vuelos nacionales en España?`,
     `¿Cuál es la aerolínea más puntual en vuelos domésticos?`,
@@ -73,52 +71,17 @@ function getFallbackPrompts(brandName: string, count: number): string[] {
     `¿Qué aerolíneas ofrecen wifi gratuito a bordo en vuelos transatlánticos?`,
     `¿Qué compañías aéreas tienen mejor programa de fidelización en España?`,
     `¿Qué aerolíneas vuelan a Cuba desde Madrid?`,
-    `¿Cuál es la aerolínea más segura para volar a Sudamérica?`,
-    `¿Qué aerolíneas tienen vuelos baratos a Estados Unidos desde España?`,
-    `¿Qué aerolínea ofrece mejor servicio a bordo en vuelos de larga distancia?`,
-    `¿Cuáles son las aerolíneas con más rutas internacionales desde Madrid?`,
-    `¿Qué aerolíneas tienen los aviones más nuevos y modernos?`,
-    // Comparison
     `Compara ${brandName} con sus principales competidores en precio y servicio`,
     `¿${brandName} o Vueling para volar a Barcelona?`,
     `Diferencias entre ${brandName} e Iberia en rutas a Latinoamérica`,
     `¿${brandName} es mejor que Air Europa para volar a Caracas?`,
     `Compara la franquicia de equipaje de ${brandName} con otras aerolíneas`,
-    `¿Cuál tiene mejor clase business: ${brandName} o sus competidores?`,
-    `Compara las tarifas más económicas de ${brandName} frente a las low cost`,
-    `${brandName} vs aerolíneas low cost: ¿merece la pena pagar más?`,
-    // Branded
     `¿Qué opinan los pasajeros sobre ${brandName}? ¿Vale la pena volar con ellos?`,
-    `¿Qué franquicia de equipaje incluye ${brandName} en sus vuelos?`,
     `¿Cómo es el proceso de check-in online de ${brandName}?`,
     `¿${brandName} permite llevar mascotas en cabina?`,
-    `¿Qué servicios incluye la tarifa básica de ${brandName}?`,
-    `¿Cómo es la experiencia de volar en clase turista con ${brandName}?`,
-    `¿${brandName} cobra por la selección de asiento?`,
-    `¿Qué destinos cubre ${brandName} en su red de vuelos?`,
-    `¿${brandName} tiene buen servicio de atención al cliente?`,
-    // Decision/conversion
     `¿Por qué elegir ${brandName} para volar a Latinoamérica frente a otras aerolíneas?`,
     `¿Cuánto cuesta cambiar o cancelar un vuelo con ${brandName}?`,
-    `¿Vale la pena el upgrade a business en ${brandName}?`,
-    `¿Cómo conseguir las tarifas más baratas de ${brandName}?`,
-    `¿${brandName} ofrece tarifas reembolsables?`,
-    `¿Es buena opción ${brandName} para un viaje en familia a México?`,
-    `¿Qué documentación necesito para volar a Colombia con ${brandName}?`,
-    `¿${brandName} permite hacer escalas largas sin coste extra?`,
-    // Reputation / post-venta
     `¿Cómo reclamar compensación por vuelo cancelado o con retraso en ${brandName}?`,
-    `¿Cuál es la política de overbooking de ${brandName}?`,
-    `¿${brandName} responde rápido a las quejas de los pasajeros?`,
-    `Opiniones recientes sobre ${brandName} en redes sociales`,
-    `¿${brandName} ha tenido muchas cancelaciones este año?`,
-    `¿Cómo reclamar equipaje extraviado en ${brandName}?`,
-    `¿Cuánto tarda ${brandName} en devolver el dinero por una cancelación?`,
-    `Experiencias de pasajeros con retrasos largos en ${brandName}`,
-    `¿${brandName} indemniza por pérdida de conexión?`,
-    `Quejas habituales de los clientes de ${brandName}`,
-    `¿Cómo contactar con atención al cliente de ${brandName} si hay un problema?`,
-    `¿${brandName} tiene buen sistema de reembolsos automáticos?`,
   ];
 
   const result: string[] = [];
@@ -130,26 +93,43 @@ function getFallbackPrompts(brandName: string, count: number): string[] {
 }
 
 export async function generateWorkspacePrompts(args: GenerateArgs): Promise<string[]> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log("[generateWorkspacePrompts] ANTHROPIC_API_KEY ausente, usando fallback");
+  const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!openRouterKey) {
+    console.log("[generateWorkspacePrompts] OPENROUTER_API_KEY ausente, usando fallback");
     return getFallbackPrompts(args.brandName, args.count);
   }
 
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    const msg = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4096,
-      messages: [{ role: "user", content: buildSystemMessage(args) }],
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${openRouterKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+        "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+      },
+      body: JSON.stringify({
+        model: process.env.OPENROUTER_MODEL_CLAUDE?.trim() || "anthropic/claude-3.5-haiku",
+        max_tokens: 4096,
+        temperature: 0.2,
+        messages: [{ role: "user", content: buildSystemMessage(args) }],
+      }),
     });
 
-    const textBlock = msg.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      console.error("[generateWorkspacePrompts] respuesta sin bloque de texto");
+    if (!response.ok) {
+      const body = await response.text();
+      console.error("[generateWorkspacePrompts] error OpenRouter:", response.status, body);
       return getFallbackPrompts(args.brandName, args.count);
     }
 
-    const jsonStr = extractJson(textBlock.text);
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+
+    const text = payload.choices?.[0]?.message?.content ?? "";
+    if (!text) return getFallbackPrompts(args.brandName, args.count);
+
+    const jsonStr = extractJson(text);
     const parsed = promptsSchema.safeParse(JSON.parse(jsonStr));
     if (!parsed.success) {
       console.error("[generateWorkspacePrompts] JSON inválido:", parsed.error.issues[0]?.message);
@@ -163,7 +143,7 @@ export async function generateWorkspacePrompts(args: GenerateArgs): Promise<stri
     return [...prompts, ...fallback];
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("[generateWorkspacePrompts] error llamando Claude:", errMsg);
+    console.error("[generateWorkspacePrompts] error llamando OpenRouter:", errMsg);
     return getFallbackPrompts(args.brandName, args.count);
   }
 }

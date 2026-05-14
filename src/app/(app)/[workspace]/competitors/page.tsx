@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AddCompetitorForm } from "./AddCompetitorForm";
+import { AnalyzeExecutedPromptsButton } from "./AnalyzeExecutedPromptsButton";
 import { CompetitorSuggestionActions } from "./CompetitorSuggestionActions";
 import { DeleteCompetitorButton } from "./DeleteCompetitorButton";
 
@@ -102,6 +103,7 @@ const LLM_OPTIONS = [
   { key: "claude", label: "Claude" },
   { key: "gemini", label: "Gemini" },
   { key: "perplexity", label: "Perplexity" },
+  { key: "deepseek", label: "DeepSeek" },
 ] as const;
 
 export default async function CompetitorsPage({ params, searchParams }: Props) {
@@ -215,7 +217,8 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     });
 
   return (
-    <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
+    <div className="flex-1 overflow-auto min-h-0">
+      <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
       <div>
         <h1 className="text-xl font-bold text-slate-900">Competidores</h1>
         <p className="text-sm text-slate-500 mt-0.5">
@@ -245,6 +248,8 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
       </div>
 
       <AddCompetitorForm workspaceId={workspace.id} />
+
+      <AnalyzeExecutedPromptsButton workspaceId={workspace.id} />
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
@@ -363,6 +368,7 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
             ))}
           </ul>
         )}
+      </div>
       </div>
     </div>
   );

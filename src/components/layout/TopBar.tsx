@@ -13,6 +13,7 @@ const LLM_TABS: { key: LlmProviderKey; label: string }[] = [
   { key: "claude", label: "Claude" },
   { key: "gemini", label: "Gemini" },
   { key: "perplexity", label: "Perplexity" },
+  { key: "deepseek", label: "DeepSeek" },
 ];
 
 interface TopBarProps {

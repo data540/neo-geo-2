@@ -20,6 +20,56 @@ function getServiceClient() {
   );
 }
 
+const PROMPT_HEADER_TOKENS = new Set([
+  "prompt",
+  "prompts",
+  "pregunta",
+  "preguntas",
+  "question",
+  "questions",
+  "texto",
+  "text",
+  "contenido",
+  "content",
+  "mensaje",
+  "mensajes",
+  "query",
+  "consulta",
+]);
+
+function normalizeHeaderToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/["'`]/g, "");
+}
+
+function isHeaderLikeLine(value: string): boolean {
+  const normalized = normalizeHeaderToken(value);
+  return PROMPT_HEADER_TOKENS.has(normalized);
+}
+
+function splitPromptLines(text: string): string[] {
+  const hasRealLineBreak = /[\r\n\u2028\u2029]/u.test(text);
+  const normalizedText = hasRealLineBreak
+    ? text.replace(/\r\n|\r|\u2028|\u2029/gu, "\n")
+    : text.replace(/\\r\\n|\\n|\\r/g, "\n");
+
+  const lines = normalizedText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  const firstLine = lines[0];
+  if (typeof firstLine === "string" && isHeaderLikeLine(firstLine)) {
+    return lines.slice(1);
+  }
+
+  return lines;
+}
+
 async function requireManage(workspaceId: string): Promise<boolean> {
   const supabase = await createClient();
   const { data } = await supabase.rpc("can_manage_workspace", {
@@ -96,6 +146,38 @@ export async function deletePromptAction(
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
 
   return { success: true };
+}
+
+export async function deletePromptsBulkAction(
+  promptIds: string[],
+  workspaceId: string
+): Promise<ActionResult<{ deleted: number }>> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) {
+    return { success: false, error: "Sin permisos" };
+  }
+
+  const uniqueIds = Array.from(new Set(promptIds.map((id) => id.trim()).filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return { success: false, error: "No hay prompts seleccionados" };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("prompts")
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .in("id", uniqueIds)
+    .select("id");
+
+  if (error) {
+    return { success: false, error: "Error al eliminar prompts" };
+  }
+
+  const workspaceSlug = await getWorkspaceSlug(workspaceId);
+  if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
+
+  return { success: true, data: { deleted: data?.length ?? 0 } };
 }
 
 export async function togglePromptStatusAction(data: unknown): Promise<ActionResult> {
@@ -182,39 +264,81 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
 
 export async function createPromptsBulkAction(
   data: unknown
-): Promise<ActionResult<{ created: number }>> {
+): Promise<ActionResult<{ created: number; queued: number }>> {
   const parsed = bulkCreatePromptsSchema.safeParse(data);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
 
-  const { workspaceId, country, prompts } = parsed.data;
+  const { workspaceId, country, prompts, rawText, runAfterImport, llmKey } = parsed.data;
 
   const canManage = await requireManage(workspaceId);
   if (!canManage) {
     return { success: false, error: "Sin permisos" };
   }
 
+  const fromRawText = splitPromptLines(rawText ?? "");
+
   const normalizedPrompts = Array.from(
-    new Set(prompts.map((p) => p.trim()).filter((p) => p.length > 0))
+    new Set([...(prompts ?? []), ...fromRawText].map((p) => p.trim()).filter((p) => p.length > 0))
   );
 
+  if (normalizedPrompts.length === 0) {
+    return { success: false, error: "No se detectaron prompts para importar" };
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase.from("prompts").insert(
+  const { data: insertedPrompts, error } = await supabase
+    .from("prompts")
+    .insert(
     normalizedPrompts.map((text) => ({
       workspace_id: workspaceId,
       text,
       country,
       status: "active",
     }))
-  );
+    )
+    .select("id");
 
   if (error) {
     return { success: false, error: "Error al importar prompts" };
   }
 
+  let queued = 0;
+  if (runAfterImport && insertedPrompts && insertedPrompts.length > 0) {
+    const service = getServiceClient();
+    const { data: provider } = await service.from("llm_providers").select("id").eq("key", llmKey).single();
+    if (provider) {
+      const { data: createdRuns } = await service
+        .from("prompt_runs")
+        .insert(
+          insertedPrompts.map((p) => ({
+            workspace_id: workspaceId,
+            prompt_id: p.id as string,
+            llm_provider_id: provider.id,
+            status: "queued",
+          }))
+        )
+        .select("id");
+
+      const runIds = (createdRuns ?? []).map((r) => r.id as string);
+      queued = runIds.length;
+
+      // Cola secuencial: ejecuta uno a uno para evitar ráfagas.
+      void (async () => {
+        for (const runId of runIds) {
+          try {
+            await executePromptRun(runId);
+          } catch (e) {
+            console.error("[createPromptsBulkAction] run failed:", runId, e);
+          }
+        }
+      })();
+    }
+  }
+
   const workspaceSlug = await getWorkspaceSlug(workspaceId);
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
 
-  return { success: true, data: { created: normalizedPrompts.length } };
+  return { success: true, data: { created: normalizedPrompts.length, queued } };
 }
