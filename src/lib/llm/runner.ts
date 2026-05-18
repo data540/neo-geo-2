@@ -21,7 +21,12 @@ export interface RunPromptOutput {
 type OpenRouterResponse = {
   choices?: Array<{ message?: { content?: string } }>;
   model?: string;
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    input_tokens?: number;
+    output_tokens?: number;
+  };
 };
 
 const DEFAULT_OPENROUTER_MODEL: Record<LlmProviderKey, string> = {
@@ -69,6 +74,7 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
       messages: [{ role: "user", content: prompt }],
       max_tokens: 1000,
       temperature: 0.2,
+      usage: { include: true },
     }),
   });
 
@@ -81,7 +87,7 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
   return {
     rawResponse: data.choices?.[0]?.message?.content ?? "",
     model: data.model ?? model,
-    inputTokens: data.usage?.prompt_tokens,
-    outputTokens: data.usage?.completion_tokens,
+    inputTokens: data.usage?.prompt_tokens ?? data.usage?.input_tokens,
+    outputTokens: data.usage?.completion_tokens ?? data.usage?.output_tokens,
   };
 }
