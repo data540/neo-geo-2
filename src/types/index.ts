@@ -324,6 +324,23 @@ export interface PrioritizedPrompt {
   riskIfBrandAbsent: RiskIfBrandAbsent;
 }
 
+// ── GEO Recommendations ───────────────────────────────────────────────────────
+
+export interface GeoRecommendation {
+  title: string;
+  description: string;
+  priority: "high" | "medium" | "low";
+  category: "visibility" | "content" | "prompts" | "consistency" | "sources";
+  actionItems: string[];
+}
+
+export interface RecommendationGuide {
+  slug: string;
+  title: string;
+  description: string;
+  content: string;
+}
+
 // ── Action results ────────────────────────────────────────────────────────────
 
 export interface ActionResult<T = undefined> {
