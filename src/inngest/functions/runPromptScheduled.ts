@@ -23,7 +23,7 @@ export const runPromptScheduled = inngest.createFunction(
   {
     id: "prompt-run-scheduled",
     name: "Run Prompts Scheduled",
-    triggers: [{ cron: "0 */6 * * *" }],
+    triggers: [{ cron: "0 7 * * *" }],
   },
   async ({ step }) => {
     const supabase = getServiceClient();
