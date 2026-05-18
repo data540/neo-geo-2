@@ -3,7 +3,62 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import type { ActionResult, WorkspaceLlmConfigWithProvider } from "@/types";
+import type { ActionResult, LlmProviderKey, WorkspaceLlmConfigWithProvider } from "@/types";
+
+// Prefix patterns to group OpenRouter models by provider
+const PROVIDER_PREFIXES: Record<LlmProviderKey, string[]> = {
+  chatgpt:    ["openai/"],
+  claude:     ["anthropic/"],
+  gemini:     ["google/gemini"],
+  perplexity: ["perplexity/"],
+  deepseek:   ["deepseek/"],
+};
+
+export interface OpenRouterModel {
+  id: string;
+  name: string;
+  context_length: number;
+  pricing: { prompt: string; completion: string };
+}
+
+export async function getOpenRouterModelsAction(
+  providerKey: LlmProviderKey
+): Promise<ActionResult<OpenRouterModel[]>> {
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/models", {
+      headers: { "Content-Type": "application/json" },
+      next: { revalidate: 3600 }, // cache 1h
+    });
+    if (!res.ok) return { success: false, error: "No se pudo cargar modelos de OpenRouter" };
+
+    const json = (await res.json()) as {
+      data?: Array<{
+        id?: string;
+        name?: string;
+        context_length?: number;
+        pricing?: { prompt?: string; completion?: string };
+      }>;
+    };
+
+    const prefixes = PROVIDER_PREFIXES[providerKey];
+    const models = (json.data ?? [])
+      .filter((m) => m.id && prefixes.some((p) => m.id!.startsWith(p)))
+      .map((m) => ({
+        id: m.id!,
+        name: m.name ?? m.id!,
+        context_length: m.context_length ?? 0,
+        pricing: {
+          prompt: m.pricing?.prompt ?? "0",
+          completion: m.pricing?.completion ?? "0",
+        },
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { success: true, data: models };
+  } catch {
+    return { success: false, error: "Error al conectar con OpenRouter" };
+  }
+}
 
 const upsertLlmConfigSchema = z.object({
   workspaceId: z.string().uuid(),
@@ -13,6 +68,7 @@ const upsertLlmConfigSchema = z.object({
       z.object({
         llmProviderId: z.string().uuid(),
         promptsPerDay: z.number().int().min(0).max(50),
+        model: z.string().optional(),
       })
     )
     .min(1)
@@ -57,6 +113,7 @@ export async function upsertLlmConfigAction(input: unknown): Promise<ActionResul
     llm_provider_id: c.llmProviderId,
     prompts_per_day: c.promptsPerDay,
     enabled: c.promptsPerDay > 0,
+    model: c.model ?? null,
   }));
 
   const { error } = await supabase

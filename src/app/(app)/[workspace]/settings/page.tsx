@@ -51,6 +51,7 @@ export default async function SettingsPage({ params }: Props) {
     providerKey: p.key,
     providerName: p.name,
     promptsPerDay: configByProvider.get(p.id)?.prompts_per_day ?? 0,
+    model: configByProvider.get(p.id)?.model ?? null,
   }));
 
   return (

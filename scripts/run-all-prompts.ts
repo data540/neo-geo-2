@@ -84,7 +84,16 @@ async function main() {
     .eq("key", LLM_KEY)
     .single();
   if (!provider) throw new Error(`LLM provider '${LLM_KEY}' no encontrado`);
-  console.log(`✅ LLM: ${provider.key}`);
+
+  // Fetch workspace model override
+  const { data: llmCfg } = await supabase
+    .from("workspace_llm_config")
+    .select("model")
+    .eq("workspace_id", (await supabase.from("workspaces").select("id").eq("slug", WORKSPACE_SLUG).single()).data?.id ?? "")
+    .eq("llm_provider_id", provider.id)
+    .single();
+  const modelOverride = (llmCfg as { model: string | null } | null)?.model ?? undefined;
+  console.log(`✅ LLM: ${provider.key}${modelOverride ? ` (${modelOverride})` : ""}`);
 
   // 3. Obtener brand propia y competidores
   const { data: brands } = await supabase
@@ -139,6 +148,7 @@ async function main() {
           name: c.name as string,
           aliases: (c.aliases as string[]) ?? [],
         })),
+        modelOverride,
       });
 
       // 5c. Guardar respuesta

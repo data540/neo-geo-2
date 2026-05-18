@@ -93,12 +93,27 @@ export const runPromptManual = inngest.createFunction(
           .eq("type", "competitor"),
         supabase.from("llm_providers").select("*").eq("key", llmKey).single(),
       ]);
+
+      // Fetch workspace model override for this provider
+      const llmProviderId = l.data?.id as string | undefined;
+      let modelOverride: string | null = null;
+      if (llmProviderId) {
+        const { data: cfg } = await supabase
+          .from("workspace_llm_config")
+          .select("model")
+          .eq("workspace_id", workspaceId)
+          .eq("llm_provider_id", llmProviderId)
+          .single();
+        modelOverride = (cfg as { model: string | null } | null)?.model ?? null;
+      }
+
       return {
         prompt: p.data,
         workspace: w.data,
         ownBrands: b.data ?? [],
         competitorBrands: c.data ?? [],
         llmProvider: l.data,
+        modelOverride,
       };
     });
 
@@ -137,6 +152,7 @@ export const runPromptManual = inngest.createFunction(
           name: c.name,
           aliases: c.aliases,
         })),
+        modelOverride: context.modelOverride ?? undefined,
       })
     );
 

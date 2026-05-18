@@ -92,6 +92,7 @@ export interface WorkspaceLlmConfig {
   llm_provider_id: string;
   prompts_per_day: number;
   enabled: boolean;
+  model: string | null;
   updated_at: string;
 }
 

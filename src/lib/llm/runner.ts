@@ -7,6 +7,8 @@ export interface RunPromptInput {
   workspace: { id: string; slug: string };
   brand: { name: string; aliases: string[] };
   competitors: Array<{ name: string; aliases: string[] }>;
+  /** Override the default model for this provider (from workspace_llm_config) */
+  modelOverride?: string;
 }
 
 export interface RunPromptOutput {
@@ -42,7 +44,7 @@ function getOpenRouterModel(provider: LlmProviderKey): string {
 }
 
 export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput> {
-  const { provider, prompt, brand, competitors } = input;
+  const { provider, prompt, brand, competitors, modelOverride } = input;
 
   if (!hasApiKey(provider)) {
     return mockRunPrompt({
@@ -53,7 +55,7 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
     });
   }
 
-  const model = getOpenRouterModel(provider);
+  const model = modelOverride?.trim() || getOpenRouterModel(provider);
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {

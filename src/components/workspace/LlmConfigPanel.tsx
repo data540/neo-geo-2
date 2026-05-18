@@ -1,18 +1,27 @@
 "use client";
 
 import { Loader2, Save } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { upsertLlmConfigAction } from "@/actions/llm-config";
+import { type OpenRouterModel, getOpenRouterModelsAction, upsertLlmConfigAction } from "@/actions/llm-config";
 import { Button } from "@/components/ui/button";
 import type { LlmProviderKey, WorkspaceMemberRole } from "@/types";
 
 const PROVIDER_LABELS: Record<LlmProviderKey, string> = {
-  chatgpt: "ChatGPT (GPT-4.1 Nano)",
-  claude: "Claude (Haiku 3.5)",
-  gemini: "Gemini (2.0 Flash)",
-  perplexity: "Perplexity (Sonar)",
-  deepseek: "DeepSeek (Chat v3)",
+  chatgpt:    "ChatGPT",
+  claude:     "Claude",
+  gemini:     "Gemini",
+  perplexity: "Perplexity",
+  deepseek:   "DeepSeek",
+};
+
+// Default models shown before OpenRouter loads
+const DEFAULT_MODELS: Record<LlmProviderKey, string> = {
+  chatgpt:    "openai/gpt-4.1-nano",
+  claude:     "anthropic/claude-3.5-haiku",
+  gemini:     "google/gemini-2.0-flash-001",
+  perplexity: "perplexity/sonar",
+  deepseek:   "deepseek/deepseek-chat-v3-0324",
 };
 
 interface ProviderConfig {
@@ -20,6 +29,7 @@ interface ProviderConfig {
   providerKey: LlmProviderKey;
   providerName: string;
   promptsPerDay: number;
+  model: string | null;
 }
 
 interface Props {
@@ -29,6 +39,13 @@ interface Props {
   configs: ProviderConfig[];
 }
 
+function formatPrice(prompt: string, completion: string): string {
+  const pIn = Number(prompt) * 1_000_000;
+  const pOut = Number(completion) * 1_000_000;
+  if (!pIn && !pOut) return "free";
+  return `$${pIn.toFixed(2)}/$${pOut.toFixed(2)} per 1M`;
+}
+
 export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, configs }: Props) {
   const canManage = currentRole === "owner" || currentRole === "admin";
   const [pending, startTransition] = useTransition();
@@ -36,14 +53,43 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
   const [values, setValues] = useState<Record<string, number>>(
     () => Object.fromEntries(configs.map((c) => [c.providerId, c.promptsPerDay]))
   );
+  const [models, setModels] = useState<Record<string, string>>(
+    () => Object.fromEntries(
+      configs.map((c) => [c.providerId, c.model ?? DEFAULT_MODELS[c.providerKey]])
+    )
+  );
+  // OpenRouter model lists per provider key
+  const [modelLists, setModelLists] = useState<Record<string, OpenRouterModel[]>>({});
+  const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
+
+  // Load models for all enabled providers on mount
+  useEffect(() => {
+    for (const config of configs) {
+      loadModelsForProvider(config.providerId, config.providerKey);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadModelsForProvider(providerId: string, providerKey: LlmProviderKey) {
+    if (modelLists[providerId]) return; // already loaded
+    setLoadingModels((prev) => ({ ...prev, [providerId]: true }));
+    const result = await getOpenRouterModelsAction(providerKey);
+    if (result.success && result.data) {
+      setModelLists((prev) => ({ ...prev, [providerId]: result.data! }));
+    }
+    setLoadingModels((prev) => ({ ...prev, [providerId]: false }));
+  }
 
   function handleSliderChange(providerId: string, value: number) {
     setValues((prev) => ({ ...prev, [providerId]: value }));
   }
 
+  function handleModelChange(providerId: string, model: string) {
+    setModels((prev) => ({ ...prev, [providerId]: model }));
+  }
+
   function handleSave() {
     if (!canManage) return;
-
     startTransition(async () => {
       const result = await upsertLlmConfigAction({
         workspaceId,
@@ -51,9 +97,9 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
         configs: configs.map((c) => ({
           llmProviderId: c.providerId,
           promptsPerDay: values[c.providerId] ?? 0,
+          model: models[c.providerId] ?? DEFAULT_MODELS[c.providerKey],
         })),
       });
-
       if (result.success) {
         toast.success("LLM settings saved");
       } else {
@@ -85,18 +131,21 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
         </Button>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-8">
         {configs.map((config) => {
           const current = values[config.providerId] ?? 0;
+          const selectedModel = models[config.providerId] ?? DEFAULT_MODELS[config.providerKey];
+          const list = modelLists[config.providerId] ?? [];
+          const isLoadingList = loadingModels[config.providerId] ?? false;
+          const selectedModelData = list.find((m) => m.id === selectedModel);
+
           return (
-            <div key={config.providerId} className="space-y-2">
+            <div key={config.providerId} className="space-y-3 pb-6 border-b border-slate-100 last:border-0 last:pb-0">
+              {/* Provider name + prompts/day */}
               <div className="flex items-center justify-between">
-                <label
-                  htmlFor={`slider-${config.providerId}`}
-                  className="text-sm font-medium text-slate-700"
-                >
-                  {PROVIDER_LABELS[config.providerKey] ?? config.providerName}
-                </label>
+                <span className="text-sm font-semibold text-slate-800">
+                  {PROVIDER_LABELS[config.providerKey]}
+                </span>
                 <span className="text-sm tabular-nums w-24 text-right">
                   {current === 0 ? (
                     <span className="text-slate-400">Disabled</span>
@@ -106,21 +155,71 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
                 </span>
               </div>
 
-              <input
-                id={`slider-${config.providerId}`}
-                type="range"
-                min={0}
-                max={50}
-                step={1}
-                value={current}
-                disabled={!canManage || pending}
-                onChange={(e) => handleSliderChange(config.providerId, Number(e.target.value))}
-                className="w-full h-2 rounded-full accent-indigo-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-              />
+              {/* Model selector */}
+              <div className="space-y-1">
+                <label
+                  htmlFor={`model-${config.providerId}`}
+                  className="text-xs text-slate-500"
+                >
+                  Model
+                </label>
+                <div className="relative">
+                  {isLoadingList && (
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                      <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+                    </div>
+                  )}
+                  <select
+                    id={`model-${config.providerId}`}
+                    value={selectedModel}
+                    onChange={(e) => handleModelChange(config.providerId, e.target.value)}
+                    disabled={!canManage || pending}
+                    className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-sm text-slate-800 outline-none transition-colors focus-visible:border-indigo-400 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-50 pr-8"
+                  >
+                    {list.length === 0 ? (
+                      <option value={selectedModel}>{selectedModel}</option>
+                    ) : (
+                      list.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+                {selectedModelData && (
+                  <p className="text-xs text-slate-400">
+                    {formatPrice(selectedModelData.pricing.prompt, selectedModelData.pricing.completion)}
+                    {selectedModelData.context_length > 0 && (
+                      <> · {(selectedModelData.context_length / 1000).toFixed(0)}K ctx</>
+                    )}
+                  </p>
+                )}
+              </div>
 
-              <div className="flex justify-between text-xs text-slate-400">
-                <span>0 (off)</span>
-                <span>50</span>
+              {/* Prompts/day slider */}
+              <div className="space-y-1">
+                <label
+                  htmlFor={`slider-${config.providerId}`}
+                  className="text-xs text-slate-500"
+                >
+                  Prompts per day
+                </label>
+                <input
+                  id={`slider-${config.providerId}`}
+                  type="range"
+                  min={0}
+                  max={50}
+                  step={1}
+                  value={current}
+                  disabled={!canManage || pending}
+                  onChange={(e) => handleSliderChange(config.providerId, Number(e.target.value))}
+                  className="w-full h-2 rounded-full accent-indigo-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <div className="flex justify-between text-xs text-slate-400">
+                  <span>0 (off)</span>
+                  <span>50</span>
+                </div>
               </div>
             </div>
           );
