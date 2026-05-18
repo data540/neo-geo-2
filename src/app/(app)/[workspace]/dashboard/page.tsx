@@ -1,6 +1,7 @@
 ﻿import { BarChart3, Eye, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 
@@ -77,8 +78,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     )
     .eq("workspace_id", workspace.id)
     .eq("llm_provider_id", provider.id)
-    .gte("date", fromIso)
-    .order("date", { ascending: false });
+    .order("date", { ascending: false })
+    .limit(days);
 
   const rows = trendRows ?? [];
   const mentionsTotal = rows.reduce((acc, row) => acc + (row.brand_mentions_count ?? 0), 0);
@@ -115,6 +116,14 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     .map((r) => (r.avg_position != null ? Math.max(0, 100 - r.avg_position * 8) : 0));
   const consistencySeries = [...rows].reverse().map((r) => r.brand_consistency ?? 0);
 
+  const chartData = [...rows].reverse().map((r) => ({
+    date: r.date,
+    menciones: r.brand_mentions_count ?? null,
+    visibilidad: r.avg_sov ?? null,
+    posicion: r.avg_position ?? null,
+    consistencia: r.brand_consistency ?? null,
+  }));
+
   const { data: recentRuns } = await supabase
     .from("prompt_runs")
     .select("id, status, created_at, completed_at, prompts(text), llm_providers(name)")
@@ -123,7 +132,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     .limit(10);
 
   return (
-    <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
+    <div className="flex-1 overflow-auto min-h-0">
+      <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
       <div>
         <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
         <p className="text-sm text-slate-500 mt-0.5">
@@ -223,6 +233,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         </Card>
       </div>
 
+      <TrendChart data={chartData} />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
           <h2 className="text-sm font-semibold text-slate-700">Tendencia diaria ({days} días)</h2>
@@ -262,8 +274,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                   </td>
                 </tr>
               ) : (
-                rows.map((r) => (
-                  <tr key={r.date} className="hover:bg-slate-50/60">
+                rows.map((r, i) => (
+                  <tr key={`${r.date}-${i}`} className="hover:bg-slate-50/60">
                     <td className="px-4 py-3 text-slate-700">
                       {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
                         day: "2-digit",
@@ -333,6 +345,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

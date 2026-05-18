@@ -65,7 +65,7 @@ export function WizardStepIndicator({ currentStep }: Props) {
 
               {!isLast && (
                 <div
-                  className={`h-0.5 w-16 mx-2 mb-4 transition-colors ${
+                  className={`h-0.5 w-8 sm:w-16 mx-1 sm:mx-2 mb-4 transition-colors ${
                     done ? "bg-indigo-600" : "bg-slate-200"
                   }`}
                 />

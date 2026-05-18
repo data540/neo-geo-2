@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { detectBrands } from "@/lib/detection/detectBrands";
 import { createClient } from "@/lib/supabase/server";
 import { AddCompetitorForm } from "./AddCompetitorForm";
 import { AnalyzeExecutedPromptsButton } from "./AnalyzeExecutedPromptsButton";
@@ -29,6 +31,8 @@ interface MentionRow {
 interface RunRow {
   id: string;
   prompt_id: string;
+  raw_response: string | null;
+  created_at: string;
 }
 
 interface CompetitorPerformanceRow {
@@ -128,6 +132,13 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
 
   const competitors = (competitorsData ?? []) as CompetitorRow[];
 
+  const { data: ownBrandData } = await supabase
+    .from("brands")
+    .select("id, name, aliases")
+    .eq("workspace_id", workspace.id)
+    .eq("type", "own")
+    .maybeSingle();
+
   const { data: suggestions } = await supabase
     .from("competitor_suggestions")
     .select("id, name, created_at")
@@ -144,7 +155,7 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
 
   const { data: completedRunsData } = await supabase
     .from("prompt_runs")
-    .select("id, prompt_id")
+    .select("id, prompt_id, raw_response, created_at")
     .eq("workspace_id", workspace.id)
     .eq("llm_provider_id", provider?.id ?? "")
     .eq("status", "completed")
@@ -162,6 +173,59 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
       .select("prompt_run_id, brand_id, brand_type, position, sentiment, created_at")
       .in("prompt_run_id", runIds);
     mentions = (mentionRows ?? []) as MentionRow[];
+  }
+
+  if (ownBrandData && completedRuns.length > 0 && competitors.length > 0) {
+    const existingMentionKeys = new Set(
+      mentions.map((m) => `${m.prompt_run_id}|${m.brand_type}|${m.brand_id ?? "own"}`)
+    );
+
+    for (const run of completedRuns) {
+      if (!run.raw_response) continue;
+
+      const detection = detectBrands({
+        rawResponse: run.raw_response,
+        ownBrand: {
+          id: ownBrandData.id as string,
+          name: ownBrandData.name as string,
+          aliases: (ownBrandData.aliases as string[] | null) ?? [],
+        },
+        competitors: competitors.map((c) => ({
+          id: c.id,
+          name: c.name,
+          aliases: c.aliases ?? [],
+        })),
+      });
+
+      if (detection.ownBrandMentioned) {
+        const ownKey = `${run.id}|own|${ownBrandData.id}`;
+        if (!existingMentionKeys.has(ownKey)) {
+          mentions.push({
+            prompt_run_id: run.id,
+            brand_id: ownBrandData.id as string,
+            brand_type: "own",
+            position: detection.ownBrandPosition,
+            sentiment: detection.sentiment,
+            created_at: run.created_at,
+          });
+          existingMentionKeys.add(ownKey);
+        }
+      }
+
+      for (const comp of detection.competitors) {
+        const compKey = `${run.id}|competitor|${comp.brandId}`;
+        if (existingMentionKeys.has(compKey)) continue;
+        mentions.push({
+          prompt_run_id: run.id,
+          brand_id: comp.brandId,
+          brand_type: "competitor",
+          position: comp.position,
+          sentiment: comp.sentiment,
+          created_at: run.created_at,
+        });
+        existingMentionKeys.add(compKey);
+      }
+    }
   }
 
   const ownMentions = mentions.filter((m) => m.brand_type === "own").length;
@@ -185,15 +249,17 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
       );
 
       const avgPosition =
-        positions.length > 0 ? round1(positions.reduce((a, b) => a + b, 0) / positions.length) : null;
+        positions.length > 0
+          ? round1(positions.reduce((a, b) => a + b, 0) / positions.length)
+          : null;
       const consistency = totalRuns > 0 ? round1((runIdsSet.size / totalRuns) * 100) : 0;
       const sov = sovPool > 0 ? round1((cMentions.length / sovPool) * 100) : null;
       const sentiment = getDominantSentiment(cMentions.map((m) => m.sentiment));
       const lastSeenAt =
         cMentions.length > 0
-          ? cMentions
+          ? (cMentions
               .map((m) => m.created_at)
-              .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null
+              .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? null)
           : null;
 
       return {
@@ -219,156 +285,202 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Competidores</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Marcas que tu IA monitoriza en las respuestas junto a la tuya.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {LLM_OPTIONS.map((option) => {
-          const isActive = llm === option.key;
-          const href = `/${slug}/competitors?llm=${option.key}`;
-          return (
-            <a
-              key={option.key}
-              href={href}
-              className={[
-                "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                isActive
-                  ? "border-blue-200 bg-blue-50 text-blue-700"
-                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-              ].join(" ")}
-            >
-              {option.label}
-            </a>
-          );
-        })}
-      </div>
-
-      <AddCompetitorForm workspaceId={workspace.id} />
-
-      <AnalyzeExecutedPromptsButton workspaceId={workspace.id} />
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-          <h2 className="text-sm font-semibold text-slate-800">Rendimiento de competidores</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Métricas para <span className="font-medium">{llm}</span> sobre runs completados (
-            {totalRuns}) y ordenadas de mejor a peor posición media.
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Competidores</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Marcas que tu IA monitoriza en las respuestas junto a la tuya.
           </p>
         </div>
 
-        {competitorPerformance.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-400">No hay competidores para analizar.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="text-left px-4 py-3 text-slate-500 font-medium">Competidor</th>
-                  <th className="text-right px-4 py-3 text-slate-500 font-medium">Posición media</th>
-                  <th className="text-right px-4 py-3 text-slate-500 font-medium">SOV</th>
-                  <th className="text-left px-4 py-3 text-slate-500 font-medium">Sentiment</th>
-                  <th className="text-right px-4 py-3 text-slate-500 font-medium">Consistencia</th>
-                  <th className="text-right px-4 py-3 text-slate-500 font-medium">Menciones</th>
-                  <th className="text-right px-4 py-3 text-slate-500 font-medium">Prompts</th>
-                  <th className="text-left px-4 py-3 text-slate-500 font-medium">Última mención</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {competitorPerformance.map((row) => (
-                  <tr key={row.competitorId} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-slate-800">{row.name}</p>
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {row.avgPosition !== null ? row.avgPosition.toFixed(1) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {row.sov !== null ? `${row.sov.toFixed(1)}%` : "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${sentimentClass(row.sentiment)}`}
-                      >
-                        {row.sentiment}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {row.consistency.toFixed(1)}%
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">{row.mentions}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">{row.promptsCovered}</td>
-                    <td className="px-4 py-3 text-slate-500">{formatDate(row.lastSeenAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="flex flex-wrap items-center gap-2">
+          {LLM_OPTIONS.map((option) => {
+            const isActive = llm === option.key;
+            const href = `/${slug}/competitors?llm=${option.key}`;
+            return (
+              <a
+                key={option.key}
+                href={href}
+                className={[
+                  "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                  isActive
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {option.label}
+              </a>
+            );
+          })}
+        </div>
+
+        <AddCompetitorForm workspaceId={workspace.id} />
+
+        <AnalyzeExecutedPromptsButton workspaceId={workspace.id} />
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+            <h2 className="text-sm font-semibold text-slate-800">Rendimiento de competidores</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Métricas para <span className="font-medium">{llm}</span> sobre runs completados (
+              {totalRuns}) y ordenadas de mejor a peor posición media.
+            </p>
           </div>
-        )}
-      </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-          <h2 className="text-sm font-semibold text-slate-800">Sugerencias detectadas por IA</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Se generan a partir de respuestas de LLM. Revisa y aprueba solo las validas.
-          </p>
+          {competitorPerformance.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-slate-400">No hay competidores para analizar.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center">
+                        Competidor
+                        <InfoTooltip content="Marca detectada en las respuestas de la IA." />
+                      </div>
+                    </th>
+                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center justify-end">
+                        Posición media
+                        <InfoTooltip content="Posición promedio de la marca (1 es la mejor posición)." />
+                      </div>
+                    </th>
+                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center justify-end">
+                        SOV
+                        <InfoTooltip content="Cuota de voz: % de menciones de esta marca sobre el total de marcas detectadas." />
+                      </div>
+                    </th>
+                    <th className="text-left px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center">
+                        Sentimiento
+                        <InfoTooltip content="Tono predominante (positivo, neutral o negativo) detectado en las menciones." />
+                      </div>
+                    </th>
+                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center justify-end">
+                        Consistencia
+                        <InfoTooltip content="% de respuestas en las que aparece la marca." />
+                      </div>
+                    </th>
+                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center justify-end">
+                        Menciones
+                        <InfoTooltip content="Número total de veces que se ha detectado la marca." />
+                      </div>
+                    </th>
+                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center justify-end">
+                        Prompts
+                        <InfoTooltip content="Número de prompts únicos donde aparece la marca." />
+                      </div>
+                    </th>
+                    <th className="text-left px-4 py-3 text-slate-500 font-medium">
+                      <div className="flex items-center">
+                        Última mención
+                        <InfoTooltip content="Fecha y hora de la detección más reciente." />
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {competitorPerformance.map((row) => (
+                    <tr key={row.competitorId} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-slate-800">{row.name}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {row.avgPosition !== null ? row.avgPosition.toFixed(1) : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {row.sov !== null ? `${row.sov.toFixed(1)}%` : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${sentimentClass(row.sentiment)}`}
+                        >
+                          {row.sentiment === "positive"
+                            ? "positivo"
+                            : row.sentiment === "neutral"
+                              ? "neutral"
+                              : row.sentiment === "negative"
+                                ? "negativo"
+                                : "sin datos"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {row.consistency.toFixed(1)}%
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">{row.mentions}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{row.promptsCovered}</td>
+                      <td className="px-4 py-3 text-slate-500">{formatDate(row.lastSeenAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
 
-        {!suggestions || suggestions.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-400">No hay sugerencias pendientes.</p>
-        ) : (
-          <ul className="divide-y divide-slate-50">
-            {suggestions.map((s) => (
-              <li key={s.id} className="flex items-center justify-between px-5 py-3 gap-4">
-                <div>
-                  <p className="text-sm font-medium text-slate-800">{s.name}</p>
-                  <p className="text-xs text-slate-400">
-                    Detectado automaticamente en respuestas LLM
-                  </p>
-                </div>
-                <CompetitorSuggestionActions
-                  suggestionId={s.id}
-                  workspaceId={workspace.id}
-                  name={s.name}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
+            <h2 className="text-sm font-semibold text-slate-800">Sugerencias detectadas por IA</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Se generan a partir de respuestas de LLM. Revisa y aprueba solo las validas.
+            </p>
+          </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {!competitors || competitors.length === 0 ? (
-          <p className="px-5 py-10 text-center text-sm text-slate-400">
-            Aún no has añadido competidores.
-          </p>
-        ) : (
-          <ul className="divide-y divide-slate-50">
-            {competitors.map((c) => (
-              <li key={c.id} className="flex items-center justify-between px-5 py-4">
-                <div>
-                  <p className="text-sm font-medium text-slate-800">{c.name}</p>
-                  {c.domain && <p className="text-xs text-slate-400 mt-0.5">{c.domain}</p>}
-                  {Array.isArray(c.aliases) && c.aliases.length > 0 && (
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Alias: {(c.aliases as string[]).join(", ")}
+          {!suggestions || suggestions.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-slate-400">No hay sugerencias pendientes.</p>
+          ) : (
+            <ul className="divide-y divide-slate-50">
+              {suggestions.map((s) => (
+                <li key={s.id} className="flex items-center justify-between px-5 py-3 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{s.name}</p>
+                    <p className="text-xs text-slate-400">
+                      Detectado automaticamente en respuestas LLM
                     </p>
-                  )}
-                </div>
-                <DeleteCompetitorButton
-                  competitorId={c.id}
-                  workspaceId={workspace.id}
-                  name={c.name}
-                />
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+                  </div>
+                  <CompetitorSuggestionActions
+                    suggestionId={s.id}
+                    workspaceId={workspace.id}
+                    name={s.name}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {!competitors || competitors.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-slate-400">
+              Aún no has añadido competidores.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-50">
+              {competitors.map((c) => (
+                <li key={c.id} className="flex items-center justify-between px-5 py-4">
+                  <div>
+                    <p className="text-sm font-medium text-slate-800">{c.name}</p>
+                    {c.domain && <p className="text-xs text-slate-400 mt-0.5">{c.domain}</p>}
+                    {Array.isArray(c.aliases) && c.aliases.length > 0 && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Alias: {(c.aliases as string[]).join(", ")}
+                      </p>
+                    )}
+                  </div>
+                  <DeleteCompetitorButton
+                    competitorId={c.id}
+                    workspaceId={workspace.id}
+                    name={c.name}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );

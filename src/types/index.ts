@@ -86,6 +86,19 @@ export interface LlmProvider {
   enabled: boolean;
 }
 
+export interface WorkspaceLlmConfig {
+  id: string;
+  workspace_id: string;
+  llm_provider_id: string;
+  prompts_per_day: number;
+  enabled: boolean;
+  updated_at: string;
+}
+
+export interface WorkspaceLlmConfigWithProvider extends WorkspaceLlmConfig {
+  llm_providers: Pick<LlmProvider, "key" | "name">;
+}
+
 // ── Prompts ───────────────────────────────────────────────────────────────────
 
 export type PromptStatus = "active" | "paused";

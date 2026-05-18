@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   MessageSquareText,
   Search,
+  Settings,
   ShieldCheck,
   Swords,
   Users,
@@ -27,6 +28,7 @@ const getNavItems = (slug: string) => [
   { href: `/${slug}/sources`, label: "Sources", icon: Globe },
   { href: `/${slug}/competitors`, label: "Competitors", icon: Swords },
   { href: `/${slug}/team`, label: "Team", icon: Users },
+  { href: `/${slug}/settings`, label: "Settings", icon: Settings },
   { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck },
 ];
 

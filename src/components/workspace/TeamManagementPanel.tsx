@@ -8,13 +8,6 @@ import { deleteWorkspaceAction, inviteWorkspaceMemberByEmailAction } from "@/act
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { WorkspaceMemberRole } from "@/types";
 
 interface MemberRow {
@@ -148,22 +141,18 @@ export function TeamManagementPanel({
             />
           </div>
           <div className="space-y-1">
-            <Label>Rol</Label>
-            <Select
+            <Label htmlFor="role">Rol</Label>
+            <select
+              id="role"
               value={role}
-              onValueChange={(value) =>
-                setRole((value as "admin" | "member" | "viewer" | null) ?? "member")
-              }
+              onChange={(e) => setRole(e.target.value as "admin" | "member" | "viewer")}
+              disabled={!canManage || pending}
+              className="flex h-8 w-full items-center rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-slate-800 outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <SelectTrigger disabled={!canManage || pending}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="admin">admin</SelectItem>
-                <SelectItem value="member">member</SelectItem>
-                <SelectItem value="viewer">viewer</SelectItem>
-              </SelectContent>
-            </Select>
+              <option value="admin">Admin</option>
+              <option value="member">Member</option>
+              <option value="viewer">Viewer</option>
+            </select>
           </div>
           <Button
             type="submit"

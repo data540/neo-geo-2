@@ -28,7 +28,8 @@ export default async function PromptResearchPage({ params }: Props) {
   const competitorNames = (competitors ?? []).map((c) => c.name as string);
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="flex-1 overflow-auto min-h-0">
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
       <div>
         <div className="flex items-center gap-2 mb-1">
           <FlaskConical className="w-5 h-5 text-indigo-600" />
@@ -49,6 +50,7 @@ export default async function PromptResearchPage({ params }: Props) {
         country={workspace.country ?? "ES"}
         competitors={competitorNames}
       />
+    </div>
     </div>
   );
 }

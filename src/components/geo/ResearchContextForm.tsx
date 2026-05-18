@@ -47,7 +47,7 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
     <form onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="workspaceId" value={defaultValues.workspaceId} />
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label htmlFor="brandName">Nombre de la marca</Label>
           <Input
@@ -82,7 +82,7 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label htmlFor="country">País</Label>
           <Select name="country" defaultValue={defaultValues.country} disabled={loading}>
