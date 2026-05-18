@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { GeoRecommendation, RecommendationGuide } from "@/types";
 
 interface WorkspaceMetricsSummary {
@@ -180,23 +179,39 @@ Devuelve SOLO el JSON, sin explicaciones adicionales:
 ]`;
 }
 
+type OpenRouterResponse = {
+  choices?: Array<{ message?: { content?: string } }>;
+};
+
 export async function generateRecommendations(input: GenerateInput): Promise<GeoRecommendation[]> {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.OPENROUTER_API_KEY) {
     return getMockRecommendations(input.workspace);
   }
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
   try {
-    const response = await client.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildPrompt(input) }],
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+        "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+      },
+      body: JSON.stringify({
+        model: "anthropic/claude-3.5-haiku",
+        max_tokens: 2048,
+        temperature: 0.3,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: buildPrompt(input) },
+        ],
+      }),
     });
 
-    const firstContent = response.content[0];
-    const rawText = firstContent?.type === "text" ? firstContent.text : "[]";
+    if (!response.ok) return getMockRecommendations(input.workspace);
+
+    const data = (await response.json()) as OpenRouterResponse;
+    const rawText = data.choices?.[0]?.message?.content ?? "[]";
 
     const jsonMatch = rawText.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return getMockRecommendations(input.workspace);

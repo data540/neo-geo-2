@@ -123,7 +123,7 @@ export default async function RecommendationsPage({ params }: Props) {
           workspaceId={workspace.id}
           initialRecommendations={initialRecommendations}
           guides={guides}
-          hasApiKey={!!process.env.ANTHROPIC_API_KEY}
+          hasApiKey={!!process.env.OPENROUTER_API_KEY}
         />
       </div>
     </div>
