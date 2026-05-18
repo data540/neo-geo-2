@@ -12,6 +12,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "seed": "tsx scripts/seed.ts",
     "backfill": "tsx scripts/backfill-daily-metrics.ts",
+    "backfill-costs": "tsx scripts/backfill-costs.ts",
     "run-prompts": "tsx scripts/run-all-prompts.ts"
   },
   "dependencies": {

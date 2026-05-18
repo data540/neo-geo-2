@@ -10,6 +10,7 @@ dotenv.config({ path: ".env" });
 
 // Importamos las funciones del proyecto directamente
 import { detectBrands } from "../src/lib/detection/detectBrands";
+import { estimateCostForModel } from "../src/lib/llm/pricing";
 import { runPrompt } from "../src/lib/llm/runner";
 import { calculateConsistency, calculateSOV } from "../src/lib/metrics/calculate";
 
@@ -141,6 +142,11 @@ async function main() {
       });
 
       // 5c. Guardar respuesta
+      const costUsd = await estimateCostForModel(
+        llmResult.model,
+        llmResult.inputTokens,
+        llmResult.outputTokens
+      );
       await supabase
         .from("prompt_runs")
         .update({
@@ -148,6 +154,7 @@ async function main() {
           model: llmResult.model,
           input_tokens: llmResult.inputTokens ?? null,
           output_tokens: llmResult.outputTokens ?? null,
+          cost_usd: costUsd,
           status: "completed",
           completed_at: new Date().toISOString(),
         })

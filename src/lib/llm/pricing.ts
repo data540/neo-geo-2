@@ -73,6 +73,26 @@ async function loadOpenRouterCatalog(): Promise<Record<string, { input: number; 
   }
 }
 
+function modelVariants(model: string): string[] {
+  const variants: string[] = [model];
+
+  // Strip vendor prefix: "openai/gpt-4.1-nano-2025-04-14" → "gpt-4.1-nano-2025-04-14"
+  const slashIdx = model.indexOf("/");
+  const withoutVendor = slashIdx > -1 ? model.slice(slashIdx + 1) : null;
+  if (withoutVendor) variants.push(withoutVendor);
+
+  // Strip trailing date suffix: "-2025-04-14" or "-20251001" etc.
+  const datePattern = /-\d{4}-\d{2}-\d{2}$|-\d{8}$/;
+  const withoutDate = model.replace(datePattern, "");
+  if (withoutDate !== model) variants.push(withoutDate);
+  if (withoutVendor) {
+    const withoutVendorDate = withoutVendor.replace(datePattern, "");
+    if (withoutVendorDate !== withoutVendor) variants.push(withoutVendorDate);
+  }
+
+  return [...new Set(variants)];
+}
+
 export async function estimateCostForModel(
   model: string,
   inputTokens?: number,
@@ -80,30 +100,21 @@ export async function estimateCostForModel(
 ): Promise<number | null> {
   if (inputTokens === undefined || outputTokens === undefined) return null;
 
-  const staticMatch = STATIC_MODEL_PRICING[model];
-  if (staticMatch) return staticMatch.input * inputTokens + staticMatch.output * outputTokens;
+  const variants = modelVariants(model);
 
-  const slashIndex = model.indexOf("/");
-  if (slashIndex > -1) {
-    const withoutVendor = model.slice(slashIndex + 1);
-    const staticWithoutVendor = STATIC_MODEL_PRICING[withoutVendor];
-    if (staticWithoutVendor) {
-      return staticWithoutVendor.input * inputTokens + staticWithoutVendor.output * outputTokens;
-    }
+  // Try static pricing first (no network)
+  for (const v of variants) {
+    const p = STATIC_MODEL_PRICING[v];
+    if (p) return p.input * inputTokens + p.output * outputTokens;
   }
 
+  // Fall back to OpenRouter catalog
   const catalog = await loadOpenRouterCatalog();
   if (!catalog) return null;
 
-  const pricing = catalog[model];
-  if (pricing) return pricing.input * inputTokens + pricing.output * outputTokens;
-
-  if (slashIndex > -1) {
-    const withoutVendor = model.slice(slashIndex + 1);
-    const pricingWithoutVendor = catalog[withoutVendor];
-    if (pricingWithoutVendor) {
-      return pricingWithoutVendor.input * inputTokens + pricingWithoutVendor.output * outputTokens;
-    }
+  for (const v of variants) {
+    const p = catalog[v];
+    if (p) return p.input * inputTokens + p.output * outputTokens;
   }
 
   return null;
