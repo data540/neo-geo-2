@@ -16,6 +16,8 @@ export interface RunPromptOutput {
   model: string;
   inputTokens?: number;
   outputTokens?: number;
+  /** Cost in USD as reported directly by OpenRouter (upstream_inference_cost) */
+  costUsd?: number;
 }
 
 type OpenRouterResponse = {
@@ -26,6 +28,7 @@ type OpenRouterResponse = {
     completion_tokens?: number;
     input_tokens?: number;
     output_tokens?: number;
+    cost_details?: { upstream_inference_cost?: number };
   };
 };
 
@@ -89,5 +92,6 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
     model: data.model ?? model,
     inputTokens: data.usage?.prompt_tokens ?? data.usage?.input_tokens,
     outputTokens: data.usage?.completion_tokens ?? data.usage?.output_tokens,
+    costUsd: data.usage?.cost_details?.upstream_inference_cost,
   };
 }

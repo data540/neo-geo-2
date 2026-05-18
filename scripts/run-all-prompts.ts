@@ -152,11 +152,9 @@ async function main() {
       });
 
       // 5c. Guardar respuesta
-      const costUsd = await estimateCostForModel(
-        llmResult.model,
-        llmResult.inputTokens,
-        llmResult.outputTokens
-      );
+      const costUsd =
+        llmResult.costUsd ??
+        (await estimateCostForModel(llmResult.model, llmResult.inputTokens, llmResult.outputTokens));
       await supabase
         .from("prompt_runs")
         .update({

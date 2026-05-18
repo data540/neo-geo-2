@@ -158,11 +158,9 @@ export const runPromptManual = inngest.createFunction(
 
     // 4. Guardar raw_response y marcar como completed
     await step.run("save-response", async () => {
-      const estimatedCost = await estimateCostForModel(
-        llmResult.model,
-        llmResult.inputTokens,
-        llmResult.outputTokens
-      );
+      const estimatedCost =
+        llmResult.costUsd ??
+        (await estimateCostForModel(llmResult.model, llmResult.inputTokens, llmResult.outputTokens));
 
       await supabase
         .from("prompt_runs")
