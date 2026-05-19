@@ -114,7 +114,8 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     avgSov: null,
   };
 
-  const rawKpis = (kpis ?? null) as
+  const rawKpisData = Array.isArray(kpis) ? kpis[0] : kpis;
+  const rawKpis = (rawKpisData ?? null) as
     | {
         activePromptsCount?: number;
         brandMentionsCount?: number;
