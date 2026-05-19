@@ -15,4 +15,4 @@ Documento para recopilar ideas de mejora que se pueden tratar en futuras iteraci
 
 - Separar mejoras de gestión de prompts, gestión de workspace, analítica competitiva y colaboración por equipos.
 - Revisar dependencias de base de datos antes de implementar eliminación de workspace o gestión de teams.
-- Definir si la detección automática de competidores debe hacerse desde el texto del prompt, desde la respuesta del LLM o desde ambos.
+- La detección automática de competidores debe hacerse  desde la respuesta del LLM.

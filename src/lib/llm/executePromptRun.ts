@@ -15,6 +15,7 @@ export interface SharedRunContext {
   ownBrand: Pick<Brand, "id" | "name" | "aliases">;
   competitors: Pick<Brand, "id" | "name" | "aliases">[];
   llmProvider: Pick<LlmProvider, "id" | "key">;
+  modelOverride?: string;
 }
 
 function getServiceClient() {
@@ -226,6 +227,15 @@ export async function executePromptRun(runId: string): Promise<void> {
     const ownBrand = (ownBrands ?? [])[0] as Brand | undefined;
     if (!ownBrand) throw new Error("No hay brand propia en el workspace");
 
+    // 3b) Obtener model override de workspace_llm_config si existe
+    const { data: llmCfg } = await supabase
+      .from("workspace_llm_config")
+      .select("model")
+      .eq("workspace_id", run.workspace_id)
+      .eq("llm_provider_id", run.llm_provider_id)
+      .single();
+    const modelOverride = (llmCfg as { model: string | null } | null)?.model ?? undefined;
+
     // 4) Llamar al LLM
     const llmResult = await runPrompt({
       provider: llmProvider.key as LlmProviderKey,
@@ -236,13 +246,13 @@ export async function executePromptRun(runId: string): Promise<void> {
         name: c.name,
         aliases: c.aliases,
       })),
+      modelOverride,
     });
 
-    const estimatedCost = await estimateCostForModel(
-      llmResult.model,
-      llmResult.inputTokens,
-      llmResult.outputTokens
-    );
+    // Preferir coste real de OpenRouter; estimar solo como fallback
+    const estimatedCost =
+      llmResult.costUsd ??
+      (await estimateCostForModel(llmResult.model, llmResult.inputTokens, llmResult.outputTokens));
 
     // 5) Guardar respuesta y marcar como completed
     await supabase
@@ -412,13 +422,13 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
       workspace: { id: ctx.workspace.id, slug: ctx.workspace.slug },
       brand: { name: ctx.ownBrand.name, aliases: ctx.ownBrand.aliases },
       competitors: ctx.competitors.map((c) => ({ name: c.name, aliases: c.aliases })),
+      modelOverride: ctx.modelOverride,
     });
 
-    const estimatedCost = await estimateCostForModel(
-      llmResult.model,
-      llmResult.inputTokens,
-      llmResult.outputTokens
-    );
+    // Preferir coste real de OpenRouter; estimar solo como fallback
+    const estimatedCost =
+      llmResult.costUsd ??
+      (await estimateCostForModel(llmResult.model, llmResult.inputTokens, llmResult.outputTokens));
 
     // 4) Detectar marcas en memoria
     await autoAddCompetitorsFromResponse({
