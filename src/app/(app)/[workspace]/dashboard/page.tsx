@@ -1,6 +1,7 @@
 ﻿import { BarChart3, Eye, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
@@ -57,7 +58,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, name")
+    .select("id, name, slug")
     .eq("slug", slug)
     .single();
 
@@ -134,11 +135,14 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Resumen de visibilidad de {workspace.name} en motores de IA
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Resumen de visibilidad de {workspace.name} en motores de IA
+          </p>
+        </div>
+        <DashboardRefreshButton workspaceId={workspace.id} slug={workspace.slug} llmKey={llm} />
       </div>
 
       <div className="flex items-center gap-2">

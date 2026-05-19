@@ -1,8 +1,8 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
-import { loadGuides } from "@/lib/geo/loadGuides";
 import { generateRecommendations } from "@/lib/geo/generateRecommendations";
+import { buildRetrievalQueries, retrieveRelevantKnowledge } from "@/lib/geo/knowledgeRetrieval";
+import { createClient } from "@/lib/supabase/server";
 import type { ActionResult, GeoRecommendation } from "@/types";
 
 export async function generateRecommendationsAction(
@@ -36,9 +36,7 @@ export async function generateRecommendationsAction(
 
   const { data: metrics } = await supabase
     .from("daily_workspace_metrics")
-    .select(
-      "avg_sov, avg_position, brand_consistency, brand_mentions_count, active_prompts_count"
-    )
+    .select("avg_sov, avg_position, brand_consistency, brand_mentions_count, active_prompts_count")
     .eq("workspace_id", workspaceId)
     .gte("date", since)
     .order("date", { ascending: false });
@@ -46,29 +44,18 @@ export async function generateRecommendationsAction(
   const rows = metrics ?? [];
   const avgSov =
     rows.length > 0
-      ? Math.round(
-          (rows.reduce((a, b) => a + (b.avg_sov ?? 0), 0) / rows.length) * 10
-        ) / 10
+      ? Math.round((rows.reduce((a, b) => a + (b.avg_sov ?? 0), 0) / rows.length) * 10) / 10
       : null;
   const avgPosition =
     rows.length > 0
-      ? Math.round(
-          (rows.reduce((a, b) => a + (b.avg_position ?? 0), 0) / rows.length) *
-            10
-        ) / 10
+      ? Math.round((rows.reduce((a, b) => a + (b.avg_position ?? 0), 0) / rows.length) * 10) / 10
       : null;
   const avgConsistency =
     rows.length > 0
-      ? Math.round(
-          (rows.reduce((a, b) => a + (b.brand_consistency ?? 0), 0) /
-            rows.length) *
-            10
-        ) / 10
+      ? Math.round((rows.reduce((a, b) => a + (b.brand_consistency ?? 0), 0) / rows.length) * 10) /
+        10
       : null;
-  const totalMentions = rows.reduce(
-    (a, b) => a + (b.brand_mentions_count ?? 0),
-    0
-  );
+  const totalMentions = rows.reduce((a, b) => a + (b.brand_mentions_count ?? 0), 0);
   const latestActivePrompts = rows[0]?.active_prompts_count ?? 0;
 
   const { data: promptMetrics } = await supabase
@@ -77,9 +64,7 @@ export async function generateRecommendationsAction(
     .eq("workspace_id", workspaceId)
     .gte("date", since);
 
-  const lowSovCount = (promptMetrics ?? []).filter(
-    (p) => (p.sov ?? 0) < 30
-  ).length;
+  const lowSovCount = (promptMetrics ?? []).filter((p) => (p.sov ?? 0) < 30).length;
 
   const { count: sourcesCount } = await supabase
     .from("sources")
@@ -99,39 +84,36 @@ export async function generateRecommendationsAction(
     .eq("status", "active");
 
   const totalPrompts = promptRows?.length ?? 0;
-  const topCount =
-    promptRows?.filter((p) => p.funnel_stage === "top").length ?? 0;
-  const midCount =
-    promptRows?.filter((p) => p.funnel_stage === "middle").length ?? 0;
-  const bottomCount =
-    promptRows?.filter((p) => p.funnel_stage === "bottom").length ?? 0;
+  const topCount = promptRows?.filter((p) => p.funnel_stage === "top").length ?? 0;
+  const midCount = promptRows?.filter((p) => p.funnel_stage === "middle").length ?? 0;
+  const bottomCount = promptRows?.filter((p) => p.funnel_stage === "bottom").length ?? 0;
 
-  const topPct =
-    totalPrompts > 0 ? Math.round((topCount / totalPrompts) * 100) : 0;
-  const midPct =
-    totalPrompts > 0 ? Math.round((midCount / totalPrompts) * 100) : 0;
-  const bottomPct =
-    totalPrompts > 0 ? Math.round((bottomCount / totalPrompts) * 100) : 0;
+  const topPct = totalPrompts > 0 ? Math.round((topCount / totalPrompts) * 100) : 0;
+  const midPct = totalPrompts > 0 ? Math.round((midCount / totalPrompts) * 100) : 0;
+  const bottomPct = totalPrompts > 0 ? Math.round((bottomCount / totalPrompts) * 100) : 0;
 
-  const guides = loadGuides();
+  const metricsForRetrieval = {
+    brandName: workspace.brand_name,
+    sector: brandProfile?.positioning ?? "aerolínea",
+    country: workspace.country,
+    visibilityPct: avgSov,
+    avgPosition,
+    consistencyPct: avgConsistency,
+    brandMentionsCount: totalMentions,
+    activePromptsCount: latestActivePrompts,
+    topFunnelPct: topPct,
+    midFunnelPct: midPct,
+    bottomFunnelPct: bottomPct,
+    lowSovPromptsCount: lowSovCount,
+    sourcesCount: sourcesCount ?? 0,
+  };
+
+  const queries = buildRetrievalQueries(metricsForRetrieval);
+  const chunks = await retrieveRelevantKnowledge(queries, 4, 10);
 
   const recommendations = await generateRecommendations({
-    workspace: {
-      brandName: workspace.brand_name,
-      sector: brandProfile?.positioning ?? "aerolínea",
-      country: workspace.country,
-      visibilityPct: avgSov,
-      avgPosition,
-      consistencyPct: avgConsistency,
-      brandMentionsCount: totalMentions,
-      activePromptsCount: latestActivePrompts,
-      topFunnelPct: topPct,
-      midFunnelPct: midPct,
-      bottomFunnelPct: bottomPct,
-      lowSovPromptsCount: lowSovCount,
-      sourcesCount: sourcesCount ?? 0,
-    },
-    guides,
+    workspace: metricsForRetrieval,
+    chunks,
   });
 
   return { success: true, data: recommendations };

@@ -12,6 +12,8 @@ pnpm lint:fix     # Biome linter with auto-fix
 pnpm format       # Biome formatter
 pnpm migrate      # Run SQL migrations via pg against DATABASE_URL
 pnpm seed         # Seed Escuela CES workspace (SEED_USER_EMAIL / SEED_USER_PASSWORD env vars)
+pnpm kb:index     # Re-index content/geo-knowledge/ markdown into knowledge_chunks (pgvector RAG)
+pnpm kb:stats     # Show per-file chunk and token stats from knowledge_chunks
 ```
 
 Para el seed con usuario específico:
@@ -58,6 +60,14 @@ Todas las tablas tienen RLS activo. Las funciones helper `is_workspace_member(uu
 ### LLM providers
 `src/lib/llm/runner.ts` despacha a provider según la key. Si no hay API key configurada, usa el mock en `src/lib/llm/mock.ts`. Lo mismo aplica para las funciones GEO: `ANTHROPIC_API_KEY` vacía activa el mock de `getMockCandidates()`.
 
+### Knowledge base RAG (Recomendaciones GEO)
+La feature `/[workspace]/recommendations` usa RAG sobre la knowledge base experta en `content/geo-knowledge/` (vault Obsidian, 155+ notas .md):
+1. **Ingesta** (`pnpm kb:index`): parsea cada `.md`, trocea por headings H2/H3, genera embeddings con `text-embedding-3-small` (1536 dims) y upsertea en `knowledge_chunks` (pgvector). Idempotente: solo procesa lo que cambia (hash sha256 por chunk).
+2. **Retrieval** (`src/lib/geo/knowledgeRetrieval.ts`): a partir de las métricas débiles del workspace construye 1-4 queries en lenguaje natural, las embebe y llama a la RPC `match_knowledge_chunks` (cosine similarity, ivfflat). Top 10 chunks dedup.
+3. **Generación**: `generateRecommendations()` pasa los chunks completos a Claude 3.5 Haiku vía OpenRouter y pide citar `source_file` por recomendación. La UI muestra las fuentes como badges.
+
+Variables: `OPENAI_API_KEY_EMBEDDINGS` (o `OPENAI_API_KEY` como fallback) para indexar y embeber queries.
+
 ### Server Actions
 Todas en `src/actions/`. Patrón obligatorio:
 1. `createClient()` de `@/lib/supabase/server`
@@ -87,9 +97,11 @@ DATABASE_URL          # Para pnpm migrate (contraseña con caracteres especiales
 INNGEST_EVENT_KEY     # "local" en desarrollo
 INNGEST_SIGNING_KEY   # "local" en desarrollo
 OPENAI_API_KEY        # Opcional — sin él usa mock para ChatGPT
+OPENAI_API_KEY_EMBEDDINGS  # Opcional — clave separada para embeddings (fallback a OPENAI_API_KEY)
 ANTHROPIC_API_KEY     # Opcional — sin él usa mock para GEO Research y Claude provider
 GEMINI_API_KEY        # Opcional
 PERPLEXITY_API_KEY    # Opcional
+OPENROUTER_API_KEY    # Opcional — usado por Recomendaciones GEO (Claude 3.5 Haiku)
 ```
 
 ## Base de datos

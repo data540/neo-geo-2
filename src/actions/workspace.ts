@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import { extractBrandProfile } from "@/lib/geo/extractBrandProfile";
 import { executeRunsInBackground } from "@/lib/llm/enqueueWorkspaceRuns";
 import { generateWorkspacePrompts } from "@/lib/llm/generateWorkspacePrompts";
 import { createClient } from "@/lib/supabase/server";
@@ -10,7 +11,7 @@ import {
   inviteWorkspaceMemberSchema,
   removeWorkspaceSchema,
 } from "@/lib/validations/schemas";
-import type { ActionResult } from "@/types";
+import type { ActionResult, ExtractedBrandProfile } from "@/types";
 
 const PROMPTS_PER_WORKSPACE = 10;
 
@@ -179,6 +180,36 @@ export async function createWorkspaceAction(
   }
 
   return { success: true, data: { slug } };
+}
+
+export async function extractBrandProfileAction(
+  workspaceId: string
+): Promise<ActionResult<ExtractedBrandProfile>> {
+  const supabase = await createClient();
+
+  const { data: canManage } = await supabase.rpc("can_manage_workspace", {
+    p_workspace_id: workspaceId,
+  });
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("domain")
+    .eq("id", workspaceId)
+    .single();
+
+  if (!workspace?.domain) {
+    return { success: false, error: "No hay dominio configurado en este workspace" };
+  }
+
+  const extracted = await extractBrandProfile(workspace.domain);
+
+  const allNull = Object.values(extracted).every((v) => v === null);
+  if (allNull) {
+    return { success: false, error: "No se pudo extraer información del sitio web" };
+  }
+
+  return { success: true, data: extracted };
 }
 
 export async function inviteWorkspaceMemberByEmailAction(

@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Obsidian vault metadata (the .md files in content/geo-knowledge/ ARE tracked)
+content/geo-knowledge/.obsidian/
+content/geo-knowledge/.trash/
+content/**/.obsidian/
+content/**/.trash/

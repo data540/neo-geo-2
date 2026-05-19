@@ -1,4 +1,4 @@
-import type { GeoRecommendation, RecommendationGuide } from "@/types";
+import type { GeoRecommendation, RetrievedChunk } from "@/types";
 
 interface WorkspaceMetricsSummary {
   brandName: string;
@@ -18,7 +18,7 @@ interface WorkspaceMetricsSummary {
 
 interface GenerateInput {
   workspace: WorkspaceMetricsSummary;
-  guides: RecommendationGuide[];
+  chunks: RetrievedChunk[];
 }
 
 function getMockRecommendations(w: WorkspaceMetricsSummary): GeoRecommendation[] {
@@ -87,7 +87,8 @@ function getMockRecommendations(w: WorkspaceMetricsSummary): GeoRecommendation[]
   if (w.sourcesCount === 0) {
     recs.push({
       title: "Tu dominio no está siendo citado por los LLMs con búsqueda web",
-      description: "Ningún prompt ha generado una citación de tu dominio. Los LLMs con acceso a web (Perplexity, SearchGPT) no están usando tu web como fuente.",
+      description:
+        "Ningún prompt ha generado una citación de tu dominio. Los LLMs con acceso a web (Perplexity, SearchGPT) no están usando tu web como fuente.",
       priority: "medium",
       category: "sources",
       actionItems: [
@@ -102,7 +103,8 @@ function getMockRecommendations(w: WorkspaceMetricsSummary): GeoRecommendation[]
   if (recs.length === 0) {
     recs.push({
       title: "Métricas estables: mantén el ritmo y optimiza en detalle",
-      description: "Tus métricas están en rangos aceptables. El siguiente nivel es optimización fina: mejorar posición media, aumentar cobertura de prompts y diversificar fuentes.",
+      description:
+        "Tus métricas están en rangos aceptables. El siguiente nivel es optimización fina: mejorar posición media, aumentar cobertura de prompts y diversificar fuentes.",
       priority: "low",
       category: "visibility",
       actionItems: [
@@ -117,18 +119,32 @@ function getMockRecommendations(w: WorkspaceMetricsSummary): GeoRecommendation[]
   return recs;
 }
 
-const SYSTEM_PROMPT = `Eres un experto en GEO (Generative Engine Optimization) — el posicionamiento de marcas en motores de búsqueda basados en IA como ChatGPT, Gemini, Claude y Perplexity.
+const SYSTEM_PROMPT = `Eres un experto senior en GEO (Generative Engine Optimization) — el posicionamiento de marcas en motores de búsqueda basados en IA como ChatGPT, Gemini, Claude y Perplexity.
 
-Tu tarea es analizar los datos de rendimiento de una marca en LLMs y generar recomendaciones accionables y específicas para mejorar su visibilidad, consistencia y posicionamiento.
+Tu tarea es analizar los datos de rendimiento de una marca en LLMs y generar recomendaciones accionables y específicas, fundamentadas en la base de conocimiento experta que se te proporciona en el contexto.
 
-Devuelve SOLO un array JSON válido de recomendaciones. Sin texto adicional, sin markdown, solo el JSON.`;
+Reglas estrictas:
+1. **Cada recomendación debe estar respaldada por al menos una fuente** de la base de conocimiento (campo "sources" con los slugs source_file).
+2. **No inventes tácticas**: si la base de conocimiento no cubre un tema, no des recomendaciones especulativas sobre ese tema.
+3. **Sé específico**: usa los números reales del workspace (SOV, posición, etc.) en las descripciones.
+4. **Acciones concretas**: cada actionItem debe ser ejecutable en <2 semanas. Nada de "mejora tu SEO" — di exactamente qué hacer.
+5. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
 
 function buildPrompt(input: GenerateInput): string {
-  const { workspace: w, guides } = input;
+  const { workspace: w, chunks } = input;
 
-  const guidesText = guides
-    .map((g) => `### ${g.title}\n${g.content.slice(0, 800)}`)
-    .join("\n\n");
+  const knowledgeBlock =
+    chunks.length === 0
+      ? "(No se encontraron fragmentos relevantes en la base de conocimiento. Genera recomendaciones generales basadas solo en las métricas.)"
+      : chunks
+          .map((c, idx) => {
+            const breadcrumb =
+              c.headingPath.length > 0
+                ? `${c.sourceTitle} › ${c.headingPath.join(" › ")}`
+                : c.sourceTitle;
+            return `### Fuente [${idx + 1}] · ${breadcrumb}\n**source_file:** \`${c.sourceFile}\`\n\n${c.content}`;
+          })
+          .join("\n\n---\n\n");
 
   return `# Datos del workspace
 
@@ -150,9 +166,9 @@ País: ${w.country}
 
 ---
 
-# Base de conocimiento GEO
+# Base de conocimiento experta (extractos relevantes)
 
-${guidesText}
+${knowledgeBlock}
 
 ---
 
@@ -161,11 +177,12 @@ ${guidesText}
 Analiza los datos anteriores y genera entre 3 y 6 recomendaciones personalizadas y accionables para mejorar el posicionamiento GEO de esta marca.
 
 Cada recomendación debe incluir:
-- title: título corto y directo (máx 10 palabras)
-- description: explicación en 2-3 frases usando los datos reales del workspace
-- priority: "high" | "medium" | "low"
-- category: "visibility" | "content" | "prompts" | "consistency" | "sources"
-- actionItems: array de 3-5 acciones concretas y específicas
+- **title**: título corto y directo (máx 10 palabras)
+- **description**: explicación en 2-3 frases usando los datos reales del workspace
+- **priority**: "high" | "medium" | "low"
+- **category**: "visibility" | "content" | "prompts" | "consistency" | "sources"
+- **actionItems**: array de 3-5 acciones concretas y específicas
+- **sources**: array de slugs source_file de las fuentes que respaldan esta recomendación (ej: ["${chunks[0]?.sourceFile ?? "ejemplo.md"}"]). Mínimo 1 fuente por recomendación.
 
 Devuelve SOLO el JSON, sin explicaciones adicionales:
 [
@@ -174,7 +191,8 @@ Devuelve SOLO el JSON, sin explicaciones adicionales:
     "description": "...",
     "priority": "high",
     "category": "visibility",
-    "actionItems": ["...", "..."]
+    "actionItems": ["...", "..."],
+    "sources": ["..."]
   }
 ]`;
 }
@@ -199,7 +217,7 @@ export async function generateRecommendations(input: GenerateInput): Promise<Geo
       },
       body: JSON.stringify({
         model: "anthropic/claude-3.5-haiku",
-        max_tokens: 2048,
+        max_tokens: 3000,
         temperature: 0.3,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -217,9 +235,16 @@ export async function generateRecommendations(input: GenerateInput): Promise<Geo
     if (!jsonMatch) return getMockRecommendations(input.workspace);
 
     const parsed = JSON.parse(jsonMatch[0]) as GeoRecommendation[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return getMockRecommendations(input.workspace);
+    if (!Array.isArray(parsed) || parsed.length === 0)
+      return getMockRecommendations(input.workspace);
 
-    return parsed;
+    const validSources = new Set(input.chunks.map((c) => c.sourceFile));
+    return parsed.map((rec) => ({
+      ...rec,
+      sources: Array.isArray(rec.sources)
+        ? rec.sources.filter((s) => typeof s === "string" && validSources.has(s))
+        : [],
+    }));
   } catch {
     return getMockRecommendations(input.workspace);
   }

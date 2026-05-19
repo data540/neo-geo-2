@@ -1,11 +1,19 @@
 "use client";
 
-import { AlertTriangle, BookOpen, ChevronDown, ChevronUp, Loader2, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { generateRecommendationsAction } from "@/actions/recommendations";
 import { Button } from "@/components/ui/button";
-import type { GeoRecommendation, RecommendationGuide } from "@/types";
+import type { GeoRecommendation, RetrievedChunk } from "@/types";
 
 const CATEGORY_LABELS: Record<GeoRecommendation["category"], string> = {
   visibility: "Visibilidad",
@@ -32,16 +40,33 @@ const PRIORITY_STYLES: Record<GeoRecommendation["priority"], { bar: string; labe
 interface Props {
   workspaceId: string;
   initialRecommendations: GeoRecommendation[];
-  guides: RecommendationGuide[];
+  retrievedChunks: RetrievedChunk[];
   hasApiKey: boolean;
 }
 
-function RecommendationCard({ rec }: { rec: GeoRecommendation }) {
+function sourceTitleByFile(chunks: RetrievedChunk[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const c of chunks) {
+    if (!map.has(c.sourceFile)) map.set(c.sourceFile, c.sourceTitle);
+  }
+  return map;
+}
+
+function RecommendationCard({
+  rec,
+  sourceTitles,
+}: {
+  rec: GeoRecommendation;
+  sourceTitles: Map<string, string>;
+}) {
   const [open, setOpen] = useState(false);
   const styles = PRIORITY_STYLES[rec.priority];
+  const sources = rec.sources ?? [];
 
   return (
-    <div className={`bg-white border border-slate-200 rounded-xl border-l-4 ${styles.bar} overflow-hidden`}>
+    <div
+      className={`bg-white border border-slate-200 rounded-xl border-l-4 ${styles.bar} overflow-hidden`}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -49,7 +74,9 @@ function RecommendationCard({ rec }: { rec: GeoRecommendation }) {
       >
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-2 mb-1">
-            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[rec.category]}`}>
+            <span
+              className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_COLORS[rec.category]}`}
+            >
               {CATEGORY_LABELS[rec.category]}
             </span>
             <span className="text-xs text-slate-400">{styles.label}</span>
@@ -65,10 +92,12 @@ function RecommendationCard({ rec }: { rec: GeoRecommendation }) {
       {open && (
         <div className="px-5 pb-4 border-t border-slate-100">
           <p className="text-sm text-slate-700 mt-3 mb-3">{rec.description}</p>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Acciones</p>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+            Acciones
+          </p>
           <ul className="space-y-1.5">
             {rec.actionItems.map((item, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+              <li key={item} className="flex items-start gap-2 text-sm text-slate-700">
                 <span className="shrink-0 w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-xs flex items-center justify-center font-medium mt-0.5">
                   {i + 1}
                 </span>
@@ -76,15 +105,41 @@ function RecommendationCard({ rec }: { rec: GeoRecommendation }) {
               </li>
             ))}
           </ul>
+          {sources.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-slate-100">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                Basado en
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {sources.map((src) => (
+                  <span
+                    key={src}
+                    className="inline-flex items-center gap-1 text-xs bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full"
+                    title={src}
+                  >
+                    <FileText className="w-3 h-3" aria-hidden="true" />
+                    {sourceTitles.get(src) ?? src.replace(/\.md$/, "")}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
-export function RecommendationsPanel({ workspaceId, initialRecommendations, guides, hasApiKey }: Props) {
-  const [recommendations, setRecommendations] = useState<GeoRecommendation[]>(initialRecommendations);
+export function RecommendationsPanel({
+  workspaceId,
+  initialRecommendations,
+  retrievedChunks,
+  hasApiKey,
+}: Props) {
+  const [recommendations, setRecommendations] =
+    useState<GeoRecommendation[]>(initialRecommendations);
   const [pending, startTransition] = useTransition();
+  const sourceTitles = sourceTitleByFile(retrievedChunks);
 
   const highCount = recommendations.filter((r) => r.priority === "high").length;
   const mediumCount = recommendations.filter((r) => r.priority === "medium").length;
@@ -115,8 +170,10 @@ export function RecommendationsPanel({ workspaceId, initialRecommendations, guid
           <div>
             <p className="text-sm font-medium text-amber-800">Sin clave de Anthropic</p>
             <p className="text-xs text-amber-600 mt-0.5">
-              Las recomendaciones son estimaciones basadas en tus métricas. Para recomendaciones personalizadas con IA, añade{" "}
-              <code className="font-mono bg-amber-100 px-1 rounded">ANTHROPIC_API_KEY</code> a tus variables de entorno.
+              Las recomendaciones son estimaciones basadas en tus métricas. Para recomendaciones
+              personalizadas con IA, añade{" "}
+              <code className="font-mono bg-amber-100 px-1 rounded">ANTHROPIC_API_KEY</code> a tus
+              variables de entorno.
             </p>
           </div>
         </div>
@@ -129,10 +186,16 @@ export function RecommendationsPanel({ workspaceId, initialRecommendations, guid
               {recommendations.length} recomendaciones activas
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {highCount > 0 && <span className="text-red-500 font-medium">{highCount} alta prioridad</span>}
+              {highCount > 0 && (
+                <span className="text-red-500 font-medium">{highCount} alta prioridad</span>
+              )}
               {highCount > 0 && mediumCount > 0 && <span className="text-slate-300 mx-1">·</span>}
-              {mediumCount > 0 && <span className="text-amber-500 font-medium">{mediumCount} media</span>}
-              {(highCount > 0 || mediumCount > 0) && lowCount > 0 && <span className="text-slate-300 mx-1">·</span>}
+              {mediumCount > 0 && (
+                <span className="text-amber-500 font-medium">{mediumCount} media</span>
+              )}
+              {(highCount > 0 || mediumCount > 0) && lowCount > 0 && (
+                <span className="text-slate-300 mx-1">·</span>
+              )}
               {lowCount > 0 && <span className="text-green-500 font-medium">{lowCount} baja</span>}
             </p>
           </div>
@@ -153,26 +216,53 @@ export function RecommendationsPanel({ workspaceId, initialRecommendations, guid
       </div>
 
       <div className="space-y-3">
-        {sortedRecs.map((rec, i) => (
-          <RecommendationCard key={i} rec={rec} />
+        {sortedRecs.map((rec) => (
+          <RecommendationCard
+            key={`${rec.priority}-${rec.title}`}
+            rec={rec}
+            sourceTitles={sourceTitles}
+          />
         ))}
       </div>
 
-      {guides.length > 0 && (
+      {retrievedChunks.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <BookOpen className="w-4 h-4 text-slate-400" />
-            <h2 className="text-sm font-semibold text-slate-900">Guías de referencia</h2>
+            <h2 className="text-sm font-semibold text-slate-900">
+              Fuentes consultadas ({retrievedChunks.length})
+            </h2>
           </div>
-          <div className="space-y-3">
-            {guides.map((guide) => (
-              <div key={guide.slug} className="flex flex-col gap-0.5">
-                <p className="text-sm font-medium text-slate-800">{guide.title}</p>
-                {guide.description && (
-                  <p className="text-xs text-slate-500">{guide.description}</p>
-                )}
-              </div>
-            ))}
+          <p className="text-xs text-slate-500 mb-3">
+            Fragmentos de la knowledge base recuperados por relevancia semántica para generar estas
+            recomendaciones.
+          </p>
+          <div className="space-y-2">
+            {retrievedChunks.map((chunk) => {
+              const breadcrumb =
+                chunk.headingPath.length > 0
+                  ? `${chunk.sourceTitle} › ${chunk.headingPath.join(" › ")}`
+                  : chunk.sourceTitle;
+              return (
+                <div
+                  key={chunk.id}
+                  className="flex items-start justify-between gap-3 text-sm py-1.5 border-b border-slate-50 last:border-0"
+                >
+                  <div className="flex items-start gap-2 min-w-0">
+                    <FileText
+                      className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    <span className="text-slate-700 truncate" title={breadcrumb}>
+                      {breadcrumb}
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-400 font-mono shrink-0">
+                    {(chunk.similarity * 100).toFixed(0)}%
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

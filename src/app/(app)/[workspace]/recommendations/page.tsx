@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { loadGuides } from "@/lib/geo/loadGuides";
-import { generateRecommendations } from "@/lib/geo/generateRecommendations";
 import { RecommendationsPanel } from "@/components/workspace/RecommendationsPanel";
+import { generateRecommendations } from "@/lib/geo/generateRecommendations";
+import { buildRetrievalQueries, retrieveRelevantKnowledge } from "@/lib/geo/knowledgeRetrieval";
+import { createClient } from "@/lib/supabase/server";
 
 interface Props {
   params: Promise<{ workspace: string }>;
@@ -54,7 +54,8 @@ export default async function RecommendationsPage({ params }: Props) {
       : null;
   const avgConsistency =
     rows.length > 0
-      ? Math.round((rows.reduce((a, b) => a + (b.brand_consistency ?? 0), 0) / rows.length) * 10) / 10
+      ? Math.round((rows.reduce((a, b) => a + (b.brand_consistency ?? 0), 0) / rows.length) * 10) /
+        10
       : null;
   const totalMentions = rows.reduce((a, b) => a + (b.brand_mentions_count ?? 0), 0);
   const latestActivePrompts = rows[0]?.active_prompts_count ?? 0;
@@ -84,29 +85,49 @@ export default async function RecommendationsPage({ params }: Props) {
     .eq("status", "active");
 
   const totalPrompts = promptRows?.length ?? 0;
-  const topPct = totalPrompts > 0 ? Math.round(((promptRows?.filter((p) => p.funnel_stage === "top").length ?? 0) / totalPrompts) * 100) : 0;
-  const midPct = totalPrompts > 0 ? Math.round(((promptRows?.filter((p) => p.funnel_stage === "middle").length ?? 0) / totalPrompts) * 100) : 0;
-  const bottomPct = totalPrompts > 0 ? Math.round(((promptRows?.filter((p) => p.funnel_stage === "bottom").length ?? 0) / totalPrompts) * 100) : 0;
+  const topPct =
+    totalPrompts > 0
+      ? Math.round(
+          ((promptRows?.filter((p) => p.funnel_stage === "top").length ?? 0) / totalPrompts) * 100
+        )
+      : 0;
+  const midPct =
+    totalPrompts > 0
+      ? Math.round(
+          ((promptRows?.filter((p) => p.funnel_stage === "middle").length ?? 0) / totalPrompts) *
+            100
+        )
+      : 0;
+  const bottomPct =
+    totalPrompts > 0
+      ? Math.round(
+          ((promptRows?.filter((p) => p.funnel_stage === "bottom").length ?? 0) / totalPrompts) *
+            100
+        )
+      : 0;
 
-  const guides = loadGuides();
+  const metricsForRetrieval = {
+    brandName: workspace.brand_name,
+    sector: brandProfile?.positioning ?? "aerolínea",
+    country: workspace.country,
+    visibilityPct: avgSov,
+    avgPosition,
+    consistencyPct: avgConsistency,
+    brandMentionsCount: totalMentions,
+    activePromptsCount: latestActivePrompts,
+    topFunnelPct: topPct,
+    midFunnelPct: midPct,
+    bottomFunnelPct: bottomPct,
+    lowSovPromptsCount: lowSovCount,
+    sourcesCount: sourcesCount ?? 0,
+  };
+
+  const queries = buildRetrievalQueries(metricsForRetrieval);
+  const chunks = await retrieveRelevantKnowledge(queries, 4, 10);
 
   const initialRecommendations = await generateRecommendations({
-    workspace: {
-      brandName: workspace.brand_name,
-      sector: brandProfile?.positioning ?? "aerolínea",
-      country: workspace.country,
-      visibilityPct: avgSov,
-      avgPosition,
-      consistencyPct: avgConsistency,
-      brandMentionsCount: totalMentions,
-      activePromptsCount: latestActivePrompts,
-      topFunnelPct: topPct,
-      midFunnelPct: midPct,
-      bottomFunnelPct: bottomPct,
-      lowSovPromptsCount: lowSovCount,
-      sourcesCount: sourcesCount ?? 0,
-    },
-    guides,
+    workspace: metricsForRetrieval,
+    chunks,
   });
 
   return (
@@ -115,14 +136,16 @@ export default async function RecommendationsPage({ params }: Props) {
         <div>
           <h1 className="text-xl font-bold text-slate-900">Recomendaciones GEO</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Acciones para mejorar la visibilidad de <span className="font-medium text-slate-700">{workspace.brand_name}</span> en motores de búsqueda de IA.
+            Acciones para mejorar la visibilidad de{" "}
+            <span className="font-medium text-slate-700">{workspace.brand_name}</span> en motores de
+            búsqueda de IA.
           </p>
         </div>
 
         <RecommendationsPanel
           workspaceId={workspace.id}
           initialRecommendations={initialRecommendations}
-          guides={guides}
+          retrievedChunks={chunks}
           hasApiKey={!!process.env.OPENROUTER_API_KEY}
         />
       </div>

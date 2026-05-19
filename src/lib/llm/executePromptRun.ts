@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { revalidatePath } from "next/cache";
 import {
   detectBrands,
   extractPotentialCompetitorsFromResponse,
@@ -7,6 +8,7 @@ import {
 import { extractSourcesFromResponse } from "@/lib/detection/extractSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
+import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProvider, LlmProviderKey, Workspace } from "@/types";
 import { runPrompt } from "./runner";
 
@@ -23,54 +25,6 @@ function getServiceClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
-  );
-}
-
-async function upsertDailyWorkspaceMetricsFromPromptMetrics(params: {
-  supabase: ReturnType<typeof getServiceClient>;
-  workspaceId: string;
-  llmProviderId: string;
-  date: string;
-}) {
-  const { supabase, workspaceId, llmProviderId, date } = params;
-
-  const { data: metrics } = await supabase
-    .from("daily_prompt_metrics")
-    .select("brand_mentioned, brand_position, sov, consistency_score")
-    .eq("workspace_id", workspaceId)
-    .eq("llm_provider_id", llmProviderId)
-    .eq("date", date);
-
-  const rows = metrics ?? [];
-  if (rows.length === 0) return;
-
-  const activePrompts = rows.length;
-  const brandMentions = rows.filter((m) => m.brand_mentioned).length;
-  const positions = rows
-    .filter((m) => m.brand_mentioned && m.brand_position !== null)
-    .map((m) => m.brand_position as number);
-  const avgPosition = positions.length
-    ? Math.round((positions.reduce((a, b) => a + b, 0) / positions.length) * 10) / 10
-    : null;
-  const consistencyHigh = rows.filter((m) => (m.consistency_score ?? 0) >= 70).length;
-  const brandConsistency = Math.round((consistencyHigh / activePrompts) * 1000) / 10;
-  const sovValues = rows.filter((m) => m.sov !== null).map((m) => m.sov as number);
-  const avgSov = sovValues.length
-    ? Math.round((sovValues.reduce((a, b) => a + b, 0) / sovValues.length) * 10) / 10
-    : null;
-
-  await supabase.from("daily_workspace_metrics").upsert(
-    {
-      workspace_id: workspaceId,
-      llm_provider_id: llmProviderId,
-      date,
-      active_prompts_count: activePrompts,
-      brand_mentions_count: brandMentions,
-      avg_position: avgPosition,
-      brand_consistency: brandConsistency,
-      avg_sov: avgSov,
-    },
-    { onConflict: "workspace_id,llm_provider_id,date" }
   );
 }
 
@@ -366,12 +320,14 @@ export async function executePromptRun(runId: string): Promise<void> {
     );
 
     if (run.llm_provider_id) {
-      await upsertDailyWorkspaceMetricsFromPromptMetrics({
+      await upsertDailyWorkspaceMetrics({
         supabase,
         workspaceId: run.workspace_id,
         llmProviderId: run.llm_provider_id,
         date: today,
       });
+      revalidatePath(`/${(workspace as { slug: string }).slug}/dashboard`);
+      revalidatePath(`/${(workspace as { slug: string }).slug}/prompts`);
     }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
@@ -519,12 +475,42 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
       ),
     ]);
 
-    await upsertDailyWorkspaceMetricsFromPromptMetrics({
+    // Calcular consistency_score real basado en los últimos 5 runs
+    const recentRuns = await supabase
+      .from("prompt_runs")
+      .select("id")
+      .eq("prompt_id", run.prompt_id)
+      .eq("llm_provider_id", ctx.llmProvider.id)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(5);
+    const recentRunIds = (recentRuns.data ?? []).map((r) => r.id as string);
+    let mentionCount = 0;
+    if (recentRunIds.length > 0) {
+      const { count } = await supabase
+        .from("mentions")
+        .select("*", { count: "exact", head: true })
+        .in("prompt_run_id", recentRunIds)
+        .eq("brand_type", "own");
+      mentionCount = count ?? 0;
+    }
+    const consistencyScore = calculateConsistency(mentionCount, recentRunIds.length || 1);
+    await supabase
+      .from("daily_prompt_metrics")
+      .update({ consistency_score: consistencyScore })
+      .eq("prompt_id", run.prompt_id)
+      .eq("llm_provider_id", ctx.llmProvider.id)
+      .eq("date", today);
+
+    await upsertDailyWorkspaceMetrics({
       supabase,
       workspaceId: ctx.workspace.id,
       llmProviderId: ctx.llmProvider.id,
       date: today,
     });
+
+    revalidatePath(`/${ctx.workspace.slug}/dashboard`);
+    revalidatePath(`/${ctx.workspace.slug}/prompts`);
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error(`[executePromptRunFast] run ${runId} failed:`, errMsg);

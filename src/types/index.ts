@@ -332,6 +332,7 @@ export interface GeoRecommendation {
   priority: "high" | "medium" | "low";
   category: "visibility" | "content" | "prompts" | "consistency" | "sources";
   actionItems: string[];
+  sources?: string[];
 }
 
 export interface RecommendationGuide {
@@ -339,6 +340,38 @@ export interface RecommendationGuide {
   title: string;
   description: string;
   content: string;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  source_file: string;
+  source_title: string;
+  heading_path: string[];
+  content: string;
+  content_hash: string;
+  tags: string[];
+  category: string | null;
+  token_count: number;
+}
+
+export interface RetrievedChunk {
+  id: string;
+  sourceFile: string;
+  sourceTitle: string;
+  headingPath: string[];
+  content: string;
+  tags: string[];
+  similarity: number;
+}
+
+// ── Brand profile extraction ──────────────────────────────────────────────────
+
+export interface ExtractedBrandProfile {
+  extractedSummary: string | null;
+  positioning: string | null;
+  audience: string | null;
+  productsServices: string | null;
+  differentiators: string | null;
 }
 
 // ── Action results ────────────────────────────────────────────────────────────
