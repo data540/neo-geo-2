@@ -34,7 +34,13 @@ const METRICS: {
   yAxisId: string;
 }[] = [
   { key: "menciones", label: "Menciones de marca", color: "#22c55e", unit: "", yAxisId: "left" },
-  { key: "visibilidad", label: "Visibilidad (SOV %)", color: "#6366f1", unit: "%", yAxisId: "right" },
+  {
+    key: "visibilidad",
+    label: "Visibilidad (SOV %)",
+    color: "#6366f1",
+    unit: "%",
+    yAxisId: "right",
+  },
   { key: "posicion", label: "Posición media", color: "#f59e0b", unit: "", yAxisId: "right" },
   { key: "consistencia", label: "Consistencia (%)", color: "#a855f7", unit: "%", yAxisId: "right" },
 ];

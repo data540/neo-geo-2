@@ -167,6 +167,13 @@ export interface PromptRun {
   created_at: string;
 }
 
+export type MentionType =
+  | "primary_recommendation"
+  | "list_option"
+  | "comparison"
+  | "general_mention"
+  | "warning";
+
 export interface Mention {
   id: string;
   workspace_id: string;
@@ -176,6 +183,7 @@ export interface Mention {
   brand_type: BrandType | null;
   position: number | null;
   sentiment: Sentiment | null;
+  mention_type: MentionType | null;
   confidence: number;
   created_at: string;
 }
@@ -262,6 +270,50 @@ export interface WorkspaceKpis {
   avgPosition: number | null;
   brandConsistency: number;
   avgSov: number | null;
+}
+
+// ── Dashboard analytics (RPC outputs) ─────────────────────────────────────────
+
+export interface MarketShareEntry {
+  brandId: string;
+  brandName: string;
+  brandDomain: string | null;
+  brandType: BrandType;
+  mentionsCount: number;
+  sharePct: number;
+}
+
+export interface MentionBreakdownEntry {
+  mentionType: MentionType;
+  count: number;
+  pct: number;
+}
+
+export interface TopCompetitorEntry {
+  competitorId: string;
+  competitorName: string;
+  competitorDomain: string | null;
+  mentionsCount: number;
+  sharePct: number;
+  trendPct: number | null;
+}
+
+export interface SourceRankingEntry {
+  domain: string;
+  citationsCount: number;
+  pctOfRuns: number;
+}
+
+export interface LlmComparisonRow {
+  llmKey: LlmProviderKey;
+  llmName: string;
+  visibilityPct: number;
+  sovPct: number;
+  avgRank: number | null;
+  topCompetitorName: string | null;
+  topCompetitorSov: number;
+  avgSentiment: number | null;
+  totalRuns: number;
 }
 
 // ── GEO Research ──────────────────────────────────────────────────────────────

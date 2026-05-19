@@ -14,6 +14,7 @@ pnpm migrate      # Run SQL migrations via pg against DATABASE_URL
 pnpm seed         # Seed Escuela CES workspace (SEED_USER_EMAIL / SEED_USER_PASSWORD env vars)
 pnpm kb:index     # Re-index content/geo-knowledge/ markdown into knowledge_chunks (pgvector RAG)
 pnpm kb:stats     # Show per-file chunk and token stats from knowledge_chunks
+pnpm backfill:mentions  # Re-clasifica mentions sin mention_type usando classifyMentionType()
 ```
 
 Para el seed con usuario específico:
@@ -59,6 +60,18 @@ Todas las tablas tienen RLS activo. Las funciones helper `is_workspace_member(uu
 
 ### LLM providers
 `src/lib/llm/runner.ts` despacha a provider según la key. Si no hay API key configurada, usa el mock en `src/lib/llm/mock.ts`. Lo mismo aplica para las funciones GEO: `ANTHROPIC_API_KEY` vacía activa el mock de `getMockCandidates()`.
+
+### Dashboard analytics (5 paneles + Export Excel)
+La página `/[workspace]/dashboard` consume 5 RPCs en paralelo (migración `0016_dashboard_charts.sql`):
+- `get_workspace_market_share(slug, days, llm_key)` → donut `MarketShareDonut` (own brand + competidores normalizados)
+- `get_workspace_mention_breakdown(slug, days, llm_key)` → `MentionBreakdownPanel` (clasificación por `mention_type` enum: primary_recommendation, list_option, comparison, general_mention, warning)
+- `get_workspace_top_competitors(slug, days, limit, llm_key)` → `TopCompetitorsPanel` con trend vs período anterior
+- `get_workspace_top_sources(slug, days, limit, llm_key)` → `SourcePowerRanking` (dominios cited_by_llm en `sources`)
+- `get_workspace_llm_comparison(slug, days)` → `LlmComparisonTable` (siempre global, sin filtro por LLM)
+
+La columna `mentions.mention_type` se rellena en runtime por `classifyMentionType()` en `src/lib/detection/detectBrands.ts` (heurística + regex; orden de prioridad warning > primary > comparison > list > general). Para datos anteriores a la migración: `pnpm backfill:mentions`.
+
+Export Excel multi-hoja vía `ExportDashboardButton` → `exportDashboardAction` (en `src/actions/dashboard-export.ts`) usa `xlsx` para componer 7 hojas (Resumen, Market Share, Tipos de mención, Top Competidores, Top Sources, Comparación LLMs, Tendencia diaria) y devolver base64 al cliente para descarga directa.
 
 ### Knowledge base RAG (Recomendaciones GEO)
 La feature `/[workspace]/recommendations` usa RAG sobre la knowledge base experta en `content/geo-knowledge/` (vault Obsidian, 155+ notas .md):

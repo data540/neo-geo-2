@@ -2,9 +2,24 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
+import { ExportDashboardButton } from "@/components/dashboard/ExportDashboardButton";
+import { LlmComparisonTable } from "@/components/dashboard/LlmComparisonTable";
+import { MarketShareDonut } from "@/components/dashboard/MarketShareDonut";
+import { MentionBreakdownPanel } from "@/components/dashboard/MentionBreakdownPanel";
+import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
+import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
+import type {
+  LlmComparisonRow,
+  LlmProviderKey,
+  MarketShareEntry,
+  MentionBreakdownEntry,
+  MentionType,
+  SourceRankingEntry,
+  TopCompetitorEntry,
+} from "@/types";
 
 interface Props {
   params: Promise<{ workspace: string }>;
@@ -37,7 +52,13 @@ function Sparkline({ values, colorClass }: { values: number[]; colorClass: strin
     <div className="mt-2">
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-10">
         {path ? (
-          <path d={path} fill="none" stroke="currentColor" strokeWidth="2.2" className={colorClass} />
+          <path
+            d={path}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            className={colorClass}
+          />
         ) : (
           <line x1="0" y1={height / 2} x2={width} y2={height / 2} className={colorClass} />
         )}
@@ -58,7 +79,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, name, slug")
+    .select("id, name, slug, brand_name")
     .eq("slug", slug)
     .single();
 
@@ -94,7 +115,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         10
       : null;
 
-  const visibilityValues = rows.map((r) => r.avg_sov).filter((v): v is number => typeof v === "number");
+  const visibilityValues = rows
+    .map((r) => r.avg_sov)
+    .filter((v): v is number => typeof v === "number");
   const visibility =
     visibilityValues.length > 0
       ? Math.round((visibilityValues.reduce((a, b) => a + b, 0) / visibilityValues.length) * 10) /
@@ -132,224 +155,353 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     .order("created_at", { ascending: false })
     .limit(10);
 
+  // ── Dashboard analytics (RPC parallel fetch) ──────────────────────────────
+  type MarketShareRow = {
+    brand_id: string;
+    brand_name: string;
+    brand_domain: string | null;
+    brand_type: "own" | "competitor";
+    mentions_count: number;
+    share_pct: number;
+  };
+  type BreakdownRow = { mention_type: MentionType; count: number; pct: number };
+  type CompetitorRow = {
+    competitor_id: string;
+    competitor_name: string;
+    competitor_domain: string | null;
+    mentions_count: number;
+    share_pct: number;
+    trend_pct: number | null;
+  };
+  type SourceRow = { domain: string; citations_count: number; pct_of_runs: number };
+  type LlmRow = {
+    llm_key: LlmProviderKey;
+    llm_name: string;
+    visibility_pct: number;
+    sov_pct: number;
+    avg_rank: number | null;
+    top_competitor_name: string | null;
+    top_competitor_sov: number;
+    avg_sentiment: number | null;
+    total_runs: number;
+  };
+
+  const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llm }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llm }),
+    supabase.rpc("get_workspace_top_competitors", {
+      workspace_slug: slug,
+      days,
+      limit_n: 5,
+      llm_key: llm,
+    }),
+    supabase.rpc("get_workspace_top_sources", {
+      workspace_slug: slug,
+      days,
+      limit_n: 5,
+      llm_key: llm,
+    }),
+    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days }),
+  ]);
+
+  const marketShare: MarketShareEntry[] = ((marketShareRes.data ?? []) as MarketShareRow[]).map(
+    (r) => ({
+      brandId: r.brand_id,
+      brandName: r.brand_name,
+      brandDomain: r.brand_domain,
+      brandType: r.brand_type,
+      mentionsCount: Number(r.mentions_count),
+      sharePct: Number(r.share_pct),
+    })
+  );
+  const breakdown: MentionBreakdownEntry[] = ((breakdownRes.data ?? []) as BreakdownRow[]).map(
+    (r) => ({
+      mentionType: r.mention_type,
+      count: Number(r.count),
+      pct: Number(r.pct),
+    })
+  );
+  const topCompetitors: TopCompetitorEntry[] = ((competitorsRes.data ?? []) as CompetitorRow[]).map(
+    (r) => ({
+      competitorId: r.competitor_id,
+      competitorName: r.competitor_name,
+      competitorDomain: r.competitor_domain,
+      mentionsCount: Number(r.mentions_count),
+      sharePct: Number(r.share_pct),
+      trendPct: r.trend_pct !== null ? Number(r.trend_pct) : null,
+    })
+  );
+  const topSources: SourceRankingEntry[] = ((sourcesRes.data ?? []) as SourceRow[]).map((r) => ({
+    domain: r.domain,
+    citationsCount: Number(r.citations_count),
+    pctOfRuns: Number(r.pct_of_runs),
+  }));
+  const llmComparison: LlmComparisonRow[] = ((llmRes.data ?? []) as LlmRow[]).map((r) => ({
+    llmKey: r.llm_key,
+    llmName: r.llm_name,
+    visibilityPct: Number(r.visibility_pct),
+    sovPct: Number(r.sov_pct),
+    avgRank: r.avg_rank !== null ? Number(r.avg_rank) : null,
+    topCompetitorName: r.top_competitor_name,
+    topCompetitorSov: Number(r.top_competitor_sov),
+    avgSentiment: r.avg_sentiment !== null ? Number(r.avg_sentiment) : null,
+    totalRuns: Number(r.total_runs),
+  }));
+
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Resumen de visibilidad de {workspace.name} en motores de IA
-          </p>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Resumen de visibilidad de {workspace.name} en motores de IA
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <ExportDashboardButton workspaceSlug={slug} days={days} llmKey={llm} />
+            <DashboardRefreshButton workspaceId={workspace.id} slug={workspace.slug} llmKey={llm} />
+          </div>
         </div>
-        <DashboardRefreshButton workspaceId={workspace.id} slug={workspace.slug} llmKey={llm} />
-      </div>
 
-      <div className="flex items-center gap-2">
-        {[7, 30, 90].map((d) => {
-          const active = days === d;
-          return (
-            <Link
-              key={d}
-              href={`/${slug}/dashboard?llm=${llm}&range=${d}`}
-              className={[
-                "px-3 py-1.5 rounded-full border text-xs font-medium transition-colors",
-                active
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
-              ].join(" ")}
-            >
-              {d}D
-            </Link>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border border-slate-200 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Visibilidad</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1.5">
-                  {visibility != null ? `${visibility}%` : "—"}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-              </div>
-              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-slate-600" />
-              </div>
-            </div>
-            <Sparkline values={visibilitySeries} colorClass="text-indigo-500" />
-          </CardContent>
-        </Card>
-
-        <Card className="border border-slate-200 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Menciones de marca
-                </p>
-                <p className="text-3xl font-bold text-slate-900 mt-1.5">{mentionsTotal}</p>
-                <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-              </div>
-              <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center">
-                <Eye className="w-4 h-4 text-green-600" />
-              </div>
-            </div>
-            <Sparkline values={mentionsSeries} colorClass="text-green-500" />
-          </CardContent>
-        </Card>
-
-        <Card className="border border-slate-200 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Posición media</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1.5">
-                  {avgPosition != null ? `#${avgPosition}` : "—"}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-              </div>
-              <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center">
-                <Target className="w-4 h-4 text-indigo-600" />
-              </div>
-            </div>
-            <Sparkline values={avgPositionSeries} colorClass="text-blue-500" />
-          </CardContent>
-        </Card>
-
-        <Card className="border border-slate-200 shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Consistencia</p>
-                <p className="text-3xl font-bold text-slate-900 mt-1.5">{consistency}%</p>
-                <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-              </div>
-              <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center">
-                <BarChart3 className="w-4 h-4 text-purple-600" />
-              </div>
-            </div>
-            <Sparkline values={consistencySeries} colorClass="text-purple-500" />
-          </CardContent>
-        </Card>
-      </div>
-
-      <TrendChart data={chartData} />
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-semibold text-slate-700">Tendencia diaria ({days} días)</h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Un registro por día y motor IA en <code>daily_workspace_metrics</code>.
-          </p>
+        <div className="flex items-center gap-2">
+          {[7, 30, 90].map((d) => {
+            const active = days === d;
+            return (
+              <Link
+                key={d}
+                href={`/${slug}/dashboard?llm=${llm}&range=${d}`}
+                className={[
+                  "px-3 py-1.5 rounded-full border text-xs font-medium transition-colors",
+                  active
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {d}D
+              </Link>
+            );
+          })}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Fecha
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Prompts activos
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Menciones
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Posición media
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Visibilidad (SOV)
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Consistencia
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {rows.length === 0 ? (
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="border border-slate-200 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Visibilidad
+                  </p>
+                  <p className="text-3xl font-bold text-slate-900 mt-1.5">
+                    {visibility != null ? `${visibility}%` : "—"}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4 text-slate-600" />
+                </div>
+              </div>
+              <Sparkline values={visibilitySeries} colorClass="text-indigo-500" />
+            </CardContent>
+          </Card>
+
+          <Card className="border border-slate-200 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Menciones de marca
+                  </p>
+                  <p className="text-3xl font-bold text-slate-900 mt-1.5">{mentionsTotal}</p>
+                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center">
+                  <Eye className="w-4 h-4 text-green-600" />
+                </div>
+              </div>
+              <Sparkline values={mentionsSeries} colorClass="text-green-500" />
+            </CardContent>
+          </Card>
+
+          <Card className="border border-slate-200 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Posición media
+                  </p>
+                  <p className="text-3xl font-bold text-slate-900 mt-1.5">
+                    {avgPosition != null ? `#${avgPosition}` : "—"}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center">
+                  <Target className="w-4 h-4 text-indigo-600" />
+                </div>
+              </div>
+              <Sparkline values={avgPositionSeries} colorClass="text-blue-500" />
+            </CardContent>
+          </Card>
+
+          <Card className="border border-slate-200 shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Consistencia
+                  </p>
+                  <p className="text-3xl font-bold text-slate-900 mt-1.5">{consistency}%</p>
+                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
+                </div>
+                <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center">
+                  <BarChart3 className="w-4 h-4 text-purple-600" />
+                </div>
+              </div>
+              <Sparkline values={consistencySeries} colorClass="text-purple-500" />
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <MarketShareDonut data={marketShare} ownBrandName={workspace.brand_name} />
+          <MentionBreakdownPanel data={breakdown} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TopCompetitorsPanel data={topCompetitors} />
+          <SourcePowerRanking data={topSources} />
+        </div>
+
+        <LlmComparisonTable
+          rows={llmComparison}
+          workspaceSlug={slug}
+          range={days}
+          activeLlmKey={llm}
+        />
+
+        <TrendChart data={chartData} />
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h2 className="text-sm font-semibold text-slate-700">Tendencia diaria ({days} días)</h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Un registro por día y motor IA en <code>daily_workspace_metrics</code>.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-200">
                 <tr>
-                  <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
-                    No hay registros diarios en este rango.
-                  </td>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Fecha
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Prompts activos
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Menciones
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Posición media
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Visibilidad (SOV)
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Consistencia
+                  </th>
                 </tr>
-              ) : (
-                rows.map((r, i) => (
-                  <tr key={`${r.date}-${i}`} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-3 text-slate-700">
-                      {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">{r.active_prompts_count ?? 0}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">{r.brand_mentions_count ?? 0}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {r.avg_position != null ? `#${r.avg_position}` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {r.avg_sov != null ? `${r.avg_sov}%` : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-700">
-                      {r.brand_consistency != null ? `${r.brand_consistency}%` : "—"}
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
+                      No hay registros diarios en este rango.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  rows.map((r, i) => (
+                    <tr key={`${r.date}-${i}`} className="hover:bg-slate-50/60">
+                      <td className="px-4 py-3 text-slate-700">
+                        {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {r.active_prompts_count ?? 0}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {r.brand_mentions_count ?? 0}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {r.avg_position != null ? `#${r.avg_position}` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {r.avg_sov != null ? `${r.avg_sov}%` : "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {r.brand_consistency != null ? `${r.brand_consistency}%` : "—"}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h2 className="text-sm font-semibold text-slate-700">Últimas ejecuciones</h2>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {!recentRuns || recentRuns.length === 0 ? (
+              <p className="px-5 py-8 text-sm text-slate-400 text-center">
+                Aún no hay ejecuciones. Ejecuta un prompt desde la vista de Prompts.
+              </p>
+            ) : (
+              recentRuns.map((run) => {
+                const prompt = run.prompts as unknown as { text: string } | null;
+                const providerRow = run.llm_providers as unknown as { name: string } | null;
+                const statusColor =
+                  run.status === "completed"
+                    ? "text-green-600 bg-green-50"
+                    : run.status === "failed"
+                      ? "text-red-600 bg-red-50"
+                      : run.status === "running"
+                        ? "text-blue-600 bg-blue-50"
+                        : "text-slate-500 bg-slate-100";
+
+                return (
+                  <div key={run.id} className="px-5 py-3 flex items-center gap-4">
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded flex-shrink-0 ${statusColor}`}
+                    >
+                      {run.status}
+                    </span>
+                    <span className="text-sm text-slate-700 flex-1 truncate">
+                      {prompt?.text ?? "—"}
+                    </span>
+                    <span className="text-xs text-slate-400 flex-shrink-0">
+                      {providerRow?.name ?? "—"}
+                    </span>
+                    <span className="text-xs text-slate-400 flex-shrink-0">
+                      {new Date(run.created_at).toLocaleString("es-ES", {
+                        day: "2-digit",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="text-sm font-semibold text-slate-700">Últimas ejecuciones</h2>
-        </div>
-        <div className="divide-y divide-slate-50">
-          {!recentRuns || recentRuns.length === 0 ? (
-            <p className="px-5 py-8 text-sm text-slate-400 text-center">
-              Aún no hay ejecuciones. Ejecuta un prompt desde la vista de Prompts.
-            </p>
-          ) : (
-            recentRuns.map((run) => {
-              const prompt = run.prompts as unknown as { text: string } | null;
-              const providerRow = run.llm_providers as unknown as { name: string } | null;
-              const statusColor =
-                run.status === "completed"
-                  ? "text-green-600 bg-green-50"
-                  : run.status === "failed"
-                    ? "text-red-600 bg-red-50"
-                    : run.status === "running"
-                      ? "text-blue-600 bg-blue-50"
-                      : "text-slate-500 bg-slate-100";
-
-              return (
-                <div key={run.id} className="px-5 py-3 flex items-center gap-4">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded flex-shrink-0 ${statusColor}`}>
-                    {run.status}
-                  </span>
-                  <span className="text-sm text-slate-700 flex-1 truncate">{prompt?.text ?? "—"}</span>
-                  <span className="text-xs text-slate-400 flex-shrink-0">{providerRow?.name ?? "—"}</span>
-                  <span className="text-xs text-slate-400 flex-shrink-0">
-                    {new Date(run.created_at).toLocaleString("es-ES", {
-                      day: "2-digit",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-    </div>
     </div>
   );
 }

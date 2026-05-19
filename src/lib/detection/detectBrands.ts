@@ -1,4 +1,4 @@
-import type { Sentiment } from "@/types";
+import type { MentionType, Sentiment } from "@/types";
 
 interface BrandInput {
   id: string;
@@ -17,6 +17,7 @@ interface CompetitorDetection {
   name: string;
   position: number | null;
   sentiment: Exclude<Sentiment, "no_data">;
+  mentionType: MentionType;
   confidence: number;
 }
 
@@ -39,6 +40,7 @@ export interface DetectBrandsOutput {
   detectedBrandName: string | null;
   competitors: CompetitorDetection[];
   sentiment: Sentiment;
+  mentionType: MentionType | null;
   confidence: number;
 }
 
@@ -156,6 +158,70 @@ function detectSentiment(text: string, brandName: string): Exclude<Sentiment, "n
   return "neutral";
 }
 
+const WARNING_PATTERNS = [
+  /(evitar|evita|no recomend|cuidado con|problemas? (con|en)|reseñas? negativas?|deficien|advert|pésim|fraud|estaf)/i,
+];
+const PRIMARY_PATTERNS = [
+  /\b(la mejor opción|mi recomendación|recomiend[ao]|primera opción|sería\s+(la mejor|tu mejor|mi))/i,
+  /\b(es|sería)\s+(la mejor|la opción ideal|líder|el líder|la primera|tu mejor opción)/i,
+  /\b(top\s+1|n[°º]?\s*1|number one|the best choice)/i,
+  /(destaca|sobresale)\s+(como|por encima)/i,
+];
+const COMPARISON_PATTERNS = [
+  /(vs\.?|versus|frente a|comparado con|en comparación|en cambio|por su parte|por otro lado|mientras que)/i,
+];
+const LIST_PATTERNS = [/(^|\n)\s*(\d+[.):-]|[-*•·])\s+/m];
+
+function buildContextWindow(text: string, brandName: string): string {
+  const textLower = text.toLowerCase();
+  const brandLower = brandName.toLowerCase();
+  const idx = textLower.indexOf(brandLower);
+  if (idx < 0) return text;
+  const start = Math.max(0, idx - 200);
+  const end = Math.min(text.length, idx + brandName.length + 250);
+  return text.slice(start, end);
+}
+
+function isInsideList(fullText: string, brandName: string): boolean {
+  // Busca si la marca está dentro de una línea de lista numerada o bullet
+  const lines = fullText.split(/\r?\n/);
+  const brandLower = brandName.toLowerCase();
+  for (const line of lines) {
+    if (!line.toLowerCase().includes(brandLower)) continue;
+    if (/^\s*(\d+[.):-]|[-*•·])\s+/.test(line)) return true;
+  }
+  return false;
+}
+
+export function classifyMentionType(
+  rawResponse: string,
+  brandName: string,
+  position: number | null
+): MentionType {
+  const context = buildContextWindow(rawResponse, brandName);
+
+  // Orden de prioridad: warning > primary > comparison > list > general
+  if (WARNING_PATTERNS.some((re) => re.test(context))) return "warning";
+
+  if (PRIMARY_PATTERNS.some((re) => re.test(context))) return "primary_recommendation";
+
+  // Si está en posición 1 y NO es una lista, probablemente es recomendación principal
+  const insideList = isInsideList(rawResponse, brandName);
+  if (
+    position === 1 &&
+    !insideList &&
+    PRIMARY_PATTERNS.some((re) => re.test(rawResponse.slice(0, 600)))
+  ) {
+    return "primary_recommendation";
+  }
+
+  if (COMPARISON_PATTERNS.some((re) => re.test(context))) return "comparison";
+
+  if (insideList || LIST_PATTERNS.some((re) => re.test(context))) return "list_option";
+
+  return "general_mention";
+}
+
 export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
   const { rawResponse, ownBrand, competitors } = input;
 
@@ -175,6 +241,7 @@ export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
       name: comp.name,
       position: mention.position,
       sentiment: detectSentiment(rawResponse, mention.matchedName),
+      mentionType: classifyMentionType(rawResponse, mention.matchedName, mention.position),
       confidence: 0.85,
     };
     return [det];
@@ -184,12 +251,17 @@ export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
     ? detectSentiment(rawResponse, detectedBrandName ?? ownBrand.name)
     : "no_data";
 
+  const mentionType: MentionType | null = ownBrandMentioned
+    ? classifyMentionType(rawResponse, detectedBrandName ?? ownBrand.name, ownBrandPosition)
+    : null;
+
   return {
     ownBrandMentioned,
     ownBrandPosition,
     detectedBrandName,
     competitors: competitorDetections,
     sentiment,
+    mentionType,
     confidence: ownBrandMentioned ? 0.9 : 1.0,
   };
 }

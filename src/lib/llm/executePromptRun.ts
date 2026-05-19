@@ -260,6 +260,7 @@ export async function executePromptRun(runId: string): Promise<void> {
         brand_type: "own",
         position: detection.ownBrandPosition,
         sentiment: detection.sentiment !== "no_data" ? detection.sentiment : null,
+        mention_type: detection.mentionType,
         confidence: detection.confidence,
       });
     }
@@ -272,6 +273,7 @@ export async function executePromptRun(runId: string): Promise<void> {
         brand_type: "competitor",
         position: comp.position,
         sentiment: comp.sentiment,
+        mention_type: comp.mentionType,
         confidence: comp.confidence,
       });
     }
@@ -424,6 +426,7 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
         brand_type: "own",
         position: detection.ownBrandPosition,
         sentiment: detection.sentiment !== "no_data" ? detection.sentiment : null,
+        mention_type: detection.mentionType,
         confidence: detection.confidence,
       });
     }
@@ -436,6 +439,7 @@ export async function executePromptRunFast(runId: string, ctx: SharedRunContext)
         brand_type: "competitor",
         position: comp.position,
         sentiment: comp.sentiment,
+        mention_type: comp.mentionType,
         confidence: comp.confidence,
       });
     }

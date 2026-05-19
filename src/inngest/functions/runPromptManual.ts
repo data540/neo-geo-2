@@ -175,6 +175,7 @@ export const runPromptManual = inngest.createFunction(
           brand_type: "own",
           position: detection.ownBrandPosition,
           sentiment: detection.sentiment !== "no_data" ? detection.sentiment : null,
+          mention_type: detection.mentionType,
           confidence: detection.confidence,
         });
       }
@@ -188,6 +189,7 @@ export const runPromptManual = inngest.createFunction(
           brand_type: "competitor",
           position: comp.position,
           sentiment: comp.sentiment,
+          mention_type: comp.mentionType,
           confidence: comp.confidence,
         });
       }
