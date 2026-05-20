@@ -4,9 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { AddCompetitorForm } from "./AddCompetitorForm";
 import { AnalyzeExecutedPromptsButton } from "./AnalyzeExecutedPromptsButton";
 import { CompetitorKpiCards } from "./CompetitorKpiCards";
+import type { RankPoint } from "./CompetitorRankChart";
 import { CompetitorSuggestionActions } from "./CompetitorSuggestionActions";
 import { CompetitorTableSortable } from "./CompetitorTableSortable";
+import { CompetitorTrendsPanel } from "./CompetitorTrendsPanel";
 import { DeleteCompetitorButton } from "./DeleteCompetitorButton";
+import type { CompetitorDynamic } from "./MarketDynamicsCards";
 
 interface Props {
   params: Promise<{ workspace: string }>;
@@ -134,14 +137,16 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     .eq("key", llm)
     .single();
 
+  const sixtyDaysAgoIso = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
   const { data: completedRunsData } = await supabase
     .from("prompt_runs")
     .select("id, prompt_id, raw_response, created_at")
     .eq("workspace_id", workspace.id)
     .eq("llm_provider_id", provider?.id ?? "")
     .eq("status", "completed")
+    .gte("created_at", sixtyDaysAgoIso)
     .order("created_at", { ascending: false })
-    .limit(1000);
+    .limit(2000);
 
   const completedRuns = (completedRunsData ?? []) as RunRow[];
   const runIds = completedRuns.map((r) => r.id);
@@ -277,6 +282,210 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
   const ownSov = sovPool > 0 ? round1((ownMentions / sovPool) * 100) : null;
   const highThreats = competitorPerformance.filter((c) => (c.sov ?? 0) > (ownSov ?? 0)).length;
 
+  // === Tendencias temporales: buckets + deltas ===
+  const BUCKET_DAYS = 5;
+  const TOTAL_BUCKETS = 7;
+  const PERIOD_DAYS = 30;
+  const nowMs = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const buckets: { start: number; end: number; label: string }[] = [];
+  for (let i = TOTAL_BUCKETS - 1; i >= 0; i--) {
+    const end = nowMs - i * BUCKET_DAYS * dayMs;
+    const start = end - BUCKET_DAYS * dayMs;
+    const label = new Date(end).toLocaleDateString("es-ES", {
+      month: "short",
+      day: "numeric",
+    });
+    buckets.push({ start, end, label });
+  }
+
+  // Index mention => bucket
+  function bucketIndexForDate(iso: string): number {
+    const t = new Date(iso).getTime();
+    for (let i = 0; i < buckets.length; i++) {
+      const b = buckets[i]!;
+      if (t >= b.start && t < b.end) return i;
+    }
+    return -1;
+  }
+
+  // Window split: current (0-30d) vs previous (30-60d)
+  const currentWindowStart = nowMs - PERIOD_DAYS * dayMs;
+  const previousWindowStart = nowMs - 2 * PERIOD_DAYS * dayMs;
+  function windowFor(iso: string): "current" | "previous" | null {
+    const t = new Date(iso).getTime();
+    if (t >= currentWindowStart) return "current";
+    if (t >= previousWindowStart) return "previous";
+    return null;
+  }
+
+  // Top brands para chart: 5 competidores con más mentions globales + own
+  const topChartCompetitors = [...competitorPerformance]
+    .sort((a, b) => b.mentions - a.mentions)
+    .slice(0, 5);
+  const chartBrandIds = new Set<string>([
+    ...(ownBrandData ? [ownBrandData.id as string] : []),
+    ...topChartCompetitors.map((c) => c.competitorId),
+  ]);
+  const idToBrandName = new Map<string, string>();
+  if (ownBrandData) idToBrandName.set(ownBrandData.id as string, ownBrandData.name as string);
+  for (const c of competitorPerformance) idToBrandName.set(c.competitorId, c.name);
+
+  // Acumular posiciones por bucket × brand
+  const bucketPositions = new Map<string, number[]>(); // key = `${bucketIdx}|${brandId}`
+  // Acumular métricas por ventana × brand (solo competidores)
+  type WindowAgg = {
+    competitorMentions: number;
+    runIdsWithMention: Set<string>;
+    positions: number[];
+    totalRuns: number;
+    ownMentions: number;
+    allCompetitorMentions: number;
+  };
+  const windowsByBrand = new Map<string, { current: WindowAgg; previous: WindowAgg }>();
+  function getBrandWindow(brandId: string) {
+    let entry = windowsByBrand.get(brandId);
+    if (!entry) {
+      const empty = (): WindowAgg => ({
+        competitorMentions: 0,
+        runIdsWithMention: new Set<string>(),
+        positions: [],
+        totalRuns: 0,
+        ownMentions: 0,
+        allCompetitorMentions: 0,
+      });
+      entry = { current: empty(), previous: empty() };
+      windowsByBrand.set(brandId, entry);
+    }
+    return entry;
+  }
+
+  // Totales por ventana (para SOV pool)
+  const windowTotals = {
+    current: { runs: new Set<string>(), ownMentions: 0, competitorMentions: 0 },
+    previous: { runs: new Set<string>(), ownMentions: 0, competitorMentions: 0 },
+  };
+
+  // Runs por ventana
+  for (const run of completedRuns) {
+    const w = windowFor(run.created_at);
+    if (!w) continue;
+    windowTotals[w].runs.add(run.id);
+  }
+
+  // Mentions: una sola pasada para chart + windows
+  for (const m of mentions) {
+    if (!m.brand_id) continue;
+    const w = windowFor(m.created_at);
+
+    // Chart: solo brand_id en el top
+    if (chartBrandIds.has(m.brand_id)) {
+      const idx = bucketIndexForDate(m.created_at);
+      if (idx >= 0 && typeof m.position === "number" && Number.isFinite(m.position)) {
+        const key = `${idx}|${m.brand_id}`;
+        const arr = bucketPositions.get(key) ?? [];
+        arr.push(m.position);
+        bucketPositions.set(key, arr);
+      }
+    }
+
+    // Windows
+    if (w) {
+      if (m.brand_type === "own") {
+        windowTotals[w].ownMentions += 1;
+      } else if (m.brand_type === "competitor") {
+        windowTotals[w].competitorMentions += 1;
+        const agg = getBrandWindow(m.brand_id)[w];
+        agg.competitorMentions += 1;
+        agg.runIdsWithMention.add(m.prompt_run_id);
+        if (typeof m.position === "number" && Number.isFinite(m.position)) {
+          agg.positions.push(m.position);
+        }
+      }
+    }
+  }
+
+  // Construir rankSeries
+  const chartBrandNames: string[] = [];
+  for (const id of chartBrandIds) {
+    const name = idToBrandName.get(id);
+    if (name) chartBrandNames.push(name);
+  }
+  const rankSeries: RankPoint[] = buckets.map((bucket, idx) => {
+    const point: RankPoint = { date: bucket.label };
+    for (const id of chartBrandIds) {
+      const name = idToBrandName.get(id);
+      if (!name) continue;
+      const positions = bucketPositions.get(`${idx}|${id}`) ?? [];
+      point[name] =
+        positions.length > 0
+          ? Math.round((positions.reduce((a, b) => a + b, 0) / positions.length) * 10) / 10
+          : null;
+    }
+    return point;
+  });
+
+  // Construir dynamics: top 6 competidores por mentions en ventana actual
+  function computeBrandWindowStats(
+    agg: WindowAgg,
+    totalRuns: number,
+    ownMentions: number,
+    competitorMentionsAllBrands: number
+  ) {
+    const sovPool = ownMentions + competitorMentionsAllBrands;
+    const sov = sovPool > 0 ? (agg.competitorMentions / sovPool) * 100 : null;
+    const vis = totalRuns > 0 ? (agg.runIdsWithMention.size / totalRuns) * 100 : null;
+    const avgPos =
+      agg.positions.length > 0
+        ? agg.positions.reduce((a, b) => a + b, 0) / agg.positions.length
+        : null;
+    return { sov, vis, avgPos };
+  }
+
+  const dynamics: CompetitorDynamic[] = [];
+  for (const c of competitorPerformance) {
+    const entry = windowsByBrand.get(c.competitorId);
+    if (!entry) continue;
+    const curStats = computeBrandWindowStats(
+      entry.current,
+      windowTotals.current.runs.size,
+      windowTotals.current.ownMentions,
+      windowTotals.current.competitorMentions
+    );
+    const prevStats = computeBrandWindowStats(
+      entry.previous,
+      windowTotals.previous.runs.size,
+      windowTotals.previous.ownMentions,
+      windowTotals.previous.competitorMentions
+    );
+
+    const sovDelta =
+      curStats.sov !== null && prevStats.sov !== null ? round1(curStats.sov - prevStats.sov) : null;
+    const visDelta =
+      curStats.vis !== null && prevStats.vis !== null ? round1(curStats.vis - prevStats.vis) : null;
+    const posDelta =
+      curStats.avgPos !== null && prevStats.avgPos !== null
+        ? round1(curStats.avgPos - prevStats.avgPos)
+        : null;
+
+    const trend: CompetitorDynamic["trend"] =
+      sovDelta === null || sovDelta === 0 ? "stable" : sovDelta > 0 ? "rising" : "declining";
+
+    dynamics.push({
+      competitorId: c.competitorId,
+      name: c.name,
+      trend,
+      sovDelta,
+      visDelta,
+      posDelta,
+    });
+  }
+  const topDynamics = dynamics
+    .filter((d) => d.sovDelta !== null || d.visDelta !== null || d.posDelta !== null)
+    .sort((a, b) => Math.abs(b.sovDelta ?? 0) - Math.abs(a.sovDelta ?? 0))
+    .slice(0, 6);
+
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
@@ -316,6 +525,14 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
             totalCompetitors: competitors.length,
             highThreats,
           }}
+        />
+
+        <CompetitorTrendsPanel
+          chartData={rankSeries}
+          brandNames={chartBrandNames}
+          ownBrandName={(ownBrandData?.name as string) ?? ""}
+          dynamics={topDynamics}
+          periodDays={PERIOD_DAYS}
         />
 
         <CompetitorTableSortable rows={competitorPerformance} totalRuns={totalRuns} llm={llm} />

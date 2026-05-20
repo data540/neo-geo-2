@@ -41,7 +41,9 @@ export function CompetitorKpiCards({ kpis }: Props) {
             </p>
             <p className="text-3xl font-bold text-slate-900 mt-1.5">
               {kpis.avgPosition !== null ? (
-                <>#<span>{kpis.avgPosition.toFixed(1)}</span></>
+                <>
+                  #<span>{kpis.avgPosition.toFixed(1)}</span>
+                </>
               ) : (
                 <span className="text-slate-400">—</span>
               )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, ChevronsUpDown } from "lucide-react";
+import { ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react";
 import { useMemo, useState } from "react";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 
@@ -85,7 +85,9 @@ function SortableHeader({
 }: SortableHeaderProps) {
   const isActive = activeSortKey === sortKey;
   return (
-    <th className={`px-4 py-3 text-slate-500 font-medium ${align === "right" ? "text-right" : "text-left"}`}>
+    <th
+      className={`px-4 py-3 text-slate-500 font-medium ${align === "right" ? "text-right" : "text-left"}`}
+    >
       <button
         type="button"
         onClick={() => onSort(sortKey)}
@@ -159,9 +161,7 @@ export function CompetitorTableSortable({ rows, totalRuns, llm }: Props) {
   }, [rows, sortKey, sortDir]);
 
   if (rows.length === 0) {
-    return (
-      <p className="px-5 py-6 text-sm text-slate-400">No hay competidores para analizar.</p>
-    );
+    return <p className="px-5 py-6 text-sm text-slate-400">No hay competidores para analizar.</p>;
   }
 
   return (
