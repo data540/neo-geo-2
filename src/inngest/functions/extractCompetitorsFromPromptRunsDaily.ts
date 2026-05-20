@@ -52,7 +52,11 @@ function normalizeName(value: string): string {
 function shouldKeepCompetitorCandidate(name: string): boolean {
   const normalized = normalizeName(name);
   if (normalized.length < 3) return false;
-  if (/(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(normalized)) {
+  if (
+    /(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(
+      normalized
+    )
+  ) {
     return false;
   }
   if (/^(espana|colombia|madrid|bogota|barcelona|medellin|aeropuerto)$/i.test(normalized)) {
@@ -70,7 +74,10 @@ interface RunRow {
   raw_response: string | null;
 }
 
-async function processWorkspace(workspaceId: string, slug: string): Promise<{
+async function processWorkspace(
+  workspaceId: string,
+  slug: string
+): Promise<{
   analyzedRuns: number;
   extractedCandidates: number;
   insertedCompetitors: number;

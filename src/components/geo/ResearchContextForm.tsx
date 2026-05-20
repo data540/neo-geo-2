@@ -91,6 +91,7 @@ export function ResearchContextForm({
             id="brandName"
             name="brandName"
             defaultValue={defaultValues.brandName}
+            maxLength={100}
             required
             disabled={loading}
           />
@@ -142,6 +143,7 @@ export function ResearchContextForm({
             id="location"
             name="location"
             defaultValue={defaultValues.location ?? ""}
+            maxLength={100}
             placeholder="ej. Madrid, Barcelona, Bogota"
             disabled={anyLoading}
           />
@@ -154,6 +156,7 @@ export function ResearchContextForm({
           id="category"
           name="category"
           defaultValue={defaultValues.category ?? "Vuelos comerciales de pasajeros"}
+          maxLength={100}
           placeholder="ej. Vuelos nacionales, vuelos internacionales, soporte posventa"
           required
           disabled={anyLoading}

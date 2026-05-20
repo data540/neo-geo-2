@@ -75,7 +75,9 @@ async function main() {
   const model = (process.env.OPENROUTER_MODEL_CHATGPT || "openai/gpt-4.1-nano").trim();
 
   if (!supabaseUrl || !serviceRoleKey || !openRouterApiKey) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY or OPENROUTER_API_KEY");
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY or OPENROUTER_API_KEY"
+    );
   }
 
   console.log(`Using model: ${model}`);
@@ -136,7 +138,11 @@ async function main() {
 
     try {
       const result = await callOpenRouter(prompt.text, model, openRouterApiKey);
-      const costUsd = await estimateCostForModel(result.model, result.inputTokens, result.outputTokens);
+      const costUsd = await estimateCostForModel(
+        result.model,
+        result.inputTokens,
+        result.outputTokens
+      );
 
       await supabase
         .from("prompt_runs")

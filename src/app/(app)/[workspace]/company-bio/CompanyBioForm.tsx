@@ -169,7 +169,8 @@ export function CompanyBioForm({ workspaceId, initialData }: Props) {
 
         {aiPrefilled && (
           <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-            Campos pre-rellenados por IA a partir de <strong>{data.domain}</strong> — revisa y guarda cuando estés listo.
+            Campos pre-rellenados por IA a partir de <strong>{data.domain}</strong> — revisa y
+            guarda cuando estés listo.
           </div>
         )}
 

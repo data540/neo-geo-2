@@ -21,7 +21,12 @@ const supabase = createClient(
 );
 
 const WORKSPACE_SLUG = process.argv[2] ?? "air-europa";
-const LLM_KEY = (process.argv[3] ?? "chatgpt") as "chatgpt" | "claude" | "gemini" | "perplexity" | "deepseek";
+const LLM_KEY = (process.argv[3] ?? "chatgpt") as
+  | "chatgpt"
+  | "claude"
+  | "gemini"
+  | "perplexity"
+  | "deepseek";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 async function upsertWorkspaceMetrics(workspaceId: string, llmProviderId: string) {
@@ -89,7 +94,11 @@ async function main() {
   const { data: llmCfg } = await supabase
     .from("workspace_llm_config")
     .select("model")
-    .eq("workspace_id", (await supabase.from("workspaces").select("id").eq("slug", WORKSPACE_SLUG).single()).data?.id ?? "")
+    .eq(
+      "workspace_id",
+      (await supabase.from("workspaces").select("id").eq("slug", WORKSPACE_SLUG).single()).data
+        ?.id ?? ""
+    )
     .eq("llm_provider_id", provider.id)
     .single();
   const modelOverride = (llmCfg as { model: string | null } | null)?.model ?? undefined;
@@ -117,7 +126,8 @@ async function main() {
   console.log(`✅ Prompts activos: ${prompts.length}\n`);
 
   // 5. Ejecutar cada prompt
-  let ok = 0, failed = 0;
+  let ok = 0,
+    failed = 0;
 
   for (let i = 0; i < prompts.length; i++) {
     const prompt = prompts[i]!;
@@ -154,7 +164,11 @@ async function main() {
       // 5c. Guardar respuesta
       const costUsd =
         llmResult.costUsd ??
-        (await estimateCostForModel(llmResult.model, llmResult.inputTokens, llmResult.outputTokens));
+        (await estimateCostForModel(
+          llmResult.model,
+          llmResult.inputTokens,
+          llmResult.outputTokens
+        ));
       await supabase
         .from("prompt_runs")
         .update({
@@ -171,7 +185,11 @@ async function main() {
       // 5d. Detectar menciones
       const detection = detectBrands({
         rawResponse: llmResult.rawResponse,
-        ownBrand: { id: ownBrand.id, name: ownBrand.name, aliases: (ownBrand.aliases as string[]) ?? [] },
+        ownBrand: {
+          id: ownBrand.id,
+          name: ownBrand.name,
+          aliases: (ownBrand.aliases as string[]) ?? [],
+        },
         competitors: competitors.map((c) => ({
           id: c.id,
           name: c.name as string,
@@ -248,7 +266,9 @@ async function main() {
         { onConflict: "prompt_id,llm_provider_id,date" }
       );
 
-      const symbol = detection.ownBrandMentioned ? `✅ pos:${detection.ownBrandPosition ?? "?"}` : "⬜ no mencionada";
+      const symbol = detection.ownBrandMentioned
+        ? `✅ pos:${detection.ownBrandPosition ?? "?"}`
+        : "⬜ no mencionada";
       console.log(symbol);
       ok++;
     } catch (e) {

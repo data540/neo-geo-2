@@ -3,25 +3,29 @@
 import { Loader2, Save } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { type OpenRouterModel, getOpenRouterModelsAction, upsertLlmConfigAction } from "@/actions/llm-config";
+import {
+  getOpenRouterModelsAction,
+  type OpenRouterModel,
+  upsertLlmConfigAction,
+} from "@/actions/llm-config";
 import { Button } from "@/components/ui/button";
 import type { LlmProviderKey, WorkspaceMemberRole } from "@/types";
 
 const PROVIDER_LABELS: Record<LlmProviderKey, string> = {
-  chatgpt:    "ChatGPT",
-  claude:     "Claude",
-  gemini:     "Gemini",
+  chatgpt: "ChatGPT",
+  claude: "Claude",
+  gemini: "Gemini",
   perplexity: "Perplexity",
-  deepseek:   "DeepSeek",
+  deepseek: "DeepSeek",
 };
 
 // Default models shown before OpenRouter loads
 const DEFAULT_MODELS: Record<LlmProviderKey, string> = {
-  chatgpt:    "openai/gpt-4.1-nano",
-  claude:     "anthropic/claude-3.5-haiku",
-  gemini:     "google/gemini-2.0-flash-001",
+  chatgpt: "openai/gpt-4.1-nano",
+  claude: "anthropic/claude-3.5-haiku",
+  gemini: "google/gemini-2.0-flash-001",
   perplexity: "perplexity/sonar",
-  deepseek:   "deepseek/deepseek-chat-v3-0324",
+  deepseek: "deepseek/deepseek-chat-v3-0324",
 };
 
 interface ProviderConfig {
@@ -50,13 +54,11 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
   const canManage = currentRole === "owner" || currentRole === "admin";
   const [pending, startTransition] = useTransition();
 
-  const [values, setValues] = useState<Record<string, number>>(
-    () => Object.fromEntries(configs.map((c) => [c.providerId, c.promptsPerDay]))
+  const [values, setValues] = useState<Record<string, number>>(() =>
+    Object.fromEntries(configs.map((c) => [c.providerId, c.promptsPerDay]))
   );
-  const [models, setModels] = useState<Record<string, string>>(
-    () => Object.fromEntries(
-      configs.map((c) => [c.providerId, c.model ?? DEFAULT_MODELS[c.providerKey]])
-    )
+  const [models, setModels] = useState<Record<string, string>>(() =>
+    Object.fromEntries(configs.map((c) => [c.providerId, c.model ?? DEFAULT_MODELS[c.providerKey]]))
   );
   // OpenRouter model lists per provider key
   const [modelLists, setModelLists] = useState<Record<string, OpenRouterModel[]>>({});
@@ -67,7 +69,7 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
     for (const config of configs) {
       loadModelsForProvider(config.providerId, config.providerKey);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadModelsForProvider(providerId: string, providerKey: LlmProviderKey) {
@@ -140,7 +142,10 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
           const selectedModelData = list.find((m) => m.id === selectedModel);
 
           return (
-            <div key={config.providerId} className="space-y-3 pb-6 border-b border-slate-100 last:border-0 last:pb-0">
+            <div
+              key={config.providerId}
+              className="space-y-3 pb-6 border-b border-slate-100 last:border-0 last:pb-0"
+            >
               {/* Provider name + prompts/day */}
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-800">
@@ -157,10 +162,7 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
 
               {/* Model selector */}
               <div className="space-y-1">
-                <label
-                  htmlFor={`model-${config.providerId}`}
-                  className="text-xs text-slate-500"
-                >
+                <label htmlFor={`model-${config.providerId}`} className="text-xs text-slate-500">
                   Model
                 </label>
                 <div className="relative">
@@ -189,7 +191,10 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
                 </div>
                 {selectedModelData && (
                   <p className="text-xs text-slate-400">
-                    {formatPrice(selectedModelData.pricing.prompt, selectedModelData.pricing.completion)}
+                    {formatPrice(
+                      selectedModelData.pricing.prompt,
+                      selectedModelData.pricing.completion
+                    )}
                     {selectedModelData.context_length > 0 && (
                       <> · {(selectedModelData.context_length / 1000).toFixed(0)}K ctx</>
                     )}
@@ -199,10 +204,7 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
 
               {/* Prompts/day slider */}
               <div className="space-y-1">
-                <label
-                  htmlFor={`slider-${config.providerId}`}
-                  className="text-xs text-slate-500"
-                >
+                <label htmlFor={`slider-${config.providerId}`} className="text-xs text-slate-500">
                   Prompts per day
                 </label>
                 <input

@@ -310,7 +310,7 @@ async function main() {
   for (let i = 0; i < toUpsert.length; i += BATCH_SIZE) {
     const batch = toUpsert.slice(i, i + BATCH_SIZE);
     // Dedup within batch to avoid "row a second time" error on upsert
-    const deduped = new Map<string, typeof batch[0]>();
+    const deduped = new Map<string, (typeof batch)[0]>();
     for (const chunk of batch) {
       const key = `${chunk.source_file}:${chunk.content_hash}`;
       if (!deduped.has(key)) {

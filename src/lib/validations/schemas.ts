@@ -172,6 +172,3 @@ export const acceptPromptsSchema = z.object({
 });
 
 export type AcceptPromptsInput = z.infer<typeof acceptPromptsSchema>;
-
-
-

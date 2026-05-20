@@ -141,7 +141,9 @@ async function main() {
       .from("daily_prompt_metrics")
       .upsert(batch, { onConflict: "prompt_id,llm_provider_id,date" });
     if (error) throw error;
-    process.stdout.write(`  daily_prompt_metrics: ${Math.min(i + BATCH, promptMetrics.length)}/${promptMetrics.length}\r`);
+    process.stdout.write(
+      `  daily_prompt_metrics: ${Math.min(i + BATCH, promptMetrics.length)}/${promptMetrics.length}\r`
+    );
   }
   console.log(`\n✅ daily_prompt_metrics: ${promptMetrics.length} filas insertadas`);
 

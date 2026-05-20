@@ -115,20 +115,18 @@ export default async function PromptsPage({ params, searchParams }: Props) {
   };
 
   const rawKpisData = Array.isArray(kpis) ? kpis[0] : kpis;
-  const rawKpis = (rawKpisData ?? null) as
-    | {
-        activePromptsCount?: number;
-        brandMentionsCount?: number;
-        avgPosition?: number | null;
-        brandConsistency?: number;
-        avgSov?: number | null;
-        active_prompts_count?: number;
-        brand_mentions_count?: number;
-        avg_position?: number | null;
-        brand_consistency?: number;
-        avg_sov?: number | null;
-      }
-    | null;
+  const rawKpis = (rawKpisData ?? null) as {
+    activePromptsCount?: number;
+    brandMentionsCount?: number;
+    avgPosition?: number | null;
+    brandConsistency?: number;
+    avgSov?: number | null;
+    active_prompts_count?: number;
+    brand_mentions_count?: number;
+    avg_position?: number | null;
+    brand_consistency?: number;
+    avg_sov?: number | null;
+  } | null;
 
   const workspaceKpis: WorkspaceKpis = rawKpis
     ? {

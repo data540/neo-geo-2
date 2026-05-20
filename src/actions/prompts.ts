@@ -291,12 +291,12 @@ export async function createPromptsBulkAction(
   const { data: insertedPrompts, error } = await supabase
     .from("prompts")
     .insert(
-    normalizedPrompts.map((text) => ({
-      workspace_id: workspaceId,
-      text,
-      country,
-      status: "active",
-    }))
+      normalizedPrompts.map((text) => ({
+        workspace_id: workspaceId,
+        text,
+        country,
+        status: "active",
+      }))
     )
     .select("id");
 
@@ -307,7 +307,11 @@ export async function createPromptsBulkAction(
   let queued = 0;
   if (runAfterImport && insertedPrompts && insertedPrompts.length > 0) {
     const service = getServiceClient();
-    const { data: provider } = await service.from("llm_providers").select("id").eq("key", llmKey).single();
+    const { data: provider } = await service
+      .from("llm_providers")
+      .select("id")
+      .eq("key", llmKey)
+      .single();
     if (provider) {
       const { data: createdRuns } = await service
         .from("prompt_runs")

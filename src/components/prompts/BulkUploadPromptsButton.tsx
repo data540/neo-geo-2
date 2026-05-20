@@ -84,9 +84,7 @@ function parseCsvLike(text: string): string[] {
     const cols = line.split(/[;,\t]/).map((c) => c.trim());
     if (index === 0 && isHeaderLikeRow(cols)) continue;
 
-    const promptCol = cols
-      .filter((c) => c.length > 0)
-      .sort((a, b) => b.length - a.length)[0];
+    const promptCol = cols.filter((c) => c.length > 0).sort((a, b) => b.length - a.length)[0];
     if (promptCol) candidates.push(promptCol);
   }
   return candidates.length > 0 ? candidates : lines;
@@ -155,9 +153,7 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
 
         const prompts: string[] = [];
         for (const [index, row] of rows.entries()) {
-          const values = row
-            .map((v) => String(v ?? "").trim())
-            .filter(Boolean);
+          const values = row.map((v) => String(v ?? "").trim()).filter(Boolean);
 
           if (index === 0 && isHeaderLikeRow(values)) continue;
 
@@ -310,7 +306,12 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
           </div>
 
           <div className="flex justify-end gap-2 sticky bottom-0 bg-white pt-3 border-t border-slate-100">
-            <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={loading}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={loading}
+            >
               Cancelar
             </Button>
             <Button

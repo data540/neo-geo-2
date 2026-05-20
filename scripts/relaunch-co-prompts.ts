@@ -201,7 +201,11 @@ async function main() {
         .eq("id", run.id);
 
       const [{ data: ownBrands }, { data: competitorBrands }] = await Promise.all([
-        supabase.from("brands").select("name").eq("workspace_id", prompt.workspace_id).eq("type", "own"),
+        supabase
+          .from("brands")
+          .select("name")
+          .eq("workspace_id", prompt.workspace_id)
+          .eq("type", "own"),
         supabase
           .from("brands")
           .select("name")

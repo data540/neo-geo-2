@@ -32,7 +32,10 @@ function addModelPrice(
   }
 }
 
-async function loadOpenRouterCatalog(): Promise<Record<string, { input: number; output: number }> | null> {
+async function loadOpenRouterCatalog(): Promise<Record<
+  string,
+  { input: number; output: number }
+> | null> {
   const now = Date.now();
   if (catalogCache && now - catalogFetchedAt < CATALOG_TTL_MS) {
     return catalogCache;
@@ -53,7 +56,9 @@ async function loadOpenRouterCatalog(): Promise<Record<string, { input: number; 
       }>;
     };
 
-    const nextCache: Record<string, { input: number; output: number }> = { ...STATIC_MODEL_PRICING };
+    const nextCache: Record<string, { input: number; output: number }> = {
+      ...STATIC_MODEL_PRICING,
+    };
     for (const model of json.data ?? []) {
       const id = model.id?.trim();
       if (!id) continue;

@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { extractPotentialCompetitorsFromResponse } from "@/lib/detection/detectBrands";
+import { createClient } from "@/lib/supabase/server";
 import { createCompetitorSchema, updateCompetitorSchema } from "@/lib/validations/schemas";
 import type { ActionResult } from "@/types";
 
@@ -50,7 +50,11 @@ function normalizeName(value: string): string {
 function shouldKeepCompetitorCandidate(name: string): boolean {
   const normalized = normalizeName(name);
   if (normalized.length < 3) return false;
-  if (/(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(normalized)) {
+  if (
+    /(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(
+      normalized
+    )
+  ) {
     return false;
   }
   if (/^(espana|colombia|madrid|bogota|barcelona|medellin|aeropuerto)$/i.test(normalized)) {
@@ -258,9 +262,7 @@ interface PromptRunForExtraction {
   raw_response: string | null;
 }
 
-export async function extractCompetitorsFromExecutedPromptsAction(
-  workspaceId: string
-): Promise<
+export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: string): Promise<
   ActionResult<{
     analyzedRuns: number;
     detectedCandidates: number;
@@ -277,16 +279,15 @@ export async function extractCompetitorsFromExecutedPromptsAction(
     { data: ownBrands },
     { data: competitorBrands },
     { data: pendingSuggestions, error: pendingSuggestionsError },
-  ] =
-    await Promise.all([
-      supabase.from("brands").select("name").eq("workspace_id", workspaceId).eq("type", "own"),
-      supabase.from("brands").select("name").eq("workspace_id", workspaceId).eq("type", "competitor"),
-      supabase
-        .from("competitor_suggestions")
-        .select("normalized_name")
-        .eq("workspace_id", workspaceId)
-        .eq("status", "pending"),
-    ]);
+  ] = await Promise.all([
+    supabase.from("brands").select("name").eq("workspace_id", workspaceId).eq("type", "own"),
+    supabase.from("brands").select("name").eq("workspace_id", workspaceId).eq("type", "competitor"),
+    supabase
+      .from("competitor_suggestions")
+      .select("normalized_name")
+      .eq("workspace_id", workspaceId)
+      .eq("status", "pending"),
+  ]);
 
   const existingNames = new Set(
     [

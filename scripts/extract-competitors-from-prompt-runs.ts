@@ -65,7 +65,11 @@ function normalizeName(value: string): string {
 function shouldKeepCompetitorCandidate(name: string): boolean {
   const normalized = normalizeName(name);
   if (normalized.length < 3) return false;
-  if (/(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(normalized)) {
+  if (
+    /(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(
+      normalized
+    )
+  ) {
     return false;
   }
   if (/^(espana|colombia|madrid|bogota|barcelona|medellin|aeropuerto)$/i.test(normalized)) {
@@ -105,7 +109,11 @@ async function main() {
     const [{ data: ownBrands }, { data: existingCompetitors }, { data: runs, error: runsError }] =
       await Promise.all([
         supabase.from("brands").select("name").eq("workspace_id", workspace.id).eq("type", "own"),
-        supabase.from("brands").select("name").eq("workspace_id", workspace.id).eq("type", "competitor"),
+        supabase
+          .from("brands")
+          .select("name")
+          .eq("workspace_id", workspace.id)
+          .eq("type", "competitor"),
         supabase
           .from("prompt_runs")
           .select("id, raw_response")

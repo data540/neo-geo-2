@@ -68,13 +68,15 @@ export async function prepareInitialContext(workspaceId: string): Promise<Initia
     (profile?.extracted_summary as string | null) ||
     "";
 
+  const truncate = (str: string, max: number) => (str.length > max ? str.slice(0, max) : str);
+
   return {
-    brandName: (workspace.brand_name as string) || (workspace.name as string) || "",
+    brandName: truncate((workspace.brand_name as string) || (workspace.name as string) || "", 100),
     domain: (workspace.domain as string) || "",
     brandStatement,
     country,
     location: DEFAULT_LOCATION_BY_COUNTRY[country] ?? "",
-    category,
+    category: truncate(category, 100),
     productsServices: (profile?.products_services as string | null) ?? "",
     targetAudience: (profile?.audience as string | null) ?? "",
     differentiators: (profile?.differentiators as string | null) ?? "",

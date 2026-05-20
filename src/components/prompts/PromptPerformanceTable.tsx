@@ -184,7 +184,8 @@ export function PromptPerformanceTable({
   const hasMore = visible < filtered.length;
   const displayedIds = displayed.map((r) => r.prompt_id);
   const selectedDisplayedCount = displayedIds.filter((id) => selectedIds.has(id)).length;
-  const allDisplayedSelected = displayedIds.length > 0 && selectedDisplayedCount === displayedIds.length;
+  const allDisplayedSelected =
+    displayedIds.length > 0 && selectedDisplayedCount === displayedIds.length;
 
   function toggleRowSelection(promptId: string, checked: boolean) {
     setSelectedIds((prev) => {
@@ -552,4 +553,3 @@ export function PromptPerformanceTable({
     </div>
   );
 }
-
