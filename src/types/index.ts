@@ -426,6 +426,22 @@ export interface ExtractedBrandProfile {
   differentiators: string | null;
 }
 
+// ── Knowledge Base Management ──────────────────────────────────────────────────
+
+export interface KnowledgeBaseStats {
+  totalChunks: number;
+  totalTokens: number;
+  filesCount: number;
+  lastUpdated: string | null;
+}
+
+export interface KnowledgeFile {
+  filename: string;
+  chunkCount: number;
+  tokenCount: number;
+  lastUpdated: string;
+}
+
 // ── Action results ────────────────────────────────────────────────────────────
 
 export interface ActionResult<T = undefined> {

@@ -1,14 +1,17 @@
 import { notFound } from "next/navigation";
 import { AdminLogsTable } from "@/components/admin/AdminLogsTable";
+import { AdminTabsWrapper } from "@/components/admin/AdminTabsWrapper";
 import { createClient } from "@/lib/supabase/server";
 import type { RunStatus } from "@/types";
 
 interface AdminPageProps {
-  params: Promise<{ workspace: string }>;
+  params: Promise<{ workspace: string; tab?: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }
 
-export default async function AdminPage({ params }: AdminPageProps) {
+export default async function AdminPage({ params, searchParams }: AdminPageProps) {
   const { workspace: slug } = await params;
+  const { tab } = await searchParams;
   const supabase = await createClient();
 
   const { data: workspace } = await supabase
@@ -64,17 +67,5 @@ export default async function AdminPage({ params }: AdminPageProps) {
     provider_name: (r.llm_providers as unknown as { name: string } | null)?.name ?? "—",
   }));
 
-  return (
-    <div className="flex-1 overflow-auto">
-      <div className="p-6 space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Admin — Logs de ejecución</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Últimas 200 ejecuciones de prompts con consumo de tokens y coste estimado.
-          </p>
-        </div>
-        <AdminLogsTable rows={rows} />
-      </div>
-    </div>
-  );
+  return <AdminTabsWrapper workspaceId={workspace.id} logsRows={rows} initialTab={tab} />;
 }
