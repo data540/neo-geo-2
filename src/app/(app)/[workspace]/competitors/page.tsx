@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
-import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { detectBrands } from "@/lib/detection/detectBrands";
 import { createClient } from "@/lib/supabase/server";
 import { AddCompetitorForm } from "./AddCompetitorForm";
 import { AnalyzeExecutedPromptsButton } from "./AnalyzeExecutedPromptsButton";
+import { CompetitorKpiCards } from "./CompetitorKpiCards";
 import { CompetitorSuggestionActions } from "./CompetitorSuggestionActions";
+import { CompetitorTableSortable } from "./CompetitorTableSortable";
 import { DeleteCompetitorButton } from "./DeleteCompetitorButton";
 
 interface Props {
@@ -51,16 +52,6 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("es-ES", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function getDominantSentiment(
   sentiments: Array<"positive" | "neutral" | "negative" | "no_data" | null>
 ): "positive" | "neutral" | "negative" | "no_data" {
@@ -90,16 +81,6 @@ function getDominantSentiment(
   }
 
   return best;
-}
-
-function sentimentClass(sentiment: "positive" | "neutral" | "negative" | "no_data"): string {
-  const map = {
-    positive: "bg-green-50 text-green-700 border-green-200",
-    neutral: "bg-slate-50 text-slate-600 border-slate-200",
-    negative: "bg-red-50 text-red-700 border-red-200",
-    no_data: "bg-slate-50 text-slate-400 border-slate-200",
-  };
-  return map[sentiment];
 }
 
 const LLM_OPTIONS = [
@@ -282,6 +263,20 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
       return b.consistency - a.consistency;
     });
 
+  // KPIs de la marca propia
+  const ownMentionRows = mentions.filter((m) => m.brand_type === "own");
+  const ownRunsWithMention = new Set(ownMentionRows.map((m) => m.prompt_run_id)).size;
+  const ownVisibility = totalRuns > 0 ? round1((ownRunsWithMention / totalRuns) * 100) : 0;
+  const ownPositions = ownMentionRows
+    .map((m) => m.position)
+    .filter((p): p is number => typeof p === "number" && Number.isFinite(p));
+  const ownAvgPosition =
+    ownPositions.length > 0
+      ? round1(ownPositions.reduce((a, b) => a + b, 0) / ownPositions.length)
+      : null;
+  const ownSov = sovPool > 0 ? round1((ownMentions / sovPool) * 100) : null;
+  const highThreats = competitorPerformance.filter((c) => (c.sov ?? 0) > (ownSov ?? 0)).length;
+
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
@@ -313,114 +308,21 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
           })}
         </div>
 
+        <CompetitorKpiCards
+          kpis={{
+            visibility: ownVisibility,
+            avgPosition: ownAvgPosition,
+            sov: ownSov,
+            totalCompetitors: competitors.length,
+            highThreats,
+          }}
+        />
+
+        <CompetitorTableSortable rows={competitorPerformance} totalRuns={totalRuns} llm={llm} />
+
         <AddCompetitorForm workspaceId={workspace.id} />
 
         <AnalyzeExecutedPromptsButton workspaceId={workspace.id} />
-
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-            <h2 className="text-sm font-semibold text-slate-800">Rendimiento de competidores</h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Métricas para <span className="font-medium">{llm}</span> sobre runs completados (
-              {totalRuns}) y ordenadas de mejor a peor posición media.
-            </p>
-          </div>
-
-          {competitorPerformance.length === 0 ? (
-            <p className="px-5 py-6 text-sm text-slate-400">No hay competidores para analizar.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="text-left px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center">
-                        Competidor
-                        <InfoTooltip content="Marca detectada en las respuestas de la IA." />
-                      </div>
-                    </th>
-                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center justify-end">
-                        Posición media
-                        <InfoTooltip content="Posición promedio de la marca (1 es la mejor posición)." />
-                      </div>
-                    </th>
-                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center justify-end">
-                        SOV
-                        <InfoTooltip content="Cuota de voz: % de menciones de esta marca sobre el total de marcas detectadas." />
-                      </div>
-                    </th>
-                    <th className="text-left px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center">
-                        Sentimiento
-                        <InfoTooltip content="Tono predominante (positivo, neutral o negativo) detectado en las menciones." />
-                      </div>
-                    </th>
-                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center justify-end">
-                        Consistencia
-                        <InfoTooltip content="% de respuestas en las que aparece la marca." />
-                      </div>
-                    </th>
-                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center justify-end">
-                        Menciones
-                        <InfoTooltip content="Número total de veces que se ha detectado la marca." />
-                      </div>
-                    </th>
-                    <th className="text-right px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center justify-end">
-                        Prompts
-                        <InfoTooltip content="Número de prompts únicos donde aparece la marca." />
-                      </div>
-                    </th>
-                    <th className="text-left px-4 py-3 text-slate-500 font-medium">
-                      <div className="flex items-center">
-                        Última mención
-                        <InfoTooltip content="Fecha y hora de la detección más reciente." />
-                      </div>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {competitorPerformance.map((row) => (
-                    <tr key={row.competitorId} className="hover:bg-slate-50/60">
-                      <td className="px-4 py-3">
-                        <p className="font-medium text-slate-800">{row.name}</p>
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {row.avgPosition !== null ? row.avgPosition.toFixed(1) : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {row.sov !== null ? `${row.sov.toFixed(1)}%` : "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${sentimentClass(row.sentiment)}`}
-                        >
-                          {row.sentiment === "positive"
-                            ? "positivo"
-                            : row.sentiment === "neutral"
-                              ? "neutral"
-                              : row.sentiment === "negative"
-                                ? "negativo"
-                                : "sin datos"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {row.consistency.toFixed(1)}%
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">{row.mentions}</td>
-                      <td className="px-4 py-3 text-right text-slate-700">{row.promptsCovered}</td>
-                      <td className="px-4 py-3 text-slate-500">{formatDate(row.lastSeenAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
