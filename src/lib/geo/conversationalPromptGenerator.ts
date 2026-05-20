@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import type { GeoResearchInput, PromptCandidate } from "@/types";
+import type { GeoResearchInput, PromptCandidate, RetrievedChunk } from "@/types";
 import { PROMPT_GENERATOR_TEMPLATE } from "./masterPrompts";
+import { formatKnowledgeBlock } from "./promptResearchSkill";
 
 const candidateSchema = z.object({
   prompt: z.string(),
@@ -189,14 +190,18 @@ function getMockCandidates(input: GeoResearchInput): PromptCandidate[] {
 }
 
 export async function generatePromptCandidates(
-  input: GeoResearchInput
+  input: GeoResearchInput,
+  knowledgeChunks?: RetrievedChunk[]
 ): Promise<PromptCandidate[]> {
   if (!process.env.ANTHROPIC_API_KEY) {
     return getMockCandidates(input);
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const promptText = buildPrompt(input);
+  const knowledgeBlock = knowledgeChunks
+    ? formatKnowledgeBlock(knowledgeChunks, "BASE DE CONOCIMIENTO EXPERTA GEO")
+    : "";
+  const promptText = buildPrompt(input) + knowledgeBlock;
 
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001",

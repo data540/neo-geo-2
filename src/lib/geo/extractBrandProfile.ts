@@ -79,10 +79,12 @@ ${pageContent.slice(0, 8000)}`;
     const parsed = JSON.parse(match[0]) as Record<string, unknown>;
 
     return {
-      extractedSummary: typeof parsed.extractedSummary === "string" ? parsed.extractedSummary : null,
+      extractedSummary:
+        typeof parsed.extractedSummary === "string" ? parsed.extractedSummary : null,
       positioning: typeof parsed.positioning === "string" ? parsed.positioning : null,
       audience: typeof parsed.audience === "string" ? parsed.audience : null,
-      productsServices: typeof parsed.productsServices === "string" ? parsed.productsServices : null,
+      productsServices:
+        typeof parsed.productsServices === "string" ? parsed.productsServices : null,
       differentiators: typeof parsed.differentiators === "string" ? parsed.differentiators : null,
     };
   } catch {

@@ -4,11 +4,17 @@ import { revalidatePath } from "next/cache";
 import { generatePromptCandidates } from "@/lib/geo/conversationalPromptGenerator";
 import { auditPromptCoverage } from "@/lib/geo/promptCoverageAuditor";
 import { prioritizePrompts } from "@/lib/geo/promptPrioritizer";
+import {
+  type InitialContext,
+  prepareInitialContext,
+  retrievePhaseKnowledge,
+} from "@/lib/geo/promptResearchSkill";
 import { createClient } from "@/lib/supabase/server";
 import { acceptPromptsSchema, geoResearchInputSchema } from "@/lib/validations/schemas";
 import type {
   ActionResult,
   CoverageAuditResult,
+  GeoResearchInput,
   PrioritizedPrompt,
   PromptCandidate,
 } from "@/types";
@@ -53,7 +59,8 @@ export async function generatePromptsAction(
   const canManage = await requireManage(workspaceId);
   if (!canManage) return { success: false, error: "Sin permisos" };
 
-  const candidates = await generatePromptCandidates(researchInput);
+  const knowledgeChunks = await retrievePhaseKnowledge("generator", researchInput);
+  const candidates = await generatePromptCandidates(researchInput, knowledgeChunks);
 
   const sessionId = crypto.randomUUID();
   const supabase = await createClient();
@@ -129,6 +136,21 @@ export async function auditCoverageAction(
     .eq("workspace_id", workspaceId)
     .eq("type", "competitor");
 
+  const auditorInputForRag: GeoResearchInput = {
+    brandName,
+    domain: "",
+    brandStatement: workspace?.brand_statement ?? "",
+    country: workspace?.country ?? "ES",
+    location: "",
+    category,
+    productsServices: "",
+    targetAudience: workspace?.brand_statement ?? "",
+    competitors: (competitors ?? []).map((c) => c.name as string),
+    differentiators: "",
+    numberOfPrompts: candidates.length,
+  };
+  const knowledgeChunks = await retrievePhaseKnowledge("auditor", auditorInputForRag);
+
   const result = await auditPromptCoverage({
     brandName,
     category,
@@ -136,6 +158,7 @@ export async function auditCoverageAction(
     targetAudience: workspace?.brand_statement ?? "",
     competitors: (competitors ?? []).map((c) => c.name as string),
     candidates: candidates as PromptCandidate[],
+    knowledgeChunks,
   });
 
   return { success: true, data: result };
@@ -162,7 +185,32 @@ export async function prioritizePromptsAction(
     return { success: false, error: "No hay candidatos para priorizar" };
   }
 
-  const prioritized = await prioritizePrompts(candidates as PromptCandidate[], limit);
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("country, brand_name")
+    .eq("id", workspaceId)
+    .single();
+
+  const prioritizerInputForRag: GeoResearchInput = {
+    brandName: (workspace?.brand_name as string) ?? "",
+    domain: "",
+    brandStatement: "",
+    country: workspace?.country ?? "ES",
+    location: "",
+    category: "Vuelos comerciales de pasajeros",
+    productsServices: "",
+    targetAudience: "",
+    competitors: [],
+    differentiators: "",
+    numberOfPrompts: candidates.length,
+  };
+  const knowledgeChunks = await retrievePhaseKnowledge("prioritizer", prioritizerInputForRag);
+
+  const prioritized = await prioritizePrompts(
+    candidates as PromptCandidate[],
+    limit,
+    knowledgeChunks
+  );
 
   // Actualizar priority_rank en DB
   for (const p of prioritized) {
@@ -243,4 +291,134 @@ export async function acceptPromptsAction(data: unknown): Promise<ActionResult> 
   }
 
   return { success: true };
+}
+
+export async function getInitialContextAction(
+  workspaceId: string
+): Promise<ActionResult<InitialContext>> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const context = await prepareInitialContext(workspaceId);
+  return { success: true, data: context };
+}
+
+export interface AutoResearchResult {
+  sessionId: string;
+  candidates: PromptCandidate[];
+  audit: CoverageAuditResult;
+  prioritized: PrioritizedPrompt[];
+}
+
+export async function runFullAutoResearchAction(
+  formData: FormData
+): Promise<ActionResult<AutoResearchResult>> {
+  const raw = {
+    workspaceId: formData.get("workspaceId") as string,
+    brandName: formData.get("brandName") as string,
+    domain: formData.get("domain") as string,
+    brandStatement: formData.get("brandStatement") as string,
+    country: (formData.get("country") as string) || "ES",
+    location: formData.get("location") as string,
+    category: formData.get("category") as string,
+    productsServices: formData.get("productsServices") as string,
+    targetAudience: formData.get("targetAudience") as string,
+    competitors:
+      (formData.get("competitors") as string)
+        ?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? [],
+    differentiators: formData.get("differentiators") as string,
+    numberOfPrompts: Number(formData.get("numberOfPrompts") || "30"),
+  };
+
+  const parsed = geoResearchInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+  }
+
+  const { workspaceId, ...researchInput } = parsed.data;
+
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const supabase = await createClient();
+
+  // 1) Generación con RAG
+  const genChunks = await retrievePhaseKnowledge("generator", researchInput);
+  const candidates = await generatePromptCandidates(researchInput, genChunks);
+
+  if (candidates.length === 0) {
+    return { success: false, error: "No se pudieron generar candidatos" };
+  }
+
+  // 2) Persistir candidatos
+  const sessionId = crypto.randomUUID();
+  const { error: insertError } = await supabase.from("prompt_candidates").insert(
+    candidates.map((c) => ({
+      workspace_id: workspaceId,
+      session_id: sessionId,
+      prompt: c.prompt,
+      intent: c.intent,
+      funnel_stage: c.funnel_stage,
+      persona: c.persona,
+      country: c.country,
+      includes_brand: c.includes_brand,
+      includes_competitor: c.includes_competitor,
+      strategic_value: c.strategic_value,
+      conversion_intent: c.conversion_intent,
+      ai_search_likelihood: c.ai_search_likelihood,
+      priority_score: c.priority_score,
+      reason: c.reason,
+      coverage_area: c.coverage_area,
+      selected: true,
+    }))
+  );
+
+  if (insertError) {
+    console.error("[runFullAutoResearch] insertError:", insertError.message);
+    return { success: false, error: `Error al guardar candidatos: ${insertError.message}` };
+  }
+
+  const { data: saved } = await supabase
+    .from("prompt_candidates")
+    .select("*")
+    .eq("session_id", sessionId)
+    .order("created_at");
+
+  const savedCandidates = (saved ?? []) as PromptCandidate[];
+
+  // 3) Auditoría con RAG
+  const auditChunks = await retrievePhaseKnowledge("auditor", researchInput);
+  const audit = await auditPromptCoverage({
+    brandName: researchInput.brandName,
+    category: researchInput.category,
+    country: researchInput.country,
+    targetAudience: researchInput.targetAudience,
+    competitors: researchInput.competitors,
+    candidates: savedCandidates,
+    knowledgeChunks: auditChunks,
+  });
+
+  // 4) Priorización con RAG (límite = 15 por defecto)
+  const priorityLimit = Math.min(15, savedCandidates.length);
+  const prioritizerChunks = await retrievePhaseKnowledge("prioritizer", researchInput);
+  const prioritized = await prioritizePrompts(savedCandidates, priorityLimit, prioritizerChunks);
+
+  // Persistir rank y riesgo
+  for (const p of prioritized) {
+    const match = savedCandidates.find((c) => c.prompt === p.prompt);
+    if (match) {
+      await supabase
+        .from("prompt_candidates")
+        .update({ priority_rank: p.priorityRank, risk_if_brand_absent: p.riskIfBrandAbsent })
+        .eq("id", match.id)
+        .eq("session_id", sessionId);
+    }
+  }
+
+  return {
+    success: true,
+    data: { sessionId, candidates: savedCandidates, audit, prioritized },
+  };
 }

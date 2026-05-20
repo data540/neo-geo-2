@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { CoverageAuditResult, PromptCandidate } from "@/types";
+import type { CoverageAuditResult, PromptCandidate, RetrievedChunk } from "@/types";
 import { COVERAGE_AUDITOR_TEMPLATE } from "./masterPrompts";
+import { formatKnowledgeBlock } from "./promptResearchSkill";
 
 interface AuditInput {
   brandName: string;
@@ -9,6 +10,7 @@ interface AuditInput {
   targetAudience: string;
   competitors: string[];
   candidates: PromptCandidate[];
+  knowledgeChunks?: RetrievedChunk[];
 }
 
 function getMockAuditResult(candidates: PromptCandidate[]): CoverageAuditResult {
@@ -72,12 +74,17 @@ export async function auditPromptCoverage(input: AuditInput): Promise<CoverageAu
     }))
   );
 
-  const promptText = COVERAGE_AUDITOR_TEMPLATE.replace("{{brand_name}}", input.brandName)
-    .replace("{{category}}", input.category)
-    .replace("{{country}}", input.country)
-    .replace("{{target_audience}}", input.targetAudience)
-    .replace("{{competitors}}", input.competitors.join(", "))
-    .replace("{{prompts_json}}", promptsJson);
+  const knowledgeBlock = input.knowledgeChunks
+    ? formatKnowledgeBlock(input.knowledgeChunks, "GUÍA EXPERTA DE AUDITORÍA DE COBERTURA GEO")
+    : "";
+
+  const promptText =
+    COVERAGE_AUDITOR_TEMPLATE.replace("{{brand_name}}", input.brandName)
+      .replace("{{category}}", input.category)
+      .replace("{{country}}", input.country)
+      .replace("{{target_audience}}", input.targetAudience)
+      .replace("{{competitors}}", input.competitors.join(", "))
+      .replace("{{prompts_json}}", promptsJson) + knowledgeBlock;
 
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001",

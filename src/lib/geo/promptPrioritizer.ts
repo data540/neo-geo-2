@@ -1,6 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { PrioritizedPrompt, PromptCandidate, RiskIfBrandAbsent } from "@/types";
+import type {
+  PrioritizedPrompt,
+  PromptCandidate,
+  RetrievedChunk,
+  RiskIfBrandAbsent,
+} from "@/types";
 import { PROMPT_PRIORITIZER_TEMPLATE } from "./masterPrompts";
+import { formatKnowledgeBlock } from "./promptResearchSkill";
 
 function mockPrioritize(candidates: PromptCandidate[], limit: number): PrioritizedPrompt[] {
   const sorted = [...candidates]
@@ -18,13 +24,17 @@ function mockPrioritize(candidates: PromptCandidate[], limit: number): Prioritiz
 
 export async function prioritizePrompts(
   candidates: PromptCandidate[],
-  limit: number
+  limit: number,
+  knowledgeChunks?: RetrievedChunk[]
 ): Promise<PrioritizedPrompt[]> {
   if (!process.env.ANTHROPIC_API_KEY || candidates.length === 0) {
     return mockPrioritize(candidates, limit);
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const knowledgeBlock = knowledgeChunks
+    ? formatKnowledgeBlock(knowledgeChunks, "CRITERIOS EXPERTOS DE PRIORIZACIÓN GEO")
+    : "";
 
   const candidatesJson = JSON.stringify(
     candidates.map((c) => ({
@@ -41,9 +51,10 @@ export async function prioritizePrompts(
     }))
   );
 
-  const promptText = PROMPT_PRIORITIZER_TEMPLATE.replace("{{limit}}", String(limit))
-    .replace("{{candidates_json}}", candidatesJson)
-    .replace("{{limit}}", String(limit));
+  const promptText =
+    PROMPT_PRIORITIZER_TEMPLATE.replace("{{limit}}", String(limit))
+      .replace("{{candidates_json}}", candidatesJson)
+      .replace("{{limit}}", String(limit)) + knowledgeBlock;
 
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001",

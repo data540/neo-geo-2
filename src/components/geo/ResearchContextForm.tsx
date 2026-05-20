@@ -22,10 +22,19 @@ interface Props {
     domain: string;
     brandStatement: string;
     country: string;
+    location?: string;
+    category?: string;
+    productsServices?: string;
+    targetAudience?: string;
+    differentiators?: string;
     competitors: string[];
   };
   onSubmit: (formData: FormData) => Promise<void>;
+  onAutoAll?: (formData: FormData) => Promise<void>;
   loading: boolean;
+  autoLoading?: boolean;
+  showAutoButton?: boolean;
+  preFilled?: boolean;
 }
 
 const COUNTRIES = [
@@ -33,8 +42,16 @@ const COUNTRIES = [
   { code: "CO", name: "Colombia" },
 ];
 
-export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props) {
-  const [numPrompts, setNumPrompts] = useState(10);
+export function ResearchContextForm({
+  defaultValues,
+  onSubmit,
+  onAutoAll,
+  loading,
+  autoLoading = false,
+  showAutoButton = false,
+  preFilled = false,
+}: Props) {
+  const [numPrompts, setNumPrompts] = useState(30);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -43,9 +60,29 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
     await onSubmit(fd);
   }
 
+  async function handleAutoAll() {
+    if (!onAutoAll) return;
+    const form = document.getElementById("geo-research-form") as HTMLFormElement | null;
+    if (!form) return;
+    const fd = new FormData(form);
+    fd.set("numberOfPrompts", String(numPrompts));
+    await onAutoAll(fd);
+  }
+
+  const anyLoading = loading || autoLoading;
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form id="geo-research-form" onSubmit={handleSubmit} className="space-y-5">
       <input type="hidden" name="workspaceId" value={defaultValues.workspaceId} />
+
+      {preFilled && (
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+          <p className="text-xs text-indigo-700">
+            <span className="font-semibold">Contexto pre-rellenado</span> desde Company Bio y
+            Competidores. Revisa y ajusta lo que necesites antes de generar.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
@@ -104,8 +141,9 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
           <Input
             id="location"
             name="location"
+            defaultValue={defaultValues.location ?? ""}
             placeholder="ej. Madrid, Barcelona, Bogota"
-            disabled={loading}
+            disabled={anyLoading}
           />
         </div>
       </div>
@@ -115,10 +153,10 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
         <Input
           id="category"
           name="category"
-          defaultValue="Vuelos comerciales de pasajeros"
+          defaultValue={defaultValues.category ?? "Vuelos comerciales de pasajeros"}
           placeholder="ej. Vuelos nacionales, vuelos internacionales, soporte posventa"
           required
-          disabled={loading}
+          disabled={anyLoading}
         />
       </div>
 
@@ -127,9 +165,10 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
         <Textarea
           id="productsServices"
           name="productsServices"
+          defaultValue={defaultValues.productsServices ?? ""}
           rows={2}
           placeholder="ej. Check-in online, equipaje facturado, cambios y reembolsos, asistencia en aeropuerto"
-          disabled={loading}
+          disabled={anyLoading}
         />
       </div>
 
@@ -138,8 +177,9 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
         <Input
           id="targetAudience"
           name="targetAudience"
+          defaultValue={defaultValues.targetAudience ?? ""}
           placeholder="ej. Viajeros frecuentes, familias, pasajeros de negocios, rutas Espana-Colombia"
-          disabled={loading}
+          disabled={anyLoading}
         />
       </div>
 
@@ -148,9 +188,10 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
         <Textarea
           id="differentiators"
           name="differentiators"
+          defaultValue={defaultValues.differentiators ?? ""}
           rows={2}
           placeholder="ej. Mejor puntualidad, politicas flexibles de cambio, soporte rapido en incidencias"
-          disabled={loading}
+          disabled={anyLoading}
         />
       </div>
 
@@ -164,7 +205,7 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
           name="competitors"
           defaultValue={defaultValues.competitors.join(", ")}
           placeholder="ej. Iberia, Vueling, Avianca, LATAM"
-          disabled={loading}
+          disabled={anyLoading}
         />
       </div>
 
@@ -177,35 +218,56 @@ export function ResearchContextForm({ defaultValues, onSubmit, loading }: Props)
           value={[numPrompts]}
           onValueChange={(vals) => {
             const v = Array.isArray(vals) ? vals[0] : vals;
-            setNumPrompts(v ?? 10);
+            setNumPrompts(v ?? 30);
           }}
-          min={10}
-          max={50}
+          min={15}
+          max={60}
           step={5}
-          disabled={loading}
+          disabled={anyLoading}
           className="w-full"
         />
         <div className="flex justify-between text-xs text-slate-400">
-          <span>10</span>
-          <span>25</span>
-          <span>50</span>
+          <span>15</span>
+          <span>30</span>
+          <span>60</span>
         </div>
       </div>
 
-      <Button
-        type="submit"
-        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
-        disabled={loading}
-      >
-        {loading ? (
-          <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            Generando prompts con IA…
-          </>
-        ) : (
-          "Generar prompts candidatos"
+      <div className="space-y-2">
+        <Button
+          type="submit"
+          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white"
+          disabled={anyLoading}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Generando prompts con IA…
+            </>
+          ) : (
+            "Generar prompts candidatos"
+          )}
+        </Button>
+
+        {showAutoButton && onAutoAll && (
+          <Button
+            type="button"
+            onClick={handleAutoAll}
+            variant="outline"
+            className="w-full border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+            disabled={anyLoading}
+          >
+            {autoLoading ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Generando, auditando y priorizando…
+              </>
+            ) : (
+              "🪄 Auto-generar todo (incluye RAG + cobertura + priorización)"
+            )}
+          </Button>
         )}
-      </Button>
+      </div>
     </form>
   );
 }

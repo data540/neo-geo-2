@@ -8,6 +8,7 @@ import {
   auditCoverageAction,
   generatePromptsAction,
   prioritizePromptsAction,
+  runFullAutoResearchAction,
 } from "@/actions/geo-research";
 import type { CoverageAuditResult, PrioritizedPrompt, PromptCandidate } from "@/types";
 import { CoverageAuditPanel } from "./CoverageAuditPanel";
@@ -23,7 +24,14 @@ interface Props {
   domain: string;
   brandStatement: string;
   country: string;
+  location?: string;
+  category?: string;
+  productsServices?: string;
+  targetAudience?: string;
+  differentiators?: string;
   competitors: string[];
+  hasKnowledgeBase: boolean;
+  preFilled: boolean;
 }
 
 export function GeoResearchWizard({
@@ -33,11 +41,19 @@ export function GeoResearchWizard({
   domain,
   brandStatement,
   country,
+  location,
+  category: initialCategory,
+  productsServices,
+  targetAudience,
+  differentiators,
   competitors,
+  hasKnowledgeBase,
+  preFilled,
 }: Props) {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [autoLoading, setAutoLoading] = useState(false);
 
   // Paso 2
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -46,7 +62,7 @@ export function GeoResearchWizard({
   // Paso 3
   const [coverageResult, setCoverageResult] = useState<CoverageAuditResult | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState(initialCategory ?? "");
 
   // Paso 4
   const [prioritized, setPrioritized] = useState<PrioritizedPrompt[]>([]);
@@ -107,6 +123,29 @@ export function GeoResearchWizard({
     setStep(4);
   }
 
+  async function handleAutoAll(formData: FormData) {
+    setAutoLoading(true);
+    setCategory((formData.get("category") as string) || "");
+
+    const result = await runFullAutoResearchAction(formData);
+    setAutoLoading(false);
+
+    if (!result.success) {
+      toast.error(result.error ?? "Error al ejecutar auto-generación");
+      return;
+    }
+
+    setSessionId(result.data?.sessionId ?? null);
+    setCandidates(result.data?.candidates ?? []);
+    setCoverageResult(result.data?.audit ?? null);
+    setPrioritized(result.data?.prioritized ?? []);
+    setSelectedIds((result.data?.candidates ?? []).map((c) => c.id));
+    setStep(4);
+    toast.success(
+      `Generación completa: ${result.data?.candidates.length ?? 0} candidatos · ${result.data?.prioritized.length ?? 0} priorizados`
+    );
+  }
+
   async function handleActivate(_selectedTexts: string[], candidateIds: string[]) {
     if (!sessionId) return;
     setLoading(true);
@@ -145,10 +184,19 @@ export function GeoResearchWizard({
                 domain,
                 brandStatement,
                 country,
+                location,
+                category: initialCategory,
+                productsServices,
+                targetAudience,
+                differentiators,
                 competitors,
               }}
               onSubmit={handleGeneratePrompts}
+              onAutoAll={hasKnowledgeBase ? handleAutoAll : undefined}
               loading={loading}
+              autoLoading={autoLoading}
+              showAutoButton={hasKnowledgeBase}
+              preFilled={preFilled}
             />
           </>
         )}
