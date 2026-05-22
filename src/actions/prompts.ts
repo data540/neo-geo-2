@@ -2,7 +2,7 @@
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
-import { executePromptRun } from "@/lib/llm/executePromptRun";
+import { inngest } from "@/inngest/client";
 import { createClient } from "@/lib/supabase/server";
 import {
   bulkCreatePromptsSchema,
@@ -216,7 +216,7 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
     return { success: false, error: "Datos inválidos" };
   }
 
-  const { promptId, workspaceId, llmKey } = parsed.data;
+  const { promptId, workspaceId } = parsed.data;
 
   const canManage = await requireManage(workspaceId);
   if (!canManage) {
@@ -225,29 +225,41 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
 
   const supabase = getServiceClient();
 
-  const { data: provider } = await supabase
-    .from("llm_providers")
-    .select("id")
-    .eq("key", llmKey)
-    .single();
+  // Cargar todos los LLMs habilitados del workspace
+  const { data: llmConfigs } = await supabase
+    .from("workspace_llm_config")
+    .select("llm_provider_id")
+    .eq("workspace_id", workspaceId)
+    .eq("enabled", true);
 
-  if (!provider) return { success: false, error: "Proveedor LLM no encontrado" };
+  const providerIds = (llmConfigs ?? []).map((c) => c.llm_provider_id as string);
+  if (providerIds.length === 0) {
+    return { success: false, error: "No hay LLMs habilitados en este workspace" };
+  }
 
-  const { data: run, error: runError } = await supabase
+  // Crear N runs (uno por LLM habilitado)
+  const { data: runs, error: runError } = await supabase
     .from("prompt_runs")
-    .insert({
-      workspace_id: workspaceId,
-      prompt_id: promptId,
-      llm_provider_id: provider.id,
-      status: "queued",
-    })
-    .select("id")
-    .single();
+    .insert(
+      providerIds.map((llmProviderId) => ({
+        workspace_id: workspaceId,
+        prompt_id: promptId,
+        llm_provider_id: llmProviderId,
+        status: "queued",
+      }))
+    )
+    .select("id");
 
-  if (runError || !run) return { success: false, error: "No se pudo crear el run" };
+  if (runError || !runs || runs.length === 0) {
+    return { success: false, error: "No se pudieron crear los runs" };
+  }
 
-  // Fire & forget — el run se ejecuta en background, la UI hace polling
-  void executePromptRun(run.id);
+  const runIds = runs.map((r) => r.id as string);
+
+  await inngest.send({
+    name: "prompt/run.multi",
+    data: { promptId, workspaceId, runIds },
+  });
 
   const { data: ws } = await supabase
     .from("workspaces")
@@ -270,7 +282,7 @@ export async function createPromptsBulkAction(
     return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
   }
 
-  const { workspaceId, country, prompts, rawText, runAfterImport, llmKey } = parsed.data;
+  const { workspaceId, country, prompts, rawText, runAfterImport } = parsed.data;
 
   const canManage = await requireManage(workspaceId);
   if (!canManage) {
@@ -307,37 +319,46 @@ export async function createPromptsBulkAction(
   let queued = 0;
   if (runAfterImport && insertedPrompts && insertedPrompts.length > 0) {
     const service = getServiceClient();
-    const { data: provider } = await service
-      .from("llm_providers")
-      .select("id")
-      .eq("key", llmKey)
-      .single();
-    if (provider) {
+
+    const { data: llmConfigs } = await service
+      .from("workspace_llm_config")
+      .select("llm_provider_id")
+      .eq("workspace_id", workspaceId)
+      .eq("enabled", true);
+
+    const providerIds = (llmConfigs ?? []).map((c) => c.llm_provider_id as string);
+
+    if (providerIds.length > 0) {
+      const runRows = insertedPrompts.flatMap((p) =>
+        providerIds.map((llmProviderId) => ({
+          workspace_id: workspaceId,
+          prompt_id: p.id as string,
+          llm_provider_id: llmProviderId,
+          status: "queued",
+        }))
+      );
+
       const { data: createdRuns } = await service
         .from("prompt_runs")
-        .insert(
-          insertedPrompts.map((p) => ({
-            workspace_id: workspaceId,
-            prompt_id: p.id as string,
-            llm_provider_id: provider.id,
-            status: "queued",
-          }))
-        )
-        .select("id");
+        .insert(runRows)
+        .select("id, prompt_id");
 
-      const runIds = (createdRuns ?? []).map((r) => r.id as string);
-      queued = runIds.length;
+      queued = createdRuns?.length ?? 0;
 
-      // Cola secuencial: ejecuta uno a uno para evitar ráfagas.
-      void (async () => {
-        for (const runId of runIds) {
-          try {
-            await executePromptRun(runId);
-          } catch (e) {
-            console.error("[createPromptsBulkAction] run failed:", runId, e);
-          }
-        }
-      })();
+      // Disparar un evento multi por cada prompt importado
+      const events = insertedPrompts.map((p) => {
+        const promptRunIds = (createdRuns ?? [])
+          .filter((r) => r.prompt_id === p.id)
+          .map((r) => r.id as string);
+        return {
+          name: "prompt/run.multi" as const,
+          data: { promptId: p.id as string, workspaceId, runIds: promptRunIds },
+        };
+      });
+
+      if (events.length > 0) {
+        await inngest.send(events);
+      }
     }
   }
 

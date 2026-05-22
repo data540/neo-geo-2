@@ -25,10 +25,6 @@ export const bulkCreatePromptsSchema = z.object({
   prompts: z.array(z.string().min(1)).optional().default([]),
   rawText: z.string().optional().default(""),
   runAfterImport: z.boolean().optional().default(false),
-  llmKey: z
-    .enum(["chatgpt", "claude", "gemini", "perplexity", "deepseek"])
-    .optional()
-    .default("chatgpt"),
 });
 
 export type CreatePromptInput = z.infer<typeof createPromptSchema>;
@@ -54,7 +50,6 @@ export type TogglePromptStatusInput = z.infer<typeof togglePromptStatusSchema>;
 export const runPromptSchema = z.object({
   promptId: z.string().uuid(),
   workspaceId: z.string().uuid(),
-  llmKey: z.enum(["chatgpt", "claude", "gemini", "perplexity", "deepseek"]).default("chatgpt"),
 });
 
 export type RunPromptInput = z.infer<typeof runPromptSchema>;

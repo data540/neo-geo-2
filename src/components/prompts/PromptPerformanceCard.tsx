@@ -11,21 +11,17 @@ interface Tag {
 interface Props {
   rows: PromptPerformanceRow[];
   workspaceId: string;
-  llmKey: string;
   availableTags: Tag[];
   promptTags: Record<string, Tag[]>;
   latestStatusByPrompt: Record<string, RunStatus>;
-  llmsByPrompt: Record<string, string[]>;
 }
 
 export function PromptPerformanceCard({
   rows,
   workspaceId,
-  llmKey,
   availableTags,
   promptTags,
   latestStatusByPrompt,
-  llmsByPrompt,
 }: Props) {
   return (
     <div className="space-y-4">
@@ -37,11 +33,9 @@ export function PromptPerformanceCard({
       <PromptPerformanceTable
         rows={rows}
         workspaceId={workspaceId}
-        llmKey={llmKey}
         availableTags={availableTags}
         promptTags={promptTags}
         latestStatusByPrompt={latestStatusByPrompt}
-        llmsByPrompt={llmsByPrompt}
       />
     </div>
   );

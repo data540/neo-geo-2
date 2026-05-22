@@ -5,18 +5,22 @@ import { PromptsPageHeader } from "@/components/prompts/PromptsPageHeader";
 import { createClient } from "@/lib/supabase/server";
 import type { PromptPerformanceRow, RunStatus, WorkspaceKpis } from "@/types";
 
+interface EnabledLlm {
+  key: string;
+  name: string;
+}
+
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string; country?: string }>;
+  searchParams: Promise<{ focusLlm?: string; country?: string }>;
 }
 
 export default async function PromptsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", country } = await searchParams;
+  const { focusLlm, country } = await searchParams;
 
   const supabase = await createClient();
 
-  // Obtener workspace
   const { data: workspace } = await supabase
     .from("workspaces")
     .select("id, name, country")
@@ -25,33 +29,46 @@ export default async function PromptsPage({ params, searchParams }: Props) {
 
   if (!workspace) notFound();
 
-  // Obtener prompts con métricas (RPC)
+  // LLMs habilitados del workspace
+  const { data: llmConfigs } = await supabase
+    .from("workspace_llm_config")
+    .select("llm_provider_id, llm_providers!inner(key, name)")
+    .eq("workspace_id", workspace.id)
+    .eq("enabled", true);
+
+  const enabledLlms: EnabledLlm[] = (llmConfigs ?? []).map((c) => {
+    const provider = c.llm_providers as unknown as { key: string; name: string };
+    return { key: provider.key, name: provider.name };
+  });
+
+  const usagePct = enabledLlms.length > 0 ? Math.round(100 / enabledLlms.length) : 100;
+
+  // Métricas cross-LLM (sin filtro de LLM, o filtradas por focusLlm si se especifica)
   const { data: rows } = await supabase.rpc("get_workspace_prompt_performance", {
     p_workspace_slug: slug,
-    p_llm_key: llm,
+    p_llm_key: focusLlm ?? null,
     p_country_filter: country ?? null,
   });
 
-  // Obtener KPIs
+  // KPIs (cross-LLM o filtrados)
   const { data: kpis } = await supabase.rpc("get_workspace_kpis", {
     p_workspace_slug: slug,
-    p_llm_key: llm,
+    p_llm_key: focusLlm ?? "chatgpt",
   });
 
-  // Obtener tags disponibles del workspace
+  // Tags disponibles
   const { data: allTags } = await supabase
     .from("prompt_tags")
     .select("id, name, color")
     .eq("workspace_id", workspace.id)
     .order("name");
 
-  // Obtener tags asignadas a cada prompt
   const promptRows = (rows ?? []) as PromptPerformanceRow[];
   const promptIds = promptRows.map((r) => r.prompt_id);
 
   const promptTags: Record<string, { id: string; name: string; color: string }[]> = {};
+  // latestStatusByPrompt: status del último run por prompt (cross-LLM o por focusLlm)
   const latestStatusByPrompt: Record<string, RunStatus> = {};
-  const llmsByPrompt: Record<string, string[]> = {};
 
   if (promptIds.length > 0) {
     const { data: assignments } = await supabase
@@ -67,41 +84,28 @@ export default async function PromptsPage({ params, searchParams }: Props) {
       }
     }
 
-    // Obtener el status del último run de cada prompt para el LLM activo
-    const { data: provider } = await supabase
-      .from("llm_providers")
-      .select("id")
-      .eq("key", llm)
-      .single();
+    // Último run por prompt (cross-LLM o filtrado por focusLlm)
+    let runsQuery = supabase
+      .from("prompt_runs")
+      .select("prompt_id, status, llm_provider_id, created_at")
+      .in("prompt_id", promptIds)
+      .order("created_at", { ascending: false });
 
-    if (provider) {
-      const { data: latestRuns } = await supabase
-        .from("prompt_runs")
-        .select("prompt_id, status, created_at")
-        .in("prompt_id", promptIds)
-        .eq("llm_provider_id", provider.id)
-        .order("created_at", { ascending: false });
-
-      for (const r of latestRuns ?? []) {
-        if (!latestStatusByPrompt[r.prompt_id]) {
-          latestStatusByPrompt[r.prompt_id] = r.status as RunStatus;
-        }
+    if (focusLlm) {
+      const { data: focusProvider } = await supabase
+        .from("llm_providers")
+        .select("id")
+        .eq("key", focusLlm)
+        .single();
+      if (focusProvider) {
+        runsQuery = runsQuery.eq("llm_provider_id", focusProvider.id);
       }
     }
 
-    const { data: llmRuns } = await supabase
-      .from("prompt_runs")
-      .select("prompt_id, llm_providers(name)")
-      .in("prompt_id", promptIds)
-      .not("llm_provider_id", "is", null);
-
-    for (const run of llmRuns ?? []) {
-      const promptId = run.prompt_id as string;
-      const llmName = (run.llm_providers as { name?: string } | null)?.name;
-      if (!llmName) continue;
-      if (!llmsByPrompt[promptId]) llmsByPrompt[promptId] = [];
-      if (!llmsByPrompt[promptId]?.includes(llmName)) {
-        llmsByPrompt[promptId]?.push(llmName);
+    const { data: latestRuns } = await runsQuery;
+    for (const r of latestRuns ?? []) {
+      if (!latestStatusByPrompt[r.prompt_id as string]) {
+        latestStatusByPrompt[r.prompt_id as string] = r.status as RunStatus;
       }
     }
   }
@@ -149,16 +153,18 @@ export default async function PromptsPage({ params, searchParams }: Props) {
           totalActive={activeCount}
         />
 
-        <PromptKpiCards kpis={workspaceKpis} />
+        <PromptKpiCards
+          kpis={workspaceKpis}
+          enabledLlms={enabledLlms}
+          usagePct={usagePct}
+        />
 
         <PromptPerformanceCard
           rows={promptRows}
           workspaceId={workspace.id}
-          llmKey={llm}
           availableTags={allTags ?? []}
           promptTags={promptTags}
           latestStatusByPrompt={latestStatusByPrompt}
-          llmsByPrompt={llmsByPrompt}
         />
       </div>
     </div>

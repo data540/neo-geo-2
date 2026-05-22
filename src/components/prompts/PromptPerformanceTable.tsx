@@ -28,11 +28,9 @@ interface Tag {
 interface Props {
   rows: PromptPerformanceRow[];
   workspaceId: string;
-  llmKey: string;
   availableTags: Tag[];
   promptTags: Record<string, Tag[]>;
   latestStatusByPrompt: Record<string, RunStatus>;
-  llmsByPrompt: Record<string, string[]>;
 }
 
 type SortDirection = "asc" | "desc";
@@ -43,8 +41,7 @@ type SortKey =
   | "position"
   | "sov"
   | "sentiment"
-  | "consistency"
-  | "llms";
+  | "consistency";
 
 type ColumnKey =
   | "select"
@@ -55,7 +52,6 @@ type ColumnKey =
   | "sov"
   | "sentiment"
   | "consistency"
-  | "llms"
   | "tags"
   | "active"
   | "actions";
@@ -76,7 +72,6 @@ const DEFAULT_WIDTHS: Record<ColumnKey, number> = {
   sov: 120,
   sentiment: 130,
   consistency: 130,
-  llms: 180,
   tags: 180,
   active: 90,
   actions: 90,
@@ -94,11 +89,9 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDirection }) {
 export function PromptPerformanceTable({
   rows,
   workspaceId,
-  llmKey,
   availableTags,
   promptTags,
   latestStatusByPrompt,
-  llmsByPrompt,
 }: Props) {
   const PAGE_SIZE = 25;
   const [query, setQuery] = useState("");
@@ -120,7 +113,6 @@ export function PromptPerformanceTable({
 
   function getSortValue(row: PromptPerformanceRow): string | number {
     const status = latestStatusByPrompt[row.prompt_id] ?? "";
-    const llms = (llmsByPrompt[row.prompt_id] ?? []).join(", ");
 
     switch (sortKey) {
       case "prompt_text":
@@ -137,8 +129,6 @@ export function PromptPerformanceTable({
         return (row.sentiment ?? "no_data").toLowerCase();
       case "consistency":
         return row.consistency_score ?? Number.NEGATIVE_INFINITY;
-      case "llms":
-        return llms.toLowerCase();
       default:
         return "";
     }
@@ -174,7 +164,7 @@ export function PromptPerformanceTable({
       const cmp = String(av).localeCompare(String(bv), "es", { sensitivity: "base" });
       return sortDirection === "asc" ? cmp : -cmp;
     });
-  }, [rows, query, sortKey, sortDirection, latestStatusByPrompt, llmsByPrompt]);
+  }, [rows, query, sortKey, sortDirection, latestStatusByPrompt]);
 
   useEffect(() => {
     setVisible(PAGE_SIZE);
@@ -274,7 +264,6 @@ export function PromptPerformanceTable({
               <col style={{ width: columnWidths.sov }} />
               <col style={{ width: columnWidths.sentiment }} />
               <col style={{ width: columnWidths.consistency }} />
-              <col style={{ width: columnWidths.llms }} />
               <col style={{ width: columnWidths.tags }} />
               <col style={{ width: columnWidths.active }} />
               <col style={{ width: columnWidths.actions }} />
@@ -384,25 +373,11 @@ export function PromptPerformanceTable({
                     onClick={() => toggleSort("consistency")}
                     className="inline-flex items-center gap-1 hover:text-slate-700"
                   >
-                    Consistencia
+                    Brand Consistency
                     <SortIcon active={sortKey === "consistency"} dir={sortDirection} />
                   </button>
                   <div
                     onMouseDown={(e) => startResize("consistency", e.clientX)}
-                    className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize"
-                  />
-                </th>
-                <th className="relative px-3 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort("llms")}
-                    className="inline-flex items-center gap-1 hover:text-slate-700"
-                  >
-                    LLMs usados
-                    <SortIcon active={sortKey === "llms"} dir={sortDirection} />
-                  </button>
-                  <div
-                    onMouseDown={(e) => startResize("llms", e.clientX)}
                     className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize"
                   />
                 </th>
@@ -431,7 +406,7 @@ export function PromptPerformanceTable({
             <tbody className="divide-y divide-slate-50">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-slate-400 text-sm">
+                  <td colSpan={11} className="px-4 py-12 text-center text-slate-400 text-sm">
                     {query
                       ? "No hay prompts que coincidan con la búsqueda."
                       : "No hay prompts todavía."}
@@ -483,13 +458,6 @@ export function PromptPerformanceTable({
                         <ConsistencyIndicator consistency={row.consistency_score} />
                       </td>
                       <td className="px-3 py-3">
-                        <p className="text-xs text-slate-600 line-clamp-2">
-                          {(llmsByPrompt[row.prompt_id] ?? []).length > 0
-                            ? (llmsByPrompt[row.prompt_id] ?? []).join(", ")
-                            : "Sin ejecuciones"}
-                        </p>
-                      </td>
-                      <td className="px-3 py-3">
                         <TagsCell
                           promptId={row.prompt_id}
                           workspaceId={workspaceId}
@@ -510,7 +478,6 @@ export function PromptPerformanceTable({
                             <RunPromptButton
                               promptId={row.prompt_id}
                               workspaceId={workspaceId}
-                              llmKey={llmKey}
                             />
                           ) : null}
                           <DeletePromptButton

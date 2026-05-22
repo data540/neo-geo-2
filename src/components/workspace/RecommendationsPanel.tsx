@@ -165,15 +165,14 @@ export function RecommendationsPanel({
   return (
     <div className="space-y-6">
       {!hasApiKey && (
-        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl p-4">
+          <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium text-amber-800">Sin clave de Anthropic</p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              Las recomendaciones son estimaciones basadas en tus métricas. Para recomendaciones
-              personalizadas con IA, añade{" "}
-              <code className="font-mono bg-amber-100 px-1 rounded">ANTHROPIC_API_KEY</code> a tus
-              variables de entorno.
+            <p className="text-sm font-medium text-red-800">Falta OPENROUTER_API_KEY</p>
+            <p className="text-xs text-red-600 mt-0.5">
+              No se pueden generar recomendaciones reales sin OpenRouter. Configura{" "}
+              <code className="font-mono bg-red-100 px-1 rounded">OPENROUTER_API_KEY</code> en tus
+              variables de entorno — el sistema no usa mocks ni datos simulados.
             </p>
           </div>
         </div>

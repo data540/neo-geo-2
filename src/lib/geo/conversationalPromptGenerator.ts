@@ -1,10 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { z } from "zod";
 import type { GeoResearchInput, PromptCandidate, RetrievedChunk } from "@/types";
 import { PROMPT_GENERATOR_TEMPLATE } from "./masterPrompts";
 import { formatKnowledgeBlock } from "./promptResearchSkill";
 
-const candidateSchema = z.object({
+export const candidateSchema = z.object({
   prompt: z.string(),
   intent: z
     .enum([
@@ -34,6 +34,14 @@ const candidateSchema = z.object({
   coverage_area: z.string().nullable().optional(),
 });
 
+export type CandidateSchemaType = z.infer<typeof candidateSchema>;
+
+// Modelos del pipeline propietario (vía OpenRouter)
+const MODEL_VARIANT_A = "anthropic/claude-sonnet-4-5";
+const MODEL_VARIANT_B = "openai/gpt-4.1-mini";
+// Threshold cosine similarity para dedup
+const DEDUP_SIMILARITY_THRESHOLD = 0.88;
+
 function buildPrompt(input: GeoResearchInput): string {
   return PROMPT_GENERATOR_TEMPLATE.replace("{{brand_name}}", input.brandName)
     .replace("{{domain}}", input.domain || "")
@@ -48,182 +56,63 @@ function buildPrompt(input: GeoResearchInput): string {
     .replace("{{number_of_prompts}}", String(input.numberOfPrompts));
 }
 
-function getMockCandidates(input: GeoResearchInput): PromptCandidate[] {
-  const { brandName, location, country, numberOfPrompts } = input;
-  const loc = location || country;
+async function callOpenRouter(
+  model: string,
+  promptText: string,
+  temperature = 0.9,
+  maxRetries = 2
+): Promise<string> {
+  let lastError: Error | null = null;
 
-  const examples = [
-    {
-      prompt: `Voy a volar desde ${loc}, ¿que aerolineas suelen ser mas puntuales y fiables?`,
-      intent: "discovery" as const,
-      funnel_stage: "top" as const,
-      persona: "Pasajero que empieza a investigar opciones de vuelo",
-      includes_brand: false,
-      strategic_value: 8,
-      priority_score: 80,
-      reason: "Prompt de descubrimiento sin marca para comparar aerolineas por fiabilidad",
-      coverage_area: "discovery-generic",
-    },
-    {
-      prompt: `¿Que opiniones recientes hay sobre ${brandName} en vuelos nacionales por Espana?`,
-      intent: "reputation" as const,
-      funnel_stage: "middle" as const,
-      persona: "Pasajero en fase de evaluacion que ya conoce la aerolinea",
-      includes_brand: true,
-      strategic_value: 9,
-      priority_score: 85,
-      reason: "Prompt reputacional con marca para medir confianza en rutas reales",
-      coverage_area: "reputation-branded",
-    },
-    {
-      prompt: `Compara las principales aerolineas para volar Madrid-Barcelona y dime cual conviene por puntualidad y equipaje`,
-      intent: "comparison" as const,
-      funnel_stage: "middle" as const,
-      persona: "Pasajero comparando alternativas para una ruta frecuente",
-      includes_brand: false,
-      strategic_value: 9,
-      priority_score: 90,
-      reason: "Prompt comparativo con alta intencion de compra en ruta concreta",
-      coverage_area: "comparison-generic",
-    },
-    {
-      prompt: `Si necesito cambiar mi vuelo sin pagar mucho, ¿que tarifa o aerolinea me da mas flexibilidad?`,
-      intent: "decision" as const,
-      funnel_stage: "middle" as const,
-      persona: "Pasajero que prioriza flexibilidad ante cambios",
-      includes_brand: false,
-      strategic_value: 7,
-      priority_score: 70,
-      reason: "Prompt de decision con criterio operativo claro",
-      coverage_area: "decision-criteria",
-    },
-    {
-      prompt: `¿Merece la pena ${brandName} para volar a Bogota desde Madrid con equipaje facturado?`,
-      intent: "branded" as const,
-      funnel_stage: "bottom" as const,
-      persona: "Pasajero a punto de comprar un vuelo internacional",
-      includes_brand: true,
-      strategic_value: 10,
-      priority_score: 88,
-      reason: "Prompt bottom-funnel con marca para medir conversion en ruta ES-CO",
-      coverage_area: "branded-decision",
-    },
-    {
-      prompt: `¿Que aerolinea ofrece mejor relacion calidad-precio para volar de Barcelona a Medellin con una maleta?`,
-      intent: "price" as const,
-      funnel_stage: "middle" as const,
-      persona: "Pasajero sensible a precio total incluyendo equipaje",
-      includes_brand: false,
-      strategic_value: 7,
-      priority_score: 72,
-      reason: "Prompt de precio que mide competitividad real puerta a puerta",
-      coverage_area: "price-value",
-    },
-    {
-      prompt:
-        "Mi vuelo se cancelo hoy, ¿que pasos debo seguir para reembolso o reubicacion rapida?",
-      intent: "product_specific" as const,
-      funnel_stage: "top" as const,
-      persona: "Pasajero afectado por una cancelacion con urgencia",
-      includes_brand: false,
-      strategic_value: 10,
-      priority_score: 92,
-      reason: "Prompt de incidencia critica muy frecuente en soporte aerolinea",
-      coverage_area: "disruption-cancellation",
-    },
-    {
-      prompt: `Llego tarde al aeropuerto en ${loc}, ¿hasta cuando puedo hacer check-in y embarcar sin perder el vuelo?`,
-      intent: "local" as const,
-      funnel_stage: "top" as const,
-      persona: "Pasajero con urgencia operativa en aeropuerto",
-      includes_brand: false,
-      strategic_value: 9,
-      priority_score: 86,
-      reason: "Prompt local-operativo para medir visibilidad en situaciones reales",
-      coverage_area: "local-airport-operations",
-    },
-    {
-      prompt:
-        "Viajo con un menor no acompanado entre Espana y Colombia, ¿que aerolineas gestionan mejor este servicio?",
-      intent: "decision" as const,
-      funnel_stage: "middle" as const,
-      persona: "Padre o madre con necesidad especial de viaje",
-      includes_brand: false,
-      strategic_value: 8,
-      priority_score: 75,
-      reason: "Prompt de necesidad especial de alto valor para soporte",
-      coverage_area: "persona-parent",
-    },
-    {
-      prompt: `¿Que diferencia a ${brandName} de otras aerolineas en gestion de equipaje y compensaciones por demora?`,
-      intent: "comparison" as const,
-      funnel_stage: "middle" as const,
-      persona: "Pasajero evaluando diferenciales de servicio postventa",
-      includes_brand: true,
-      includes_competitor: true,
-      strategic_value: 9,
-      priority_score: 82,
-      reason: "Prompt comparativo de diferenciales operativos clave",
-      coverage_area: "branded-comparison",
-    },
-  ];
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+        "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: promptText }],
+        max_tokens: 4096,
+        temperature,
+      }),
+    });
 
-  const count = Math.min(numberOfPrompts, examples.length);
-  const selected = examples.slice(0, count);
+    if (!response.ok) {
+      const body = await response.text();
+      lastError = new Error(`OpenRouter error (${response.status}): ${body}`);
+      continue;
+    }
 
-  return selected.map((ex, i) => ({
-    id: `mock-${i}`,
-    workspace_id: "",
-    session_id: "",
-    country,
-    includes_competitor: false,
-    conversion_intent: null,
-    ai_search_likelihood: null,
-    priority_rank: null,
-    risk_if_brand_absent: null,
-    tags: [],
-    selected: true,
-    activated: false,
-    created_at: new Date().toISOString(),
-    ...ex,
-  }));
-}
-
-export async function generatePromptCandidates(
-  input: GeoResearchInput,
-  knowledgeChunks?: RetrievedChunk[]
-): Promise<PromptCandidate[]> {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return getMockCandidates(input);
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content ?? "[]";
   }
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const knowledgeBlock = knowledgeChunks
-    ? formatKnowledgeBlock(knowledgeChunks, "BASE DE CONOCIMIENTO EXPERTA GEO")
-    : "";
-  const promptText = buildPrompt(input) + knowledgeBlock;
+  throw lastError ?? new Error("OpenRouter: max retries exceeded");
+}
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 4096,
-    messages: [{ role: "user", content: promptText }],
-  });
+function parseCandidatesFromText(raw: string, prefix: string): PromptCandidate[] {
+  const jsonMatch = raw.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return [];
 
-  const firstContent = response.content[0];
-  const rawText = firstContent?.type === "text" ? firstContent.text : "[]";
+  let parsed: unknown[];
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as unknown[];
+  } catch {
+    return [];
+  }
 
-  const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return getMockCandidates(input);
-
-  const parsed = JSON.parse(jsonMatch[0]) as unknown[];
   const candidates: PromptCandidate[] = [];
-
   for (let i = 0; i < parsed.length; i++) {
-    const item = parsed[i];
-    const result = candidateSchema.safeParse(item);
+    const result = candidateSchema.safeParse(parsed[i]);
     if (result.success) {
       candidates.push({
-        id: `gen-${i}`,
+        id: `${prefix}-${i}`,
         workspace_id: "",
         session_id: "",
         prompt: result.data.prompt,
@@ -248,6 +137,102 @@ export async function generatePromptCandidates(
       });
     }
   }
+  return candidates;
+}
 
-  return candidates.length > 0 ? candidates : getMockCandidates(input);
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    const ai = a[i] ?? 0;
+    const bi = b[i] ?? 0;
+    dot += ai * bi;
+    normA += ai * ai;
+    normB += bi * bi;
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+async function deduplicateByEmbedding(candidates: PromptCandidate[]): Promise<PromptCandidate[]> {
+  const apiKey = process.env.OPENAI_API_KEY_EMBEDDINGS || process.env.OPENAI_API_KEY;
+  if (!apiKey || candidates.length === 0) return candidates;
+
+  const client = new OpenAI({ apiKey });
+  const texts = candidates.map((c) => c.prompt);
+
+  try {
+    const response = await client.embeddings.create({
+      model: "text-embedding-3-small",
+      input: texts,
+      dimensions: 1536,
+    });
+    const embeddings = response.data.map((d) => d.embedding);
+
+    const kept: PromptCandidate[] = [];
+    const keptEmbeddings: number[][] = [];
+
+    for (let i = 0; i < candidates.length; i++) {
+      const emb = embeddings[i];
+      const candidate = candidates[i];
+      if (!emb || !candidate) continue;
+      let isDup = false;
+      for (const keptEmb of keptEmbeddings) {
+        if (cosineSimilarity(emb, keptEmb) >= DEDUP_SIMILARITY_THRESHOLD) {
+          isDup = true;
+          break;
+        }
+      }
+      if (!isDup) {
+        kept.push(candidate);
+        keptEmbeddings.push(emb);
+      }
+    }
+    return kept;
+  } catch {
+    // Si falla el embedding, devolvemos todos sin dedup
+    return candidates;
+  }
+}
+
+export async function generatePromptCandidates(
+  input: GeoResearchInput,
+  knowledgeChunks?: RetrievedChunk[]
+): Promise<PromptCandidate[]> {
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error(
+      "OPENROUTER_API_KEY no está configurada. El pipeline GEO requiere OpenRouter — no hay fallback a mock."
+    );
+  }
+
+  const knowledgeBlock = knowledgeChunks
+    ? formatKnowledgeBlock(knowledgeChunks, "BASE DE CONOCIMIENTO EXPERTA GEO")
+    : "";
+  const promptText = buildPrompt(input) + knowledgeBlock;
+
+  // Micro-ensemble: 2 variantes en paralelo con modelos distintos
+  const [rawA, rawB] = await Promise.allSettled([
+    callOpenRouter(MODEL_VARIANT_A, promptText, 0.9),
+    callOpenRouter(MODEL_VARIANT_B, promptText, 0.8),
+  ]);
+
+  const candidatesA = rawA.status === "fulfilled" ? parseCandidatesFromText(rawA.value, "a") : [];
+  const candidatesB = rawB.status === "fulfilled" ? parseCandidatesFromText(rawB.value, "b") : [];
+
+  // Combinar: A primero (mayor creatividad), luego B para diversidad
+  const combined = [...candidatesA, ...candidatesB];
+
+  if (combined.length === 0) {
+    const errorA = rawA.status === "rejected" ? String(rawA.reason) : "";
+    const errorB = rawB.status === "rejected" ? String(rawB.reason) : "";
+    throw new Error(
+      `OpenRouter no devolvió candidatos en ninguna variante (${MODEL_VARIANT_A}, ${MODEL_VARIANT_B}). ${errorA} ${errorB}`.trim()
+    );
+  }
+
+  // Dedup semántico por embedding
+  const deduplicated = await deduplicateByEmbedding(combined);
+
+  // Limitar al número solicitado
+  return deduplicated.slice(0, input.numberOfPrompts * 2);
 }

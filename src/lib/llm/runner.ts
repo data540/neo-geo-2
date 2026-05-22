@@ -1,5 +1,4 @@
 import type { LlmProviderKey } from "@/types";
-import { hasApiKey, mockRunPrompt } from "./mock";
 
 export interface RunPromptInput {
   provider: LlmProviderKey;
@@ -52,15 +51,12 @@ function getOpenRouterModel(provider: LlmProviderKey): string {
 }
 
 export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput> {
-  const { provider, prompt, brand, competitors, modelOverride } = input;
+  const { provider, prompt, modelOverride } = input;
 
-  if (!hasApiKey(provider)) {
-    return mockRunPrompt({
-      provider,
-      prompt,
-      brandName: brand.name,
-      competitors: competitors.map((c) => c.name),
-    });
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error(
+      "OPENROUTER_API_KEY no está configurada. Todos los LLMs se ejecutan vía OpenRouter — no hay fallback a mock."
+    );
   }
 
   const model = modelOverride?.trim() || getOpenRouterModel(provider);

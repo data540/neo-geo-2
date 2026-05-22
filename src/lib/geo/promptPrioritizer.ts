@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type {
   PrioritizedPrompt,
   PromptCandidate,
@@ -8,18 +7,68 @@ import type {
 import { PROMPT_PRIORITIZER_TEMPLATE } from "./masterPrompts";
 import { formatKnowledgeBlock } from "./promptResearchSkill";
 
-function mockPrioritize(candidates: PromptCandidate[], limit: number): PrioritizedPrompt[] {
-  const sorted = [...candidates]
-    .sort((a, b) => (b.priority_score ?? 0) - (a.priority_score ?? 0))
-    .slice(0, limit);
+const MODEL_PRIORITIZER = "openai/gpt-4.1-mini";
+const MAX_RETRIES = 2;
 
-  return sorted.map((c, i) => ({
-    prompt: c.prompt,
-    priorityRank: i + 1,
-    whySelected: c.reason ?? "Prompt con alta probabilidad de uso en motores de IA",
-    coverageArea: c.coverage_area ?? c.intent ?? "general",
-    riskIfBrandAbsent: (i < 3 ? "high" : i < 6 ? "medium" : "low") as RiskIfBrandAbsent,
-  }));
+async function callPrioritizer(promptText: string): Promise<string> {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+      "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+    },
+    body: JSON.stringify({
+      model: MODEL_PRIORITIZER,
+      messages: [{ role: "user", content: promptText }],
+      max_tokens: 2048,
+      temperature: 0.15,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Prioritizer error (${response.status}): ${body}`);
+  }
+
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return data.choices?.[0]?.message?.content ?? "[]";
+}
+
+function parsePrioritized(
+  raw: string,
+  limit: number,
+  fallback: PromptCandidate[]
+): PrioritizedPrompt[] | null {
+  const jsonMatch = raw.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return null;
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as Array<{
+      prompt?: string;
+      priorityRank?: number;
+      whySelected?: string;
+      coverageArea?: string;
+      riskIfBrandAbsent?: string;
+    }>;
+
+    if (!Array.isArray(parsed) || parsed.length === 0) return null;
+
+    return parsed.slice(0, limit).map((item, i) => ({
+      prompt: item.prompt ?? "",
+      priorityRank: item.priorityRank ?? i + 1,
+      whySelected: item.whySelected ?? "",
+      coverageArea: item.coverageArea ?? "",
+      riskIfBrandAbsent: (["low", "medium", "high"].includes(item.riskIfBrandAbsent ?? "")
+        ? item.riskIfBrandAbsent
+        : "medium") as RiskIfBrandAbsent,
+    }));
+  } catch {
+    return null;
+  }
 }
 
 export async function prioritizePrompts(
@@ -27,11 +76,16 @@ export async function prioritizePrompts(
   limit: number,
   knowledgeChunks?: RetrievedChunk[]
 ): Promise<PrioritizedPrompt[]> {
-  if (!process.env.ANTHROPIC_API_KEY || candidates.length === 0) {
-    return mockPrioritize(candidates, limit);
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error(
+      "OPENROUTER_API_KEY no está configurada. La priorización requiere OpenRouter — no hay fallback a mock."
+    );
   }
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (candidates.length === 0) {
+    return [];
+  }
+
   const knowledgeBlock = knowledgeChunks
     ? formatKnowledgeBlock(knowledgeChunks, "CRITERIOS EXPERTOS DE PRIORIZACIÓN GEO")
     : "";
@@ -51,38 +105,27 @@ export async function prioritizePrompts(
     }))
   );
 
-  const promptText =
+  const basePrompt =
     PROMPT_PRIORITIZER_TEMPLATE.replace("{{limit}}", String(limit))
       .replace("{{candidates_json}}", candidatesJson)
       .replace("{{limit}}", String(limit)) + knowledgeBlock;
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 2048,
-    messages: [{ role: "user", content: promptText }],
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const retryNote =
+        attempt > 0
+          ? `\n\n[CORRECCIÓN REQUERIDA - intento ${attempt}]\nDevuelve SOLO el array JSON con exactamente estos campos: prompt, priorityRank, whySelected, coverageArea, riskIfBrandAbsent.`
+          : "";
 
-  const firstContent = response.content[0];
-  const rawText = firstContent?.type === "text" ? firstContent.text : "[]";
+      const raw = await callPrioritizer(basePrompt + retryNote);
+      const result = parsePrioritized(raw, limit, candidates);
+      if (result) return result;
+    } catch {
+      // Continuar al siguiente intento
+    }
+  }
 
-  const jsonMatch = rawText.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return mockPrioritize(candidates, limit);
-
-  const parsed = JSON.parse(jsonMatch[0]) as Array<{
-    prompt?: string;
-    priorityRank?: number;
-    whySelected?: string;
-    coverageArea?: string;
-    riskIfBrandAbsent?: string;
-  }>;
-
-  return parsed.slice(0, limit).map((item, i) => ({
-    prompt: item.prompt ?? "",
-    priorityRank: item.priorityRank ?? i + 1,
-    whySelected: item.whySelected ?? "",
-    coverageArea: item.coverageArea ?? "",
-    riskIfBrandAbsent: (["low", "medium", "high"].includes(item.riskIfBrandAbsent ?? "")
-      ? item.riskIfBrandAbsent
-      : "medium") as RiskIfBrandAbsent,
-  }));
+  throw new Error(
+    `Prioritizer (${MODEL_PRIORITIZER}) no devolvió un resultado válido tras ${MAX_RETRIES + 1} intentos.`
+  );
 }
