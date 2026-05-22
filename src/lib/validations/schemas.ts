@@ -89,6 +89,22 @@ export const assignTagSchema = z.object({
 
 export type AssignTagInput = z.infer<typeof assignTagSchema>;
 
+export const updateTagSchema = z.object({
+  tagId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+  name: z.string().min(1).max(50),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color hex inválido"),
+});
+
+export type UpdateTagInput = z.infer<typeof updateTagSchema>;
+
+export const deleteTagSchema = z.object({
+  tagId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+});
+
+export type DeleteTagInput = z.infer<typeof deleteTagSchema>;
+
 // ── Competitors ───────────────────────────────────────────────────────────────
 
 export const createCompetitorSchema = z.object({
