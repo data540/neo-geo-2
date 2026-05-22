@@ -46,7 +46,7 @@ export function PromptDetailRow({ promptId, visible, colSpan }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [visible, promptId, detail, loading]);
+  }, [visible, promptId, detail]);
 
   if (!visible) return null;
 

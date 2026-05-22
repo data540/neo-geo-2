@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arquitectura de Ejecución LLM — neo-geo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    padding: 40px 24px;
+    line-height: 1.6;
+  }
+  h1 {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    text-align: center;
+    color: #64748b;
+    font-size: 0.9rem;
+    margin-bottom: 48px;
+  }
+  .section {
+    max-width: 960px;
+    margin: 0 auto 48px auto;
+  }
+  .section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #6366f1;
+    margin-bottom: 16px;
+  }
+
+  /* ─── TRIGGER CARDS ─── */
+  .trigger-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .trigger-card {
+    background: #1e2130;
+    border: 1px solid #2d3147;
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .trigger-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+  }
+  .trigger-card.manual::before { background: #6366f1; }
+  .trigger-card.bulk::before   { background: #8b5cf6; }
+  .trigger-card.cron::before   { background: #06b6d4; }
+  .trigger-icon {
+    font-size: 1.8rem;
+    margin-bottom: 8px;
+  }
+  .trigger-card h3 { font-size: 0.95rem; font-weight: 600; color: #e2e8f0; margin-bottom: 6px; }
+  .trigger-card p  { font-size: 0.8rem; color: #64748b; }
+  .badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-top: 10px;
+  }
+  .badge-indigo { background: #312e81; color: #a5b4fc; }
+  .badge-purple { background: #3b0764; color: #c4b5fd; }
+  .badge-cyan   { background: #083344; color: #67e8f9; }
+
+  /* ─── FLOW ARROW ─── */
+  .flow-arrow {
+    text-align: center;
+    font-size: 1.5rem;
+    color: #334155;
+    margin: 12px 0;
+  }
+
+  /* ─── PIPELINE STEPS ─── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    gap: 16px;
+    align-items: stretch;
+  }
+  .step-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .step-num {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  .step-line {
+    width: 2px;
+    flex: 1;
+    background: #1e2130;
+    margin-top: 4px;
+    margin-bottom: 0;
+    min-height: 24px;
+  }
+  .step:last-child .step-line { display: none; }
+  .step-body {
+    background: #1e2130;
+    border: 1px solid #2d3147;
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 8px;
+  }
+  .step-body h4 { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; margin-bottom: 6px; }
+  .step-body p  { font-size: 0.8rem; color: #64748b; }
+  .step-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .tag {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #0f172a;
+    color: #94a3b8;
+    border: 1px solid #1e293b;
+  }
+  .tag.green  { background: #052e16; color: #4ade80; border-color: #14532d; }
+  .tag.yellow { background: #2d1b00; color: #fbbf24; border-color: #451a03; }
+  .tag.red    { background: #2d0a0a; color: #f87171; border-color: #450a0a; }
+  .tag.blue   { background: #0c1a2e; color: #60a5fa; border-color: #1e3a5f; }
+
+  /* Step colors */
+  .s1 .step-num { background: #1e1b4b; color: #6366f1; }
+  .s2 .step-num { background: #1a1040; color: #8b5cf6; }
+  .s3 .step-num { background: #0c2340; color: #3b82f6; }
+  .s4 .step-num { background: #032019; color: #10b981; }
+  .s5 .step-num { background: #1c0e2d; color: #a855f7; }
+  .s6 .step-num { background: #1a1000; color: #f59e0b; }
+  .s7 .step-num { background: #071e2b; color: #06b6d4; }
+  .s8 .step-num { background: #0a1f10; color: #22c55e; }
+  .s9 .step-num { background: #1a0a0a; color: #ef4444; }
+  .s10 .step-num { background: #0a1020; color: #94a3b8; }
+
+  /* ─── MODEL TABLE ─── */
+  .model-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.82rem;
+  }
+  .model-table thead tr { background: #1a1f35; }
+  .model-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #475569;
+  }
+  .model-table th:first-child { border-radius: 8px 0 0 0; }
+  .model-table th:last-child  { border-radius: 0 8px 0 0; }
+  .model-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #1e2130;
+  }
+  .model-table tr:last-child td:first-child { border-radius: 0 0 0 8px; }
+  .model-table tr:last-child td:last-child  { border-radius: 0 0 8px 0; }
+  .model-table tbody tr { background: #161b2e; }
+  .model-table tbody tr:hover { background: #1e2340; }
+  .provider-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+  .provider-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .code-inline {
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.75rem;
+    background: #0f172a;
+    color: #67e8f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #1e3a5f;
+  }
+
+  /* ─── KEY POINTS ─── */
+  .kp-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .kp-card {
+    background: #1e2130;
+    border: 1px solid #2d3147;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .kp-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .kp-card h4 { font-size: 0.85rem; font-weight: 600; color: #e2e8f0; margin-bottom: 4px; }
+  .kp-card p  { font-size: 0.78rem; color: #64748b; }
+
+  /* ─── PRIORITY CHAIN ─── */
+  .priority-chain {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: #161b2e;
+    border: 1px solid #2d3147;
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 0.8rem;
+  }
+  .pc-item {
+    flex: 1;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pc-item:not(:last-child) {
+    border-right: 1px solid #2d3147;
+  }
+  .pc-num {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #475569;
+  }
+  .pc-label { font-weight: 600; color: #e2e8f0; }
+  .pc-desc  { font-size: 0.72rem; color: #64748b; }
+  .pc-arrow {
+    font-size: 1rem;
+    color: #334155;
+    padding: 0 2px;
+  }
+
+  /* ─── CONCURRENCY BOX ─── */
+  .concurrency-box {
+    background: #1e2130;
+    border: 1px solid #312e81;
+    border-radius: 10px;
+    padding: 20px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+  .concurrency-num {
+    font-size: 3rem;
+    font-weight: 800;
+    color: #6366f1;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .concurrency-box h4 { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; }
+  .concurrency-box p  { font-size: 0.8rem; color: #64748b; }
+  .run-bars { display: flex; gap: 6px; margin-top: 12px; }
+  .run-bar  { height: 8px; border-radius: 4px; flex: 1; background: #6366f1; opacity: 0.3; }
+  .run-bar.active { opacity: 1; animation: pulse 1.5s ease-in-out infinite; }
+  .run-bar.active:nth-child(2) { animation-delay: 0.2s; }
+  .run-bar.active:nth-child(3) { animation-delay: 0.4s; }
+  .run-bar.active:nth-child(4) { animation-delay: 0.6s; }
+  .run-bar.active:nth-child(5) { animation-delay: 0.8s; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* ─── SCHEDULE TABLE ─── */
+  .sched-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 6px;
+    font-size: 0.82rem;
+  }
+  .sched-table td {
+    background: #1e2130;
+    padding: 12px 16px;
+  }
+  .sched-table td:first-child { border-radius: 8px 0 0 8px; }
+  .sched-table td:last-child  { border-radius: 0 8px 8px 0; }
+  .sched-table td:first-child { color: #a5b4fc; font-weight: 600; width: 30%; }
+
+  footer {
+    text-align: center;
+    color: #334155;
+    font-size: 0.75rem;
+    margin-top: 64px;
+    max-width: 960px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+</head>
+<body>
+
+<h1>Arquitectura de Ejecución LLM</h1>
+<p class="subtitle">neo-geo · Cómo, cuándo y en qué orden se ejecutan los modelos de lenguaje</p>
+
+<!-- ─── 1. TRIGGERS ─── -->
+<div class="section">
+  <div class="section-title">1 · ¿Cuándo se disparan?</div>
+  <div class="trigger-grid">
+    <div class="trigger-card manual">
+      <div class="trigger-icon">🖱️</div>
+      <h3>Manual — "Run Now"</h3>
+      <p>El usuario hace clic en el botón de la tabla de prompts. Se crea 1 run por cada LLM habilitado en el workspace.</p>
+      <span class="badge badge-indigo">prompt/run.multi</span>
+    </div>
+    <div class="trigger-card bulk">
+      <div class="trigger-icon">📦</div>
+      <h3>Importación masiva</h3>
+      <p>Si "Run after import" está activo al importar N prompts, se crean N × M runs (M = LLMs habilitados) al instante.</p>
+      <span class="badge badge-purple">N × prompt/run.multi</span>
+    </div>
+    <div class="trigger-card cron">
+      <div class="trigger-icon">⏰</div>
+      <h3>Cron diario</h3>
+      <p>El job programado <code style="color:#67e8f9;font-size:0.75rem">runPromptScheduled</code> ejecuta todos los prompts activos de todos los workspaces automáticamente.</p>
+      <span class="badge badge-cyan">Diario · 2am UTC</span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 2. PRIORITY CHAIN ─── -->
+<div class="section">
+  <div class="section-title">2 · ¿Qué modelo se usa? (Prioridad)</div>
+  <div class="priority-chain">
+    <div class="pc-item">
+      <div class="pc-num">Prioridad 1 — máxima</div>
+      <div class="pc-label">Model Override</div>
+      <div class="pc-desc">workspace_llm_config.model<br>Configurable por workspace en Settings</div>
+    </div>
+    <div class="pc-item">
+      <div class="pc-num">Prioridad 2</div>
+      <div class="pc-label">Env Var</div>
+      <div class="pc-desc">OPENROUTER_MODEL_CHATGPT<br>OPENROUTER_MODEL_CLAUDE…</div>
+    </div>
+    <div class="pc-item">
+      <div class="pc-num">Prioridad 3 — fallback</div>
+      <div class="pc-label">Default</div>
+      <div class="pc-desc">Hardcoded en runner.ts<br>por cada provider</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 3. MODEL TABLE ─── -->
+<div class="section">
+  <div class="section-title">3 · Modelos por defecto (OpenRouter)</div>
+  <table class="model-table">
+    <thead>
+      <tr>
+        <th>Provider</th>
+        <th>Modelo por defecto</th>
+        <th>Env override</th>
+        <th>Parámetros</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><div class="provider-name"><div class="provider-dot" style="background:#10b981"></div>ChatGPT</div></td>
+        <td><span class="code-inline">openai/gpt-4.1-nano</span></td>
+        <td><span class="code-inline">OPENROUTER_MODEL_CHATGPT</span></td>
+        <td><span class="tag">1000 tokens</span> <span class="tag">temp 0.2</span></td>
+      </tr>
+      <tr>
+        <td><div class="provider-name"><div class="provider-dot" style="background:#f59e0b"></div>Claude</div></td>
+        <td><span class="code-inline">anthropic/claude-3.5-haiku</span></td>
+        <td><span class="code-inline">OPENROUTER_MODEL_CLAUDE</span></td>
+        <td><span class="tag">1000 tokens</span> <span class="tag">temp 0.2</span></td>
+      </tr>
+      <tr>
+        <td><div class="provider-name"><div class="provider-dot" style="background:#3b82f6"></div>Gemini</div></td>
+        <td><span class="code-inline">google/gemini-2.0-flash-001</span></td>
+        <td><span class="code-inline">OPENROUTER_MODEL_GEMINI</span></td>
+        <td><span class="tag">1000 tokens</span> <span class="tag">temp 0.2</span></td>
+      </tr>
+      <tr>
+        <td><div class="provider-name"><div class="provider-dot" style="background:#8b5cf6"></div>Perplexity</div></td>
+        <td><span class="code-inline">perplexity/sonar</span></td>
+        <td><span class="code-inline">OPENROUTER_MODEL_PERPLEXITY</span></td>
+        <td><span class="tag">1000 tokens</span> <span class="tag">temp 0.2</span></td>
+      </tr>
+      <tr>
+        <td><div class="provider-name"><div class="provider-dot" style="background:#06b6d4"></div>DeepSeek</div></td>
+        <td><span class="code-inline">deepseek/deepseek-chat-v3-0324</span></td>
+        <td><span class="code-inline">OPENROUTER_MODEL_DEEPSEEK</span></td>
+        <td><span class="tag">1000 tokens</span> <span class="tag">temp 0.2</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ─── 4. CONCURRENCY ─── -->
+<div class="section">
+  <div class="section-title">4 · Control de concurrencia</div>
+  <div class="concurrency-box">
+    <div class="concurrency-num">5</div>
+    <div style="flex:1">
+      <h4>Máximo 5 ejecuciones LLM en paralelo</h4>
+      <p>Inngest gestiona la cola automáticamente. Si hay 50 prompts en espera, los agrupa en batches de 5. Cada run fallido se reintenta hasta 2 veces antes de marcar como "failed".</p>
+      <div class="run-bars">
+        <div class="run-bar active"></div>
+        <div class="run-bar active"></div>
+        <div class="run-bar active"></div>
+        <div class="run-bar active"></div>
+        <div class="run-bar active"></div>
+        <div class="run-bar"></div>
+        <div class="run-bar"></div>
+        <div class="run-bar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 5. PIPELINE ─── -->
+<div class="section">
+  <div class="section-title">5 · Pipeline completo por cada run</div>
+  <div class="pipeline">
+
+    <div class="step s1">
+      <div class="step-left">
+        <div class="step-num">1</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>Fetch contexto (paralelo)</h4>
+        <p>Carga en paralelo: prompt.text, workspace, brand propia, competidores, llm_provider, model override de workspace_llm_config.</p>
+        <div class="step-tags">
+          <span class="tag blue">Promise.all(5 queries)</span>
+          <span class="tag">SERVICE_ROLE_KEY</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s2">
+      <div class="step-left">
+        <div class="step-num">2</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>Marcar run como "running"</h4>
+        <p>INSERT en <code style="color:#67e8f9;font-size:0.75rem">prompt_runs</code> o UPDATE status='running' + started_at. El run queda visible en la UI.</p>
+        <div class="step-tags">
+          <span class="tag yellow">status: running</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s3">
+      <div class="step-left">
+        <div class="step-num">3</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>Llamar a OpenRouter</h4>
+        <p>POST a <code style="color:#67e8f9;font-size:0.75rem">openrouter.ai/api/v1/chat/completions</code> con el prompt.text como user message. max_tokens=1000, temperature=0.2 para respuestas consistentes.</p>
+        <div class="step-tags">
+          <span class="tag red">OPENROUTER_API_KEY requerida</span>
+          <span class="tag">max_tokens: 1000</span>
+          <span class="tag">temperature: 0.2</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s4">
+      <div class="step-left">
+        <div class="step-num">4</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>Guardar respuesta cruda</h4>
+        <p>UPDATE prompt_runs con raw_response, model, input_tokens, output_tokens, cost_usd (coste real de OpenRouter), status='completed'.</p>
+        <div class="step-tags">
+          <span class="tag green">status: completed</span>
+          <span class="tag">cost_usd real</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s5">
+      <div class="step-left">
+        <div class="step-num">5</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>detectBrands() — análisis en memoria</h4>
+        <p>Analiza el rawResponse buscando la marca propia y competidores por nombre y alias. Devuelve: posición, sentiment, mention_type, confidence.</p>
+        <div class="step-tags">
+          <span class="tag">primary_recommendation</span>
+          <span class="tag">list_option</span>
+          <span class="tag">comparison</span>
+          <span class="tag">warning</span>
+          <span class="tag blue">confidence score</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s6">
+      <div class="step-left">
+        <div class="step-num">6</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>INSERT mentions</h4>
+        <p>Una fila por cada marca detectada (propia + competidores). Incluye: brand_type, position, sentiment, mention_type, confidence.</p>
+        <div class="step-tags">
+          <span class="tag">brand_type: own</span>
+          <span class="tag">brand_type: competitor</span>
+          <span class="tag yellow">position 1–N</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s7">
+      <div class="step-left">
+        <div class="step-num">7</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>extractSourcesFromResponse() + INSERT sources</h4>
+        <p>Extrae URLs mencionadas en la respuesta del LLM. Guarda domain, url, title y marcada como cited_by_llm=true.</p>
+        <div class="step-tags">
+          <span class="tag blue">cited_by_llm: true</span>
+          <span class="tag">domain + URL</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s8">
+      <div class="step-left">
+        <div class="step-num">8</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>UPSERT daily_prompt_metrics</h4>
+        <p>Calcula y guarda métricas del día: SOV (share of voice), brand_position, competitor_count, sentiment, consistency_score (% de menciones en los últimos 5 runs).</p>
+        <div class="step-tags">
+          <span class="tag green">SOV = propia / (propia + competidores)</span>
+          <span class="tag">consistency últimos 5 runs</span>
+          <span class="tag">onConflict: upsert</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s9">
+      <div class="step-left">
+        <div class="step-num">9</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>UPSERT daily_workspace_metrics</h4>
+        <p>Actualiza las métricas globales del workspace (suma de todos los prompts). Usado en el Dashboard.</p>
+        <div class="step-tags">
+          <span class="tag">métricas globales workspace</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="step s10">
+      <div class="step-left">
+        <div class="step-num">10</div>
+        <div class="step-line"></div>
+      </div>
+      <div class="step-body">
+        <h4>revalidatePath() — refresca la UI</h4>
+        <p>Invalida la caché de Next.js para /prompts y /dashboard, forzando un re-fetch del server component en el siguiente request.</p>
+        <div class="step-tags">
+          <span class="tag">/[workspace]/prompts</span>
+          <span class="tag">/[workspace]/dashboard</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ─── 6. KEY POINTS ─── -->
+<div class="section">
+  <div class="section-title">6 · Puntos clave</div>
+  <div class="kp-grid">
+    <div class="kp-card">
+      <div class="kp-icon">🚫</div>
+      <div>
+        <h4>Sin mocks, sin fallbacks</h4>
+        <p>Si OPENROUTER_API_KEY no está configurada, el código lanza un error explícito. No hay datos simulados, nunca.</p>
+      </div>
+    </div>
+    <div class="kp-card">
+      <div class="kp-icon">💰</div>
+      <div>
+        <h4>Costos reales de OpenRouter</h4>
+        <p>El campo cost_usd se toma directamente de upstream_inference_cost. Solo se estima si OpenRouter no lo devuelve.</p>
+      </div>
+    </div>
+    <div class="kp-card">
+      <div class="kp-icon">🤖</div>
+      <div>
+        <h4>Auto-detección de competidores</h4>
+        <p>Si el LLM menciona una marca no registrada (ej. una aerolínea), se añade automáticamente a competitor_suggestions para revisión.</p>
+      </div>
+    </div>
+    <div class="kp-card">
+      <div class="kp-icon">⚡</div>
+      <div>
+        <h4>Escrituras en paralelo (Fast path)</h4>
+        <p>En executePromptRunFast (para batches), el UPDATE del run + INSERT de mentions + UPSERT de métricas se ejecutan en Promise.all simultáneamente.</p>
+      </div>
+    </div>
+    <div class="kp-card">
+      <div class="kp-icon">🔑</div>
+      <div>
+        <h4>Service Role Key (bypass RLS)</h4>
+        <p>Las funciones Inngest usan SUPABASE_SERVICE_ROLE_KEY para saltarse las políticas RLS. Las Server Actions usan las cookies del usuario.</p>
+      </div>
+    </div>
+    <div class="kp-card">
+      <div class="kp-icon">📊</div>
+      <div>
+        <h4>Consistencia: últimos 5 runs</h4>
+        <p>El consistency_score se calcula sobre los últimos 5 runs completados para ese prompt+LLM. Mide si la marca aparece siempre o de forma irregular.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 7. SCHEDULE ─── -->
+<div class="section">
+  <div class="section-title">7 · Cuadro de cuándo se ejecuta cada flujo</div>
+  <table class="sched-table">
+    <tbody>
+      <tr>
+        <td>🖱️ Usuario · "Run Now"</td>
+        <td>1 prompt × N LLMs habilitados → N runs en paralelo (máx 5 simultáneos)</td>
+      </tr>
+      <tr>
+        <td>📦 Import con run</td>
+        <td>M prompts × N LLMs → M×N runs, disparados en cola Inngest</td>
+      </tr>
+      <tr>
+        <td>⏰ Cron diario</td>
+        <td>Todos los prompts activos × todos los workspaces × todos los LLMs habilitados</td>
+      </tr>
+      <tr>
+        <td>🔁 Retry automático</td>
+        <td>Máximo 2 reintentos por run fallido. Si sigue fallando: status='failed' + error_message</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<footer>
+  neo-geo · Arquitectura LLM · Datos a 2026-05-22
+</footer>
+
+</body>
+</html>
