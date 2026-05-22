@@ -2,6 +2,7 @@
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { inngest } from "@/inngest/client";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -10,7 +11,13 @@ import {
   runPromptSchema,
   togglePromptStatusSchema,
 } from "@/lib/validations/schemas";
-import type { ActionResult } from "@/types";
+import type {
+  ActionResult,
+  PromptDetail,
+  PromptDetailCompetitor,
+  PromptDetailRun,
+  PromptDetailSource,
+} from "@/types";
 
 function getServiceClient() {
   return createSupabaseClient(
@@ -366,4 +373,41 @@ export async function createPromptsBulkAction(
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
 
   return { success: true, data: { created: normalizedPrompts.length, queued } };
+}
+
+const EMPTY_PROMPT_DETAIL: PromptDetail = {
+  competitors: [],
+  sources: [],
+  runs: [],
+};
+
+const promptIdSchema = z.string().uuid("ID de prompt inválido");
+
+export async function getPromptDetailAction(promptId: string): Promise<ActionResult<PromptDetail>> {
+  const parsed = promptIdSchema.safeParse(promptId);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "ID inválido" };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_prompt_detail", {
+    p_prompt_id: parsed.data,
+  });
+
+  if (error) {
+    return { success: false, error: "No se pudo cargar el detalle del prompt" };
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    return { success: true, data: EMPTY_PROMPT_DETAIL };
+  }
+
+  const detail: PromptDetail = {
+    competitors: (row.competitors ?? []) as PromptDetailCompetitor[],
+    sources: (row.sources ?? []) as PromptDetailSource[],
+    runs: (row.runs ?? []) as PromptDetailRun[],
+  };
+
+  return { success: true, data: detail };
 }

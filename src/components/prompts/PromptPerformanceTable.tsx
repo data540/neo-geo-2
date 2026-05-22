@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { ArrowDownAZ, ArrowUpAZ, ChevronDown, Search, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { ArrowDownAZ, ArrowUpAZ, ChevronDown, ChevronRight, Search, Trash2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { deletePromptsBulkAction } from "@/actions/prompts";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,12 @@ import { SentimentBadge } from "./cells/SentimentBadge";
 import { SovBar } from "./cells/SovBar";
 import { TagsCell } from "./cells/TagsCell";
 import { DeletePromptButton } from "./DeletePromptButton";
+import { PromptDetailRow } from "./details/PromptDetailRow";
 import { PromptStatusCell } from "./PromptStatusCell";
 import { PromptStatusToggle } from "./PromptStatusToggle";
 import { RunPromptButton } from "./RunPromptButton";
+
+const TOTAL_COLS = 11;
 
 interface Tag {
   id: string;
@@ -101,6 +104,19 @@ export function PromptPerformanceTable({
   const [columnWidths, setColumnWidths] = useState<Record<ColumnKey, number>>(DEFAULT_WIDTHS);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggleExpand(promptId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(promptId)) {
+        next.delete(promptId);
+      } else {
+        next.add(promptId);
+      }
+      return next;
+    });
+  }
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) {
@@ -406,7 +422,10 @@ export function PromptPerformanceTable({
             <tbody className="divide-y divide-slate-50">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-slate-400 text-sm">
+                  <td
+                    colSpan={TOTAL_COLS}
+                    className="px-4 py-12 text-center text-slate-400 text-sm"
+                  >
                     {query
                       ? "No hay prompts que coincidan con la búsqueda."
                       : "No hay prompts todavía."}
@@ -419,75 +438,93 @@ export function PromptPerformanceTable({
                   const tags = promptTags[row.prompt_id] ?? [];
                   const latestStatus = latestStatusByPrompt[row.prompt_id] ?? null;
                   const canRun = latestStatus !== "completed";
+                  const isExpanded = expanded.has(row.prompt_id);
 
                   return (
-                    <tr key={row.prompt_id} className={`hover:bg-slate-50/50 ${borderClass}`}>
-                      <td className="px-2 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(row.prompt_id)}
-                          onChange={(e) => toggleRowSelection(row.prompt_id, e.target.checked)}
-                          aria-label={`Seleccionar prompt: ${row.prompt_text}`}
-                          className="h-4 w-4 rounded border-slate-300"
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="text-slate-800 leading-snug whitespace-pre-wrap break-words">
-                          {row.prompt_text}
-                        </p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <PromptStatusCell status={latestStatus} />
-                      </td>
-                      <td className="px-3 py-3">
-                        <CountryBadge country={row.prompt_country} />
-                      </td>
-                      <td className="px-3 py-3">
-                        <PositionIndicator position={row.brand_position} />
-                      </td>
-                      <td className="px-3 py-3">
-                        <SovBar
-                          sov={row.sov !== undefined ? row.sov : null}
-                          competitorCount={row.competitor_count}
-                        />
-                      </td>
-                      <td className="px-3 py-3">
-                        <SentimentBadge sentiment={(row.sentiment as Sentiment) ?? "no_data"} />
-                      </td>
-                      <td className="px-3 py-3">
-                        <ConsistencyIndicator consistency={row.consistency_score} />
-                      </td>
-                      <td className="px-3 py-3">
-                        <TagsCell
-                          promptId={row.prompt_id}
-                          workspaceId={workspaceId}
-                          tags={tags}
-                          availableTags={availableTags}
-                        />
-                      </td>
-                      <td className="px-3 py-3 text-center">
-                        <PromptStatusToggle
-                          promptId={row.prompt_id}
-                          workspaceId={workspaceId}
-                          status={row.prompt_status as "active" | "paused"}
-                        />
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-0.5">
-                          {canRun ? (
-                            <RunPromptButton
-                              promptId={row.prompt_id}
-                              workspaceId={workspaceId}
-                            />
-                          ) : null}
-                          <DeletePromptButton
+                    <Fragment key={row.prompt_id}>
+                      <tr className={`hover:bg-slate-50/50 ${borderClass}`}>
+                        <td className="px-2 py-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(row.prompt_id)}
+                            onChange={(e) => toggleRowSelection(row.prompt_id, e.target.checked)}
+                            aria-label={`Seleccionar prompt: ${row.prompt_text}`}
+                            className="h-4 w-4 rounded border-slate-300"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-slate-800 leading-snug whitespace-pre-wrap break-words">
+                            {row.prompt_text}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(row.prompt_id)}
+                            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors"
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            )}
+                            Details below
+                          </button>
+                        </td>
+                        <td className="px-3 py-3">
+                          <PromptStatusCell status={latestStatus} />
+                        </td>
+                        <td className="px-3 py-3">
+                          <CountryBadge country={row.prompt_country} />
+                        </td>
+                        <td className="px-3 py-3">
+                          <PositionIndicator position={row.brand_position} />
+                        </td>
+                        <td className="px-3 py-3">
+                          <SovBar
+                            sov={row.sov !== undefined ? row.sov : null}
+                            competitorCount={row.competitor_count}
+                          />
+                        </td>
+                        <td className="px-3 py-3">
+                          <SentimentBadge sentiment={(row.sentiment as Sentiment) ?? "no_data"} />
+                        </td>
+                        <td className="px-3 py-3">
+                          <ConsistencyIndicator consistency={row.consistency_score} />
+                        </td>
+                        <td className="px-3 py-3">
+                          <TagsCell
                             promptId={row.prompt_id}
                             workspaceId={workspaceId}
-                            promptText={row.prompt_text}
+                            tags={tags}
+                            availableTags={availableTags}
                           />
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <PromptStatusToggle
+                            promptId={row.prompt_id}
+                            workspaceId={workspaceId}
+                            status={row.prompt_status as "active" | "paused"}
+                          />
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-0.5">
+                            {canRun ? (
+                              <RunPromptButton promptId={row.prompt_id} workspaceId={workspaceId} />
+                            ) : null}
+                            <DeletePromptButton
+                              promptId={row.prompt_id}
+                              workspaceId={workspaceId}
+                              promptText={row.prompt_text}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                      <PromptDetailRow
+                        promptId={row.prompt_id}
+                        visible={isExpanded}
+                        colSpan={TOTAL_COLS}
+                      />
+                    </Fragment>
                   );
                 })
               )}
