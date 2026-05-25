@@ -126,3 +126,15 @@ Funciones RPC clave:
 - `get_workspace_kpis(slug, llm_key)` — usada en `/dashboard`
 - `is_workspace_member(workspace_id)` — helper RLS
 - `can_manage_workspace(workspace_id)` — helper RLS
+
+## Despliegue (Vercel)
+
+**El proyecto de producción es `neogeo` en Vercel con dominio `neogeo-three.vercel.app`.** Repositorio vinculado: `data540/neo-geo-2`.
+
+⚠️ **Antes de hacer cambios de despliegue (crear proyectos, cambiar dominios, etc.),** siempre verifica primero:
+1. Qué proyectos Vercel existen y sus dominios actuales
+2. Qué repositorio está conectado a cuál proyecto
+3. La arquitectura de despliegue existente
+4. **SOLO ENTONCES** toma acciones (crear/modificar/eliminar proyectos)
+
+Nunca crees nuevos proyectos sin verificar si ya existe configuración. Los cambios de despliegue afectan la infraestructura compartida — requieren entender el estado actual primero.
