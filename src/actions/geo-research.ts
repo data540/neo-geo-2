@@ -9,6 +9,7 @@ import {
   prepareInitialContext,
   retrievePhaseKnowledge,
 } from "@/lib/geo/promptResearchSkill";
+import { inngest } from "@/inngest/client";
 import { createClient } from "@/lib/supabase/server";
 import { acceptPromptsSchema, geoResearchInputSchema } from "@/lib/validations/schemas";
 import type {
@@ -303,16 +304,9 @@ export async function getInitialContextAction(
   return { success: true, data: context };
 }
 
-export interface AutoResearchResult {
-  sessionId: string;
-  candidates: PromptCandidate[];
-  audit: CoverageAuditResult;
-  prioritized: PrioritizedPrompt[];
-}
-
 export async function runFullAutoResearchAction(
   formData: FormData
-): Promise<ActionResult<AutoResearchResult>> {
+): Promise<ActionResult<{ sessionId: string }>> {
   const raw = {
     workspaceId: formData.get("workspaceId") as string,
     brandName: formData.get("brandName") as string,
@@ -344,81 +338,59 @@ export async function runFullAutoResearchAction(
 
   const supabase = await createClient();
 
-  // 1) Generación con RAG
-  const genChunks = await retrievePhaseKnowledge("generator", researchInput);
-  const candidates = await generatePromptCandidates(researchInput, genChunks);
+  // Obtener datos para el input canónico del caché
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("slug, knowledge_revision")
+    .eq("id", workspaceId)
+    .single();
 
-  if (candidates.length === 0) {
-    return { success: false, error: "No se pudieron generar candidatos" };
-  }
+  const { data: brandProfile } = await supabase
+    .from("brand_profiles")
+    .select("updated_at")
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
 
-  // 2) Persistir candidatos
   const sessionId = crypto.randomUUID();
-  const { error: insertError } = await supabase.from("prompt_candidates").insert(
-    candidates.map((c) => ({
-      workspace_id: workspaceId,
-      session_id: sessionId,
-      prompt: c.prompt,
-      intent: c.intent,
-      funnel_stage: c.funnel_stage,
-      persona: c.persona,
-      country: c.country,
-      includes_brand: c.includes_brand,
-      includes_competitor: c.includes_competitor,
-      strategic_value: c.strategic_value,
-      conversion_intent: c.conversion_intent,
-      ai_search_likelihood: c.ai_search_likelihood,
-      priority_score: c.priority_score,
-      reason: c.reason,
-      coverage_area: c.coverage_area,
-      selected: true,
-    }))
-  );
 
-  if (insertError) {
-    console.error("[runFullAutoResearch] insertError:", insertError.message);
-    return { success: false, error: `Error al guardar candidatos: ${insertError.message}` };
-  }
-
-  const { data: saved } = await supabase
-    .from("prompt_candidates")
-    .select("*")
-    .eq("session_id", sessionId)
-    .order("created_at");
-
-  const savedCandidates = (saved ?? []) as PromptCandidate[];
-
-  // 3) Auditoría con RAG
-  const auditChunks = await retrievePhaseKnowledge("auditor", researchInput);
-  const audit = await auditPromptCoverage({
-    brandName: researchInput.brandName,
-    category: researchInput.category,
-    country: researchInput.country,
-    targetAudience: researchInput.targetAudience,
-    competitors: researchInput.competitors,
-    candidates: savedCandidates,
-    knowledgeChunks: auditChunks,
+  // Crear fila inicial en pipeline_runs para que el cliente pueda suscribirse inmediatamente
+  await supabase.from("pipeline_runs").insert({
+    workspace_id: workspaceId,
+    session_id: sessionId,
+    phase: "init",
+    status: "queued",
+    created_at: new Date().toISOString(),
   });
 
-  // 4) Priorización con RAG (límite = 15 por defecto)
-  const priorityLimit = Math.min(15, savedCandidates.length);
-  const prioritizerChunks = await retrievePhaseKnowledge("prioritizer", researchInput);
-  const prioritized = await prioritizePrompts(savedCandidates, priorityLimit, prioritizerChunks);
+  // Disparar el pipeline Inngest de forma asíncrona (respuesta inmediata)
+  await inngest.send({
+    name: "geo/research.start",
+    data: {
+      workspaceId,
+      workspaceSlug: workspace?.slug ?? "",
+      sessionId,
+      researchInput,
+      kbRevision: (workspace?.knowledge_revision as string | null) ?? "v0",
+      brandProfileRevision: brandProfile?.updated_at
+        ? new Date(brandProfile.updated_at as string).toISOString().slice(0, 10)
+        : "",
+    },
+  });
 
-  // Persistir rank y riesgo
-  for (const p of prioritized) {
-    const match = savedCandidates.find((c) => c.prompt === p.prompt);
-    if (match) {
-      await supabase
-        .from("prompt_candidates")
-        .update({ priority_rank: p.priorityRank, risk_if_brand_absent: p.riskIfBrandAbsent })
-        .eq("id", match.id)
-        .eq("session_id", sessionId);
-    }
-  }
+  return { success: true, data: { sessionId } };
+}
 
-  return {
-    success: true,
-    data: { sessionId, candidates: savedCandidates, audit, prioritized },
-  };
+export async function cancelAutoResearchAction(
+  workspaceId: string,
+  sessionId: string
+): Promise<ActionResult> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  await inngest.send({
+    name: "geo/research.cancel",
+    data: { sessionId },
+  });
+
+  return { success: true };
 }

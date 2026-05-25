@@ -10,7 +10,10 @@ export function ConsistencyIndicator({ consistency }: Props) {
   else if (pct >= 40) dotColor = "bg-orange-400";
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div
+      className="flex items-center gap-1.5"
+      title={`% de ejecuciones en que la marca apareció en la respuesta del LLM (últimos 30 días)`}
+    >
       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
       <span className="text-xs tabular-nums text-slate-700">{pct}%</span>
     </div>

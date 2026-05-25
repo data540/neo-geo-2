@@ -10,10 +10,8 @@ import { PlanBanner } from "./PlanBanner";
 
 const LLM_TABS: { key: LlmProviderKey; label: string }[] = [
   { key: "chatgpt", label: "ChatGPT" },
-  { key: "claude", label: "Claude" },
-  { key: "gemini", label: "Gemini" },
+  { key: "gemini", label: "AI Overviews" },
   { key: "perplexity", label: "Perplexity" },
-  { key: "deepseek", label: "DeepSeek" },
 ];
 
 interface TopBarProps {

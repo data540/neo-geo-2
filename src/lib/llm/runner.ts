@@ -1,5 +1,4 @@
 import type { LlmProviderKey } from "@/types";
-import { hasApiKey, mockRunPrompt } from "./mock";
 
 export interface RunPromptInput {
   provider: LlmProviderKey;
@@ -33,34 +32,27 @@ type OpenRouterResponse = {
 };
 
 const DEFAULT_OPENROUTER_MODEL: Record<LlmProviderKey, string> = {
-  chatgpt: "openai/gpt-4.1-nano",
-  claude: "anthropic/claude-3.5-haiku",
+  chatgpt: "openai/gpt-4o-mini",
   gemini: "google/gemini-2.0-flash-001",
   perplexity: "perplexity/sonar",
-  deepseek: "deepseek/deepseek-chat-v3-0324",
 };
 
 function getOpenRouterModel(provider: LlmProviderKey): string {
   const envMap: Record<LlmProviderKey, string | undefined> = {
     chatgpt: process.env.OPENROUTER_MODEL_CHATGPT,
-    claude: process.env.OPENROUTER_MODEL_CLAUDE,
     gemini: process.env.OPENROUTER_MODEL_GEMINI,
     perplexity: process.env.OPENROUTER_MODEL_PERPLEXITY,
-    deepseek: process.env.OPENROUTER_MODEL_DEEPSEEK,
   };
   return envMap[provider]?.trim() || DEFAULT_OPENROUTER_MODEL[provider];
 }
 
 export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput> {
-  const { provider, prompt, brand, competitors, modelOverride } = input;
+  const { provider, prompt, modelOverride } = input;
 
-  if (!hasApiKey(provider)) {
-    return mockRunPrompt({
-      provider,
-      prompt,
-      brandName: brand.name,
-      competitors: competitors.map((c) => c.name),
-    });
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error(
+      "OPENROUTER_API_KEY no está configurada. Todos los LLMs se ejecutan vía OpenRouter — no hay fallback a mock."
+    );
   }
 
   const model = modelOverride?.trim() || getOpenRouterModel(provider);

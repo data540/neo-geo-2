@@ -77,7 +77,7 @@ export interface CompetitorSuggestion {
 
 // ── LLM Providers ─────────────────────────────────────────────────────────────
 
-export type LlmProviderKey = "chatgpt" | "claude" | "gemini" | "perplexity" | "deepseek";
+export type LlmProviderKey = "chatgpt" | "gemini" | "perplexity";
 
 export interface LlmProvider {
   id: string;
@@ -440,6 +440,33 @@ export interface KnowledgeFile {
   chunkCount: number;
   tokenCount: number;
   lastUpdated: string;
+}
+
+// ── Prompt detail (RPC get_prompt_detail) ─────────────────────────────────────
+
+export interface PromptDetailCompetitor {
+  name: string;
+  llm_count: number;
+}
+
+export interface PromptDetailSource {
+  domain: string;
+  url: string | null;
+  count: number;
+}
+
+export interface PromptDetailRun {
+  llm_key: string;
+  llm_label: string;
+  model: string | null;
+  completed_at: string;
+  raw_response: string;
+}
+
+export interface PromptDetail {
+  competitors: PromptDetailCompetitor[];
+  sources: PromptDetailSource[];
+  runs: PromptDetailRun[];
 }
 
 // ── Action results ────────────────────────────────────────────────────────────

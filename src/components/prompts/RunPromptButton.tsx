@@ -9,15 +9,14 @@ import { Button } from "@/components/ui/button";
 interface Props {
   promptId: string;
   workspaceId: string;
-  llmKey: string;
 }
 
-export function RunPromptButton({ promptId, workspaceId, llmKey }: Props) {
+export function RunPromptButton({ promptId, workspaceId }: Props) {
   const [loading, setLoading] = useState(false);
 
   async function handleRun() {
     setLoading(true);
-    const result = await runPromptNowAction({ promptId, workspaceId, llmKey });
+    const result = await runPromptNowAction({ promptId, workspaceId });
 
     if (result.success) {
       toast.success("Prompt en cola de ejecución");

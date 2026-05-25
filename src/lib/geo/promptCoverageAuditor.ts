@@ -1,7 +1,9 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { CoverageAuditResult, PromptCandidate, RetrievedChunk } from "@/types";
 import { COVERAGE_AUDITOR_TEMPLATE } from "./masterPrompts";
 import { formatKnowledgeBlock } from "./promptResearchSkill";
+
+const MODEL_AUDITOR = "anthropic/claude-sonnet-4-5";
+const MAX_RETRIES = 2;
 
 interface AuditInput {
   brandName: string;
@@ -13,57 +15,70 @@ interface AuditInput {
   knowledgeChunks?: RetrievedChunk[];
 }
 
-function getMockAuditResult(candidates: PromptCandidate[]): CoverageAuditResult {
-  const brandedCount = candidates.filter((c) => c.includes_brand).length;
-  const total = candidates.length;
-  const brandedPercent = total > 0 ? (brandedCount / total) * 100 : 0;
+async function callAuditor(promptText: string): Promise<string> {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+      "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+    },
+    body: JSON.stringify({
+      model: MODEL_AUDITOR,
+      messages: [{ role: "user", content: promptText }],
+      max_tokens: 2048,
+      temperature: 0.2,
+    }),
+  });
 
-  const gaps: string[] = [];
-  if (brandedPercent > 40)
-    gaps.push("Demasiados prompts con la marca (>40%). Añade más prompts genéricos sin marca.");
-  if (!candidates.some((c) => c.intent === "comparison"))
-    gaps.push("Faltan prompts comparativos entre aerolineas.");
-  if (!candidates.some((c) => c.intent === "local"))
-    gaps.push("Faltan prompts con criterio geografico/local en aeropuertos o rutas.");
-  if (!candidates.some((c) => c.intent === "price"))
-    gaps.push("Faltan prompts de precio y relacion calidad-precio por ruta.");
-  if (!candidates.some((c) => /cancel|demor|reembolso|equipaje|check-?in|reubic/i.test(c.prompt)))
-    gaps.push(
-      "Faltan prompts de incidencias clave: cancelaciones, demoras, equipaje, check-in o reembolsos."
-    );
-  if (!candidates.some((c) => c.funnel_stage === "top"))
-    gaps.push("Faltan prompts top-funnel de descubrimiento inicial.");
-  if (!candidates.some((c) => c.funnel_stage === "middle"))
-    gaps.push("Faltan prompts middle-funnel de comparacion y evaluacion.");
-  if (!candidates.some((c) => c.funnel_stage === "bottom"))
-    gaps.push("Faltan prompts bottom-funnel de decision o conversion.");
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Auditor error (${response.status}): ${body}`);
+  }
 
-  const score = Math.max(40, 100 - gaps.length * 15);
-
-  return {
-    coverageScore: score,
-    mainGaps: gaps,
-    duplicatedOrWeakPrompts: [],
-    recommendedNewPrompts:
-      gaps.length > 0
-        ? [
-            "Si me cancelan un vuelo Madrid-Bogota, ¿que aerolinea responde mejor con reubicacion o reembolso?",
-          ]
-        : [],
-    promptsToRemove: [],
-    finalRecommendation:
-      gaps.length === 0
-        ? "El set tiene buena cobertura. Puedes proceder a priorizar y activar los prompts."
-        : `El set tiene ${gaps.length} hueco(s) de cobertura. Considera añadir los tipos de prompts que faltan.`,
+  const data = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
   };
+  return data.choices?.[0]?.message?.content ?? "{}";
+}
+
+function parseAuditResult(raw: string): CoverageAuditResult | null {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as Partial<CoverageAuditResult>;
+    return {
+      coverageScore: parsed.coverageScore ?? 50,
+      mainGaps: parsed.mainGaps ?? [],
+      duplicatedOrWeakPrompts: parsed.duplicatedOrWeakPrompts ?? [],
+      recommendedNewPrompts: parsed.recommendedNewPrompts ?? [],
+      promptsToRemove: parsed.promptsToRemove ?? [],
+      finalRecommendation: parsed.finalRecommendation ?? "",
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function auditPromptCoverage(input: AuditInput): Promise<CoverageAuditResult> {
-  if (!process.env.ANTHROPIC_API_KEY || input.candidates.length === 0) {
-    return getMockAuditResult(input.candidates);
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error(
+      "OPENROUTER_API_KEY no está configurada. La auditoría de cobertura requiere OpenRouter — no hay fallback a mock."
+    );
   }
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (input.candidates.length === 0) {
+    return {
+      coverageScore: 0,
+      mainGaps: [],
+      duplicatedOrWeakPrompts: [],
+      recommendedNewPrompts: [],
+      promptsToRemove: [],
+      finalRecommendation: "Sin candidatos para auditar.",
+    };
+  }
 
   const promptsJson = JSON.stringify(
     input.candidates.map((c) => ({
@@ -78,7 +93,7 @@ export async function auditPromptCoverage(input: AuditInput): Promise<CoverageAu
     ? formatKnowledgeBlock(input.knowledgeChunks, "GUÍA EXPERTA DE AUDITORÍA DE COBERTURA GEO")
     : "";
 
-  const promptText =
+  const basePrompt =
     COVERAGE_AUDITOR_TEMPLATE.replace("{{brand_name}}", input.brandName)
       .replace("{{category}}", input.category)
       .replace("{{country}}", input.country)
@@ -86,25 +101,22 @@ export async function auditPromptCoverage(input: AuditInput): Promise<CoverageAu
       .replace("{{competitors}}", input.competitors.join(", "))
       .replace("{{prompts_json}}", promptsJson) + knowledgeBlock;
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 2048,
-    messages: [{ role: "user", content: promptText }],
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const retryNote =
+        attempt > 0
+          ? `\n\n[CORRECCIÓN REQUERIDA - intento ${attempt}]\nDevuelve SOLO el objeto JSON estricto con coverageScore, mainGaps, duplicatedOrWeakPrompts, recommendedNewPrompts, promptsToRemove, finalRecommendation.`
+          : "";
 
-  const firstContent = response.content[0];
-  const rawText = firstContent?.type === "text" ? firstContent.text : "{}";
+      const raw = await callAuditor(basePrompt + retryNote);
+      const result = parseAuditResult(raw);
+      if (result) return result;
+    } catch {
+      // Continuar al siguiente intento
+    }
+  }
 
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return getMockAuditResult(input.candidates);
-
-  const parsed = JSON.parse(jsonMatch[0]) as Partial<CoverageAuditResult>;
-  return {
-    coverageScore: parsed.coverageScore ?? 50,
-    mainGaps: parsed.mainGaps ?? [],
-    duplicatedOrWeakPrompts: parsed.duplicatedOrWeakPrompts ?? [],
-    recommendedNewPrompts: parsed.recommendedNewPrompts ?? [],
-    promptsToRemove: parsed.promptsToRemove ?? [],
-    finalRecommendation: parsed.finalRecommendation ?? "",
-  };
+  throw new Error(
+    `Auditor (${MODEL_AUDITOR}) no devolvió un resultado válido tras ${MAX_RETRIES + 1} intentos.`
+  );
 }

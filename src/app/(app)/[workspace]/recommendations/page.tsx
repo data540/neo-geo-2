@@ -122,13 +122,14 @@ export default async function RecommendationsPage({ params }: Props) {
     sourcesCount: sourcesCount ?? 0,
   };
 
-  const queries = buildRetrievalQueries(metricsForRetrieval);
-  const chunks = await retrieveRelevantKnowledge(queries, 4, 10);
+  const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY?.trim();
 
-  const initialRecommendations = await generateRecommendations({
-    workspace: metricsForRetrieval,
-    chunks,
-  });
+  const queries = buildRetrievalQueries(metricsForRetrieval);
+  const chunks = hasOpenRouterKey ? await retrieveRelevantKnowledge(queries, 4, 10) : [];
+
+  const initialRecommendations = hasOpenRouterKey
+    ? await generateRecommendations({ workspace: metricsForRetrieval, chunks })
+    : [];
 
   return (
     <div className="flex-1 overflow-auto min-h-0">
@@ -146,7 +147,7 @@ export default async function RecommendationsPage({ params }: Props) {
           workspaceId={workspace.id}
           initialRecommendations={initialRecommendations}
           retrievedChunks={chunks}
-          hasApiKey={!!process.env.OPENROUTER_API_KEY}
+          hasApiKey={hasOpenRouterKey}
         />
       </div>
     </div>

@@ -348,7 +348,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Consistencia
+                    Brand Consistency
                   </p>
                   <p className="text-3xl font-bold text-slate-900 mt-1.5">{consistency}%</p>
                   <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
@@ -408,7 +408,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                     Visibilidad (SOV)
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Consistencia
+                    Brand Consistency
                   </th>
                 </tr>
               </thead>

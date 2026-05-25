@@ -116,7 +116,6 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
   const [plainText, setPlainText] = useState("");
   const [parsedFromFile, setParsedFromFile] = useState<string[]>([]);
   const [runAfterImport, setRunAfterImport] = useState(true);
-  const [llmKey, setLlmKey] = useState("chatgpt");
 
   const previewPrompts = useMemo(() => {
     const typed = parseCsvLike(plainText);
@@ -179,7 +178,6 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
       prompts: previewPrompts,
       rawText: plainText,
       runAfterImport,
-      llmKey,
     });
 
     if (result.success) {
@@ -269,23 +267,6 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
               />
               Importar y ejecutar automáticamente
             </label>
-            {runAfterImport && (
-              <div className="space-y-1.5">
-                <Label htmlFor="llm-bulk-run">LLM para ejecución</Label>
-                <Select value={llmKey} onValueChange={(value) => setLlmKey(value ?? "chatgpt")}>
-                  <SelectTrigger id="llm-bulk-run">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="chatgpt">ChatGPT</SelectItem>
-                    <SelectItem value="claude">Claude</SelectItem>
-                    <SelectItem value="gemini">Gemini</SelectItem>
-                    <SelectItem value="perplexity">Perplexity</SelectItem>
-                    <SelectItem value="deepseek">DeepSeek</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">

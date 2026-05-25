@@ -13,19 +13,15 @@ import type { LlmProviderKey, WorkspaceMemberRole } from "@/types";
 
 const PROVIDER_LABELS: Record<LlmProviderKey, string> = {
   chatgpt: "ChatGPT",
-  claude: "Claude",
-  gemini: "Gemini",
+  gemini: "AI Overviews",
   perplexity: "Perplexity",
-  deepseek: "DeepSeek",
 };
 
 // Default models shown before OpenRouter loads
 const DEFAULT_MODELS: Record<LlmProviderKey, string> = {
-  chatgpt: "openai/gpt-4.1-nano",
-  claude: "anthropic/claude-3.5-haiku",
+  chatgpt: "openai/gpt-4o-mini",
   gemini: "google/gemini-2.0-flash-001",
   perplexity: "perplexity/sonar",
-  deepseek: "deepseek/deepseek-chat-v3-0324",
 };
 
 interface ProviderConfig {

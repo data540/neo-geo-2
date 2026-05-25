@@ -29,9 +29,9 @@ Cada `workspace` tiene un `slug` único en la URL (`/[workspace]/prompts`). El l
 
 ### Data flow: Monitorización de prompts
 ```
-Prompt → Inngest event "prompt/run.manual"
-  → runPromptManual.ts
-  → runPrompt() (chatgpt/claude/gemini/perplexity o mock si no hay API key)
+Prompt → Inngest event "prompt/run.manual" o "prompt/run.multi"
+  → runPromptManual.ts / runPromptManualMulti.ts
+  → runPrompt() vía OpenRouter (sin mocks — lanza error si falta OPENROUTER_API_KEY)
   → detectBrands() (exact + alias matching sobre el rawResponse)
   → mentions INSERT
   → daily_prompt_metrics UPSERT
@@ -42,11 +42,11 @@ Los Inngest functions usan `SUPABASE_SERVICE_ROLE_KEY` (bypassea RLS). Las Serve
 ### Data flow: GEO Research wizard (4 pasos)
 ```
 ResearchContextForm → generatePromptsAction
-  → generatePromptCandidates() (Claude API o mock sin API key)
+  → generatePromptCandidates() vía OpenRouter (sin mocks — lanza error si falta key)
   → prompt_candidates INSERT (session_id agrupa una sesión)
 → PromptCandidateGrid (paso 2, selección)
-→ auditCoverageAction → auditPromptCoverage() (Claude API)
-→ prioritizePromptsAction → prioritizePrompts() (Claude API)
+→ auditCoverageAction → auditPromptCoverage() vía OpenRouter
+→ prioritizePromptsAction → prioritizePrompts() vía OpenRouter
 → acceptPromptsAction → prompts INSERT + candidates.activated = true
 ```
 
@@ -58,8 +58,26 @@ ResearchContextForm → generatePromptsAction
 ### RLS
 Todas las tablas tienen RLS activo. Las funciones helper `is_workspace_member(uuid)` y `can_manage_workspace(uuid)` están definidas en PostgreSQL (`security definer`). La política de INSERT en `workspaces` permite cualquier usuario autenticado (`auth.uid() is not null`) porque al crear el workspace el usuario aún no es miembro.
 
-### LLM providers
-`src/lib/llm/runner.ts` despacha a provider según la key. Si no hay API key configurada, usa el mock en `src/lib/llm/mock.ts`. Lo mismo aplica para las funciones GEO: `ANTHROPIC_API_KEY` vacía activa el mock de `getMockCandidates()`.
+### LLM providers — política sin mocks (datos reales siempre)
+
+**Todos los LLMs se ejecutan exclusivamente a través de OpenRouter.** No hay mocks, ni fallbacks heurísticos, ni respuestas simuladas: si `OPENROUTER_API_KEY` no está configurada, el código lanza un error explícito en runtime. El objetivo es trabajar siempre con datos reales — nunca reintroducir mocks aunque sea "para desarrollo local".
+
+**Proveedores activos (3):**
+
+| `LlmProviderKey` | Label en UI   | Modelo default OpenRouter   |
+|------------------|---------------|-----------------------------|
+| `chatgpt`        | ChatGPT       | `openai/gpt-4o-mini`        |
+| `gemini`         | AI Overviews  | `google/gemini-2.0-flash-001` |
+| `perplexity`     | Perplexity    | `perplexity/sonar`          |
+
+> La key `"gemini"` se mantiene en la BD para no romper datos históricos (prompt_runs, mentions). El `name` en `llm_providers` es "AI Overviews". Los proveedores `claude` y `deepseek` están desactivados (`enabled = false`) desde la migración `0022`.
+
+- [src/lib/llm/runner.ts](src/lib/llm/runner.ts): único entry point para ejecuciones de prompts. Mapea cada `LlmProviderKey` a un modelo OpenRouter via `DEFAULT_OPENROUTER_MODEL`. Override por env (`OPENROUTER_MODEL_*`) o por workspace (`workspace_llm_config.model`).
+- Pipeline GEO ([src/lib/geo/](src/lib/geo/)): `generatePromptCandidates`, `normalizeCandidates`, `auditPromptCoverage`, `prioritizePrompts`, `generateRecommendations` y `generateWorkspacePrompts` **lanzan error** si falta `OPENROUTER_API_KEY`. Ninguno tiene fallback heurístico.
+- Embeddings (`text-embedding-3-small`) son la única excepción: usan OpenAI directo (`OPENAI_API_KEY_EMBEDDINGS` o `OPENAI_API_KEY` como fallback).
+- Las claves individuales `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY` **ya no se usan** — todo va por OpenRouter.
+
+> ⚠️ **No reintroducir mocks bajo ningún concepto.** Si una API key falta, el código debe fallar visible — no devolver datos simulados. El archivo `src/lib/llm/mock.ts` fue eliminado intencionadamente.
 
 ### Dashboard analytics (5 paneles + Export Excel)
 La página `/[workspace]/dashboard` consume 5 RPCs en paralelo (migración `0016_dashboard_charts.sql`):
@@ -106,16 +124,20 @@ Biome 2.x. Reglas relevantes:
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
-DATABASE_URL          # Para pnpm migrate (contraseña con caracteres especiales debe ir URL-encoded)
-INNGEST_EVENT_KEY     # "local" en desarrollo
-INNGEST_SIGNING_KEY   # "local" en desarrollo
-OPENAI_API_KEY        # Opcional — sin él usa mock para ChatGPT
-OPENAI_API_KEY_EMBEDDINGS  # Opcional — clave separada para embeddings (fallback a OPENAI_API_KEY)
-ANTHROPIC_API_KEY     # Opcional — sin él usa mock para GEO Research y Claude provider
-GEMINI_API_KEY        # Opcional
-PERPLEXITY_API_KEY    # Opcional
-OPENROUTER_API_KEY    # Opcional — usado por Recomendaciones GEO (Claude 3.5 Haiku)
+DATABASE_URL                 # Para pnpm migrate (contraseña con caracteres especiales URL-encoded)
+INNGEST_EVENT_KEY            # "local" en desarrollo
+INNGEST_SIGNING_KEY          # "local" en desarrollo
+OPENROUTER_API_KEY           # OBLIGATORIA — todos los LLMs (ejecución de prompts + pipeline GEO) van por OpenRouter. Sin esta key el código lanza error explícito; no hay mocks.
+OPENROUTER_HTTP_REFERER      # Opcional — header para OpenRouter analytics
+OPENROUTER_APP_NAME          # Opcional — X-Title para OpenRouter analytics
+OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4o-mini
+OPENROUTER_MODEL_GEMINI      # Opcional — override del default google/gemini-2.0-flash-001
+OPENROUTER_MODEL_PERPLEXITY  # Opcional — override del default perplexity/sonar
+OPENAI_API_KEY_EMBEDDINGS    # OBLIGATORIA para embeddings RAG (text-embedding-3-small)
+OPENAI_API_KEY               # Fallback de OPENAI_API_KEY_EMBEDDINGS si no está configurada
 ```
+
+> Las claves `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY`, `OPENROUTER_MODEL_CLAUDE` y `OPENROUTER_MODEL_DEEPSEEK` ya **no se usan**. Toda la inferencia de LLM va por OpenRouter con los 3 proveedores activos.
 
 ## Base de datos
 

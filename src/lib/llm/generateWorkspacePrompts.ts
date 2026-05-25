@@ -59,91 +59,51 @@ function extractJson(text: string): string {
   return trimmed;
 }
 
-function getFallbackPrompts(brandName: string, count: number): string[] {
-  const templates = [
-    `¿Cuáles son las mejores aerolíneas para volar entre Madrid y Bogotá?`,
-    `¿Qué aerolínea low cost opera vuelos nacionales en España?`,
-    `¿Cuál es la aerolínea más puntual en vuelos domésticos?`,
-    `¿Qué aerolíneas tienen vuelos directos entre Europa y Latinoamérica?`,
-    `¿Cuáles son las aerolíneas con mejor relación calidad-precio para volar a Sudamérica?`,
-    `¿Qué aerolínea recomendar para una primera vez volando con niños?`,
-    `¿Cuáles son las aerolíneas más fiables para viajes de negocios?`,
-    `¿Qué aerolíneas ofrecen wifi gratuito a bordo en vuelos transatlánticos?`,
-    `¿Qué compañías aéreas tienen mejor programa de fidelización en España?`,
-    `¿Qué aerolíneas vuelan a Cuba desde Madrid?`,
-    `Compara ${brandName} con sus principales competidores en precio y servicio`,
-    `¿${brandName} o Vueling para volar a Barcelona?`,
-    `Diferencias entre ${brandName} e Iberia en rutas a Latinoamérica`,
-    `¿${brandName} es mejor que Air Europa para volar a Caracas?`,
-    `Compara la franquicia de equipaje de ${brandName} con otras aerolíneas`,
-    `¿Qué opinan los pasajeros sobre ${brandName}? ¿Vale la pena volar con ellos?`,
-    `¿Cómo es el proceso de check-in online de ${brandName}?`,
-    `¿${brandName} permite llevar mascotas en cabina?`,
-    `¿Por qué elegir ${brandName} para volar a Latinoamérica frente a otras aerolíneas?`,
-    `¿Cuánto cuesta cambiar o cancelar un vuelo con ${brandName}?`,
-    `¿Cómo reclamar compensación por vuelo cancelado o con retraso en ${brandName}?`,
-  ];
-
-  const result: string[] = [];
-  for (let i = 0; i < count; i++) {
-    const template = templates[i % templates.length];
-    if (template) result.push(template);
-  }
-  return result;
-}
-
 export async function generateWorkspacePrompts(args: GenerateArgs): Promise<string[]> {
   const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!openRouterKey) {
-    console.log("[generateWorkspacePrompts] OPENROUTER_API_KEY ausente, usando fallback");
-    return getFallbackPrompts(args.brandName, args.count);
+    throw new Error(
+      "OPENROUTER_API_KEY no está configurada. generateWorkspacePrompts requiere OpenRouter — no hay fallback a heurística."
+    );
   }
 
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${openRouterKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
-        "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
-      },
-      body: JSON.stringify({
-        model: process.env.OPENROUTER_MODEL_CLAUDE?.trim() || "anthropic/claude-3.5-haiku",
-        max_tokens: 4096,
-        temperature: 0.2,
-        messages: [{ role: "user", content: buildSystemMessage(args) }],
-      }),
-    });
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${openRouterKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+      "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+    },
+    body: JSON.stringify({
+      model: process.env.OPENROUTER_MODEL_CLAUDE?.trim() || "anthropic/claude-3.5-haiku",
+      max_tokens: 4096,
+      temperature: 0.2,
+      messages: [{ role: "user", content: buildSystemMessage(args) }],
+    }),
+  });
 
-    if (!response.ok) {
-      const body = await response.text();
-      console.error("[generateWorkspacePrompts] error OpenRouter:", response.status, body);
-      return getFallbackPrompts(args.brandName, args.count);
-    }
-
-    const payload = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-
-    const text = payload.choices?.[0]?.message?.content ?? "";
-    if (!text) return getFallbackPrompts(args.brandName, args.count);
-
-    const jsonStr = extractJson(text);
-    const parsed = promptsSchema.safeParse(JSON.parse(jsonStr));
-    if (!parsed.success) {
-      console.error("[generateWorkspacePrompts] JSON inválido:", parsed.error.issues[0]?.message);
-      return getFallbackPrompts(args.brandName, args.count);
-    }
-
-    const prompts = parsed.data.prompts;
-    if (prompts.length >= args.count) return prompts.slice(0, args.count);
-
-    const fallback = getFallbackPrompts(args.brandName, args.count - prompts.length);
-    return [...prompts, ...fallback];
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error("[generateWorkspacePrompts] error llamando OpenRouter:", errMsg);
-    return getFallbackPrompts(args.brandName, args.count);
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`OpenRouter error (${response.status}): ${body}`);
   }
+
+  const payload = (await response.json()) as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+
+  const text = payload.choices?.[0]?.message?.content ?? "";
+  if (!text) {
+    throw new Error("OpenRouter devolvió una respuesta vacía al generar prompts de workspace.");
+  }
+
+  const jsonStr = extractJson(text);
+  const parsed = promptsSchema.safeParse(JSON.parse(jsonStr));
+  if (!parsed.success) {
+    throw new Error(
+      `JSON inválido en la respuesta de OpenRouter: ${parsed.error.issues[0]?.message ?? "schema mismatch"}`
+    );
+  }
+
+  return parsed.data.prompts.slice(0, args.count);
 }

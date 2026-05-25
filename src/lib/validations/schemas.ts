@@ -25,10 +25,6 @@ export const bulkCreatePromptsSchema = z.object({
   prompts: z.array(z.string().min(1)).optional().default([]),
   rawText: z.string().optional().default(""),
   runAfterImport: z.boolean().optional().default(false),
-  llmKey: z
-    .enum(["chatgpt", "claude", "gemini", "perplexity", "deepseek"])
-    .optional()
-    .default("chatgpt"),
 });
 
 export type CreatePromptInput = z.infer<typeof createPromptSchema>;
@@ -54,7 +50,6 @@ export type TogglePromptStatusInput = z.infer<typeof togglePromptStatusSchema>;
 export const runPromptSchema = z.object({
   promptId: z.string().uuid(),
   workspaceId: z.string().uuid(),
-  llmKey: z.enum(["chatgpt", "claude", "gemini", "perplexity", "deepseek"]).default("chatgpt"),
 });
 
 export type RunPromptInput = z.infer<typeof runPromptSchema>;
@@ -93,6 +88,22 @@ export const assignTagSchema = z.object({
 });
 
 export type AssignTagInput = z.infer<typeof assignTagSchema>;
+
+export const updateTagSchema = z.object({
+  tagId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+  name: z.string().min(1).max(50),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Color hex inválido"),
+});
+
+export type UpdateTagInput = z.infer<typeof updateTagSchema>;
+
+export const deleteTagSchema = z.object({
+  tagId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+});
+
+export type DeleteTagInput = z.infer<typeof deleteTagSchema>;
 
 // ── Competitors ───────────────────────────────────────────────────────────────
 

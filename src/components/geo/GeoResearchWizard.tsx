@@ -1,17 +1,19 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import {
   acceptPromptsAction,
   auditCoverageAction,
+  cancelAutoResearchAction,
   generatePromptsAction,
   prioritizePromptsAction,
   runFullAutoResearchAction,
 } from "@/actions/geo-research";
 import type { CoverageAuditResult, PrioritizedPrompt, PromptCandidate } from "@/types";
 import { CoverageAuditPanel } from "./CoverageAuditPanel";
+import { PipelineProgressPanel } from "./PipelineProgressPanel";
 import { PromptCandidateGrid } from "./PromptCandidateGrid";
 import { PromptPrioritizerPanel } from "./PromptPrioritizerPanel";
 import { ResearchContextForm } from "./ResearchContextForm";
@@ -34,6 +36,10 @@ interface Props {
   preFilled: boolean;
 }
 
+function getStorageKey(workspaceId: string) {
+  return `neo-geo:active-research-session:${workspaceId}`;
+}
+
 export function GeoResearchWizard({
   workspaceId,
   workspaceSlug,
@@ -53,7 +59,13 @@ export function GeoResearchWizard({
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [autoLoading, setAutoLoading] = useState(false);
+
+  // Pipeline asíncrono
+  const [pipelineSessionId, setPipelineSessionId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem(getStorageKey(workspaceId));
+  });
+  const [pipelineRunning, setPipelineRunning] = useState(!!pipelineSessionId);
 
   // Paso 2
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -67,11 +79,31 @@ export function GeoResearchWizard({
   // Paso 4
   const [prioritized, setPrioritized] = useState<PrioritizedPrompt[]>([]);
 
-  // Mapa de promptText → candidateId para poder activar
   const candidateIdMap: Record<string, string> = {};
   for (const c of candidates) {
     candidateIdMap[c.prompt] = c.id;
   }
+
+  const startPipeline = (sid: string) => {
+    setPipelineSessionId(sid);
+    setPipelineRunning(true);
+    localStorage.setItem(getStorageKey(workspaceId), sid);
+  };
+
+  const clearPipeline = useCallback(() => {
+    setPipelineSessionId(null);
+    setPipelineRunning(false);
+    localStorage.removeItem(getStorageKey(workspaceId));
+  }, [workspaceId]);
+
+  // Si al montar hay una sesión activa, mostrar el panel de progreso
+  useEffect(() => {
+    const stored = localStorage.getItem(getStorageKey(workspaceId));
+    if (stored) {
+      setPipelineSessionId(stored);
+      setPipelineRunning(true);
+    }
+  }, [workspaceId]);
 
   async function handleGeneratePrompts(formData: FormData) {
     setLoading(true);
@@ -124,26 +156,34 @@ export function GeoResearchWizard({
   }
 
   async function handleAutoAll(formData: FormData) {
-    setAutoLoading(true);
     setCategory((formData.get("category") as string) || "");
 
     const result = await runFullAutoResearchAction(formData);
-    setAutoLoading(false);
 
     if (!result.success) {
       toast.error(result.error ?? "Error al ejecutar auto-generación");
       return;
     }
 
-    setSessionId(result.data?.sessionId ?? null);
-    setCandidates(result.data?.candidates ?? []);
-    setCoverageResult(result.data?.audit ?? null);
-    setPrioritized(result.data?.prioritized ?? []);
-    setSelectedIds((result.data?.candidates ?? []).map((c) => c.id));
-    setStep(4);
-    toast.success(
-      `Generación completa: ${result.data?.candidates.length ?? 0} candidatos · ${result.data?.prioritized.length ?? 0} priorizados`
-    );
+    // El pipeline corre en background — mostramos el panel de progreso
+    startPipeline(result.data!.sessionId);
+  }
+
+  async function handleCancelPipeline() {
+    if (!pipelineSessionId) return;
+    await cancelAutoResearchAction(workspaceId, pipelineSessionId);
+    clearPipeline();
+    toast.info("Generación cancelada");
+  }
+
+  function handlePipelineCompleted() {
+    clearPipeline();
+    toast.success("Pipeline completado. Puedes ver los candidatos en la pestaña GEO Research.");
+    router.push(`/${workspaceSlug}/prompt-research`);
+  }
+
+  function handlePipelineCancelled() {
+    clearPipeline();
   }
 
   async function handleActivate(_selectedTexts: string[], candidateIds: string[]) {
@@ -165,6 +205,29 @@ export function GeoResearchWizard({
 
     toast.success("¡Prompts activados correctamente!");
     router.push(`/${workspaceSlug}/prompts`);
+  }
+
+  // Panel de progreso del pipeline asíncrono
+  if (pipelineRunning && pipelineSessionId) {
+    return (
+      <div className="space-y-8">
+        <div className="flex justify-center">
+          <WizardStepIndicator currentStep={1} />
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 sm:p-6">
+          <h2 className="text-base font-semibold text-slate-900 mb-6">
+            Generando prompts con IA
+          </h2>
+          <PipelineProgressPanel
+            sessionId={pipelineSessionId}
+            workspaceId={workspaceId}
+            onCompleted={handlePipelineCompleted}
+            onCancelled={handlePipelineCancelled}
+            onCancel={handleCancelPipeline}
+          />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -194,7 +257,7 @@ export function GeoResearchWizard({
               onSubmit={handleGeneratePrompts}
               onAutoAll={hasKnowledgeBase ? handleAutoAll : undefined}
               loading={loading}
-              autoLoading={autoLoading}
+              autoLoading={false}
               showAutoButton={hasKnowledgeBase}
               preFilled={preFilled}
             />

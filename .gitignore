@@ -47,3 +47,8 @@ content/**/.obsidian/
 content/**/.trash/
 
 .vercel
+
+# local agent / dev artifacts
+.claude/
+.dev.log
+supabase/.temp/
