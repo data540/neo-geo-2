@@ -45,9 +45,7 @@ export async function POST(request: Request) {
 
   // Use after() from the route handler context — completely isolated from any Server Action.
   // This route handler has no revalidatePath calls, so after() won't inherit any pending revalidations.
-  after(() => executeRunsInBackground(workspaceId, runIds).catch((err) => {
-    console.error("[api/internal/run-prompts] executeRunsInBackground failed:", err);
-  }));
+  after(() => executeRunsInBackground(workspaceId, runIds));
 
   return NextResponse.json({ ok: true, queued: runIds.length });
 }

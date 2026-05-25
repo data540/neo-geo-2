@@ -62,7 +62,17 @@ Todas las tablas tienen RLS activo. Las funciones helper `is_workspace_member(uu
 
 **Todos los LLMs se ejecutan exclusivamente a través de OpenRouter.** No hay mocks, ni fallbacks heurísticos, ni respuestas simuladas: si `OPENROUTER_API_KEY` no está configurada, el código lanza un error explícito en runtime. El objetivo es trabajar siempre con datos reales — nunca reintroducir mocks aunque sea "para desarrollo local".
 
-- [src/lib/llm/runner.ts](src/lib/llm/runner.ts): único entry point para ejecuciones de prompts. Mapea cada `LlmProviderKey` (`chatgpt`, `claude`, `gemini`, `perplexity`, `deepseek`) a un modelo OpenRouter via `DEFAULT_OPENROUTER_MODEL`. Override por env (`OPENROUTER_MODEL_*`) o por workspace (`workspace_llm_config.model`).
+**Proveedores activos (3):**
+
+| `LlmProviderKey` | Label en UI   | Modelo default OpenRouter   |
+|------------------|---------------|-----------------------------|
+| `chatgpt`        | ChatGPT       | `openai/gpt-4o-mini`        |
+| `gemini`         | AI Overviews  | `google/gemini-2.0-flash-001` |
+| `perplexity`     | Perplexity    | `perplexity/sonar`          |
+
+> La key `"gemini"` se mantiene en la BD para no romper datos históricos (prompt_runs, mentions). El `name` en `llm_providers` es "AI Overviews". Los proveedores `claude` y `deepseek` están desactivados (`enabled = false`) desde la migración `0022`.
+
+- [src/lib/llm/runner.ts](src/lib/llm/runner.ts): único entry point para ejecuciones de prompts. Mapea cada `LlmProviderKey` a un modelo OpenRouter via `DEFAULT_OPENROUTER_MODEL`. Override por env (`OPENROUTER_MODEL_*`) o por workspace (`workspace_llm_config.model`).
 - Pipeline GEO ([src/lib/geo/](src/lib/geo/)): `generatePromptCandidates`, `normalizeCandidates`, `auditPromptCoverage`, `prioritizePrompts`, `generateRecommendations` y `generateWorkspacePrompts` **lanzan error** si falta `OPENROUTER_API_KEY`. Ninguno tiene fallback heurístico.
 - Embeddings (`text-embedding-3-small`) son la única excepción: usan OpenAI directo (`OPENAI_API_KEY_EMBEDDINGS` o `OPENAI_API_KEY` como fallback).
 - Las claves individuales `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY` **ya no se usan** — todo va por OpenRouter.
@@ -120,16 +130,14 @@ INNGEST_SIGNING_KEY          # "local" en desarrollo
 OPENROUTER_API_KEY           # OBLIGATORIA — todos los LLMs (ejecución de prompts + pipeline GEO) van por OpenRouter. Sin esta key el código lanza error explícito; no hay mocks.
 OPENROUTER_HTTP_REFERER      # Opcional — header para OpenRouter analytics
 OPENROUTER_APP_NAME          # Opcional — X-Title para OpenRouter analytics
-OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4.1-nano
-OPENROUTER_MODEL_CLAUDE      # Opcional — override del default anthropic/claude-3.5-haiku
+OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4o-mini
 OPENROUTER_MODEL_GEMINI      # Opcional — override del default google/gemini-2.0-flash-001
 OPENROUTER_MODEL_PERPLEXITY  # Opcional — override del default perplexity/sonar
-OPENROUTER_MODEL_DEEPSEEK    # Opcional — override del default deepseek/deepseek-chat-v3-0324
 OPENAI_API_KEY_EMBEDDINGS    # OBLIGATORIA para embeddings RAG (text-embedding-3-small)
 OPENAI_API_KEY               # Fallback de OPENAI_API_KEY_EMBEDDINGS si no está configurada
 ```
 
-> Las claves `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY` ya **no se usan**. Toda la inferencia de LLM va por OpenRouter.
+> Las claves `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY`, `OPENROUTER_MODEL_CLAUDE` y `OPENROUTER_MODEL_DEEPSEEK` ya **no se usan**. Toda la inferencia de LLM va por OpenRouter con los 3 proveedores activos.
 
 ## Base de datos
 

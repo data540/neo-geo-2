@@ -8,10 +8,8 @@ import type { ActionResult, LlmProviderKey, WorkspaceLlmConfigWithProvider } fro
 // Prefix patterns to group OpenRouter models by provider
 const PROVIDER_PREFIXES: Record<LlmProviderKey, string[]> = {
   chatgpt: ["openai/"],
-  claude: ["anthropic/"],
   gemini: ["google/gemini"],
   perplexity: ["perplexity/"],
-  deepseek: ["deepseek/"],
 };
 
 export interface OpenRouterModel {

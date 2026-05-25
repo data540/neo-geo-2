@@ -21,12 +21,7 @@ const supabase = createClient(
 );
 
 const WORKSPACE_SLUG = process.argv[2] ?? "air-europa";
-const LLM_KEY = (process.argv[3] ?? "chatgpt") as
-  | "chatgpt"
-  | "claude"
-  | "gemini"
-  | "perplexity"
-  | "deepseek";
+const LLM_KEY = (process.argv[3] ?? "chatgpt") as "chatgpt" | "gemini" | "perplexity";
 const TODAY = new Date().toISOString().slice(0, 10);
 
 async function upsertWorkspaceMetrics(workspaceId: string, llmProviderId: string) {

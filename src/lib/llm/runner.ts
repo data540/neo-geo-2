@@ -32,20 +32,16 @@ type OpenRouterResponse = {
 };
 
 const DEFAULT_OPENROUTER_MODEL: Record<LlmProviderKey, string> = {
-  chatgpt: "openai/gpt-4.1-nano",
-  claude: "anthropic/claude-3.5-haiku",
+  chatgpt: "openai/gpt-4o-mini",
   gemini: "google/gemini-2.0-flash-001",
   perplexity: "perplexity/sonar",
-  deepseek: "deepseek/deepseek-chat-v3-0324",
 };
 
 function getOpenRouterModel(provider: LlmProviderKey): string {
   const envMap: Record<LlmProviderKey, string | undefined> = {
     chatgpt: process.env.OPENROUTER_MODEL_CHATGPT,
-    claude: process.env.OPENROUTER_MODEL_CLAUDE,
     gemini: process.env.OPENROUTER_MODEL_GEMINI,
     perplexity: process.env.OPENROUTER_MODEL_PERPLEXITY,
-    deepseek: process.env.OPENROUTER_MODEL_DEEPSEEK,
   };
   return envMap[provider]?.trim() || DEFAULT_OPENROUTER_MODEL[provider];
 }

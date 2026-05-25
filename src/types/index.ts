@@ -77,7 +77,7 @@ export interface CompetitorSuggestion {
 
 // ── LLM Providers ─────────────────────────────────────────────────────────────
 
-export type LlmProviderKey = "chatgpt" | "claude" | "gemini" | "perplexity" | "deepseek";
+export type LlmProviderKey = "chatgpt" | "gemini" | "perplexity";
 
 export interface LlmProvider {
   id: string;
