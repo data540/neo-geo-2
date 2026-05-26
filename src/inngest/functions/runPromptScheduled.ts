@@ -31,8 +31,9 @@ export const runPromptScheduled = inngest.createFunction(
     const configs = await step.run("fetch-llm-configs", async () => {
       const { data } = await supabase
         .from("workspace_llm_config")
-        .select("workspace_id, prompts_per_day, llm_providers(key)")
+        .select("workspace_id, prompts_per_day, llm_providers!inner(key, enabled)")
         .eq("enabled", true)
+        .eq("llm_providers.enabled", true)
         .gt("prompts_per_day", 0);
       return data ?? [];
     });
