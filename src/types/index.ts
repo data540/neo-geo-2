@@ -272,6 +272,19 @@ export interface WorkspaceKpis {
   avgSov: number | null;
 }
 
+// ── Sidebar KPIs (mini-panel in navigation) ───────────────────────────────────
+
+export interface SidebarKpis {
+  visibility: number | null; // percentage 0-100 (avg_sov)
+  visibilityDelta: number | null; // percentage points change vs previous 7 days
+  avgPosition: number | null; // #X.X, null if no data
+  avgPositionDelta: number | null; // absolute change vs previous 7 days
+  brandMentions: number; // total count (sum)
+  brandMentionsDelta: number | null; // absolute change vs previous 7 days
+  sentiment: number | null; // -1 to 1 numeric avg
+  sentimentDelta: number | null; // absolute change vs previous 7 days
+}
+
 // ── Dashboard analytics (RPC outputs) ─────────────────────────────────────────
 
 export interface MarketShareEntry {

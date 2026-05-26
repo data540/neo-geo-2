@@ -88,23 +88,27 @@ function SortableHeader({
     <th
       className={`px-4 py-3 text-slate-500 font-medium ${align === "right" ? "text-right" : "text-left"}`}
     >
-      <button
-        type="button"
-        onClick={() => onSort(sortKey)}
-        className={`inline-flex items-center gap-1 hover:text-slate-800 transition-colors ${align === "right" ? "flex-row-reverse" : ""} ${isActive ? "text-slate-800" : ""}`}
+      <div
+        className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}
       >
-        {label}
-        {tooltip && <InfoTooltip content={tooltip} />}
-        {isActive ? (
-          activeSortDir === "asc" ? (
-            <ChevronUp className="w-3.5 h-3.5 text-indigo-500" />
+        <button
+          type="button"
+          onClick={() => onSort(sortKey)}
+          className={`inline-flex items-center gap-1 hover:text-slate-800 transition-colors ${isActive ? "text-slate-800" : ""}`}
+        >
+          {label}
+          {isActive ? (
+            activeSortDir === "asc" ? (
+              <ChevronUp className="w-3.5 h-3.5 text-indigo-500" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 text-indigo-500" />
+            )
           ) : (
-            <ChevronDown className="w-3.5 h-3.5 text-indigo-500" />
-          )
-        ) : (
-          <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
-        )}
-      </button>
+            <ChevronsUpDown className="w-3.5 h-3.5 opacity-30" />
+          )}
+        </button>
+        {tooltip && <InfoTooltip content={tooltip} />}
+      </div>
     </th>
   );
 }

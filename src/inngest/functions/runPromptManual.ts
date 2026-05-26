@@ -45,7 +45,7 @@ export const runPromptManual = inngest.createFunction(
           .select("*")
           .eq("workspace_id", workspaceId)
           .eq("type", "competitor"),
-        supabase.from("llm_providers").select("*").eq("key", llmKey).single(),
+        supabase.from("llm_providers").select("*").eq("key", llmKey).eq("enabled", true).single(),
       ]);
 
       // Fetch workspace model override for this provider

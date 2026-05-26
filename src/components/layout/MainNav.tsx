@@ -57,6 +57,7 @@ export function MainNav({ workspaceSlug, collapsed = false }: MainNavProps) {
             >
               <Icon
                 className={cn("w-4 h-4 shrink-0", isActive ? "text-indigo-600" : "text-slate-400")}
+                aria-hidden="true"
               />
               {!collapsed && <span>{label}</span>}
             </Link>

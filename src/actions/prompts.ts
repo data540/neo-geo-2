@@ -375,6 +375,78 @@ export async function createPromptsBulkAction(
   return { success: true, data: { created: normalizedPrompts.length, queued } };
 }
 
+export async function runAllPromptsNowAction(
+  workspaceId: string
+): Promise<ActionResult<{ prompts: number; runs: number }>> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) {
+    return { success: false, error: "Sin permisos" };
+  }
+
+  const service = getServiceClient();
+
+  // Cargar todos los prompts activos del workspace
+  const { data: activePrompts } = await service
+    .from("prompts")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "active");
+
+  if (!activePrompts || activePrompts.length === 0) {
+    return { success: false, error: "No hay prompts activos en este workspace" };
+  }
+
+  // Cargar todos los LLM providers habilitados del workspace
+  const { data: llmConfigs } = await service
+    .from("workspace_llm_config")
+    .select("llm_provider_id")
+    .eq("workspace_id", workspaceId)
+    .eq("enabled", true);
+
+  const providerIds = (llmConfigs ?? []).map((c) => c.llm_provider_id as string);
+  if (providerIds.length === 0) {
+    return { success: false, error: "No hay LLMs habilitados en este workspace" };
+  }
+
+  // Crear runs: N prompts × M providers
+  const runRows = activePrompts.flatMap((p) =>
+    providerIds.map((llmProviderId) => ({
+      workspace_id: workspaceId,
+      prompt_id: p.id as string,
+      llm_provider_id: llmProviderId,
+      status: "queued",
+    }))
+  );
+
+  const { data: createdRuns, error: runError } = await service
+    .from("prompt_runs")
+    .insert(runRows)
+    .select("id, prompt_id");
+
+  if (runError || !createdRuns || createdRuns.length === 0) {
+    return { success: false, error: "No se pudieron crear los runs" };
+  }
+
+  // Disparar un evento prompt/run.multi por cada prompt
+  const events = activePrompts.map((p) => {
+    const promptRunIds = createdRuns.filter((r) => r.prompt_id === p.id).map((r) => r.id as string);
+    return {
+      name: "prompt/run.multi" as const,
+      data: { promptId: p.id as string, workspaceId, runIds: promptRunIds },
+    };
+  });
+
+  await inngest.send(events);
+
+  const workspaceSlug = await getWorkspaceSlug(workspaceId);
+  if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
+
+  return {
+    success: true,
+    data: { prompts: activePrompts.length, runs: createdRuns.length },
+  };
+}
+
 const EMPTY_PROMPT_DETAIL: PromptDetail = {
   competitors: [],
   sources: [],

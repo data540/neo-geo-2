@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@supabase/mcp-server-supabase"],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}",
+        "SUPABASE_PROJECT_REF": "${SUPABASE_PROJECT_REF}",
+        "SUPABASE_DB_PASSWORD": "${SUPABASE_DB_PASSWORD}"
+      }
+    },
+    "vercel": {
+      "command": "npx",
+      "args": ["-y", "@vercel/mcp-server"],
+      "env": {
+        "VERCEL_TOKEN": "${VERCEL_TOKEN}",
+        "VERCEL_TEAM_ID": "${VERCEL_TEAM_ID}",
+        "VERCEL_PROJECT_ID": "${VERCEL_PROJECT_ID}"
+      }
+    }
+  }
+}

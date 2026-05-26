@@ -1,4 +1,4 @@
-﻿import { BarChart3, Eye, Target, TrendingUp } from "lucide-react";
+import { Eye, Smile, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
@@ -6,6 +6,7 @@ import { ExportDashboardButton } from "@/components/dashboard/ExportDashboardBut
 import { LlmComparisonTable } from "@/components/dashboard/LlmComparisonTable";
 import { MarketShareDonut } from "@/components/dashboard/MarketShareDonut";
 import { MentionBreakdownPanel } from "@/components/dashboard/MentionBreakdownPanel";
+import { RunAllPromptsButton } from "@/components/dashboard/RunAllPromptsButton";
 import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
@@ -26,6 +27,7 @@ interface Props {
   searchParams: Promise<{ llm?: string; range?: string }>;
 }
 
+// ── Sparkline with filled area ─────────────────────────────────────────────────
 function buildSparklinePath(values: number[], width: number, height: number): string {
   if (values.length === 0) return "";
   if (values.length === 1) return `M 0 ${height / 2} L ${width} ${height / 2}`;
@@ -37,45 +39,114 @@ function buildSparklinePath(values: number[], width: number, height: number): st
   return values
     .map((value, idx) => {
       const x = (idx / (values.length - 1)) * width;
-      const y = height - ((value - min) / range) * height;
+      const y = height - ((value - min) / range) * (height * 0.85);
       return `${idx === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(" ");
 }
 
-function Sparkline({ values, colorClass }: { values: number[]; colorClass: string }) {
+function Sparkline({
+  values,
+  strokeColor,
+  fillColor,
+}: {
+  values: number[];
+  strokeColor: string;
+  fillColor: string;
+}) {
   const width = 220;
-  const height = 38;
-  const path = buildSparklinePath(values, width, height);
+  const height = 42;
+  const linePath = buildSparklinePath(values, width, height);
+  const areaPath = linePath ? `${linePath} L ${width} ${height} L 0 ${height} Z` : "";
 
   return (
-    <div className="mt-2">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-10">
-        {path ? (
-          <path
-            d={path}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.2"
-            className={colorClass}
-          />
+    <div className="mt-3">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full h-10"
+        aria-hidden="true"
+        preserveAspectRatio="none"
+      >
+        {areaPath && <path d={areaPath} fill={fillColor} fillOpacity="0.15" stroke="none" />}
+        {linePath ? (
+          <path d={linePath} fill="none" stroke={strokeColor} strokeWidth="2" />
         ) : (
-          <line x1="0" y1={height / 2} x2={width} y2={height / 2} className={colorClass} />
+          <line
+            x1="0"
+            y1={height / 2}
+            x2={width}
+            y2={height / 2}
+            stroke={strokeColor}
+            strokeWidth="2"
+          />
         )}
       </svg>
     </div>
   );
 }
 
+// ── Delta badge ────────────────────────────────────────────────────────────────
+function Delta({
+  value,
+  invertColors = false,
+  suffix = "",
+}: {
+  value: number | null;
+  invertColors?: boolean;
+  suffix?: string;
+}) {
+  if (value === null || value === 0) return <span className="text-xs text-slate-400">—</span>;
+  const isUp = value > 0;
+  const isGood = invertColors ? !isUp : isUp;
+  const abs = Math.abs(value);
+  const formatted = abs % 1 === 0 ? `${abs}` : `${abs.toFixed(1)}`;
+  return (
+    <span className={`text-sm font-medium ${isGood ? "text-emerald-600" : "text-red-500"}`}>
+      {isUp ? "↑" : "↓"}
+      {formatted}
+      {suffix}
+    </span>
+  );
+}
+
+// ── Sentiment helpers ──────────────────────────────────────────────────────────
+function sentimentLabel(score: number | null): { text: string; color: string } {
+  if (score === null) return { text: "—", color: "text-slate-400" };
+  if (score > 0.3) return { text: "Positive", color: "text-emerald-600" };
+  if (score < -0.1) return { text: "Negative", color: "text-red-500" };
+  return { text: "Mixed", color: "text-amber-500" };
+}
+
+function calcAvgSentiment(mentions: Array<{ sentiment: string | null }>): number | null {
+  if (mentions.length === 0) return null;
+  const sum = mentions.reduce((acc, m) => {
+    if (m.sentiment === "positive") return acc + 1;
+    if (m.sentiment === "negative") return acc - 1;
+    return acc;
+  }, 0);
+  return Math.round((sum / mentions.length) * 100) / 100;
+}
+
+// ── Range config ───────────────────────────────────────────────────────────────
+const RANGE_OPTIONS = [
+  { value: 1, label: "Ayer" },
+  { value: 7, label: "7D" },
+  { value: 30, label: "30D" },
+  { value: 90, label: "90D" },
+  { value: 180, label: "6M" },
+  { value: 365, label: "1Y" },
+  { value: 3650, label: "Max" },
+] as const;
+
+const VALID_RANGES = RANGE_OPTIONS.map((r) => String(r.value));
+
 export default async function DashboardPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", range = "30" } = await searchParams;
+  const { llm = "chatgpt", range = "7" } = await searchParams;
 
   const supabase = await createClient();
-  const days = range === "7" || range === "90" ? Number(range) : 30;
-  const fromDate = new Date();
-  fromDate.setDate(fromDate.getDate() - (days - 1));
-  const fromIso = fromDate.toISOString().slice(0, 10);
+  const days = VALID_RANGES.includes(range) ? Number(range) : 7;
+  const rangeLabel = days === 1 ? "Yesterday" : days === 3650 ? "All time" : `Last ${days} days`;
 
   const { data: workspace } = await supabase
     .from("workspaces")
@@ -93,7 +164,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   if (!provider) notFound();
 
-  const { data: trendRows } = await supabase
+  // ── Load 2× period for delta calculation ──────────────────────────────────
+  const { data: allMetricRows } = await supabase
     .from("daily_workspace_metrics")
     .select(
       "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
@@ -101,44 +173,73 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     .eq("workspace_id", workspace.id)
     .eq("llm_provider_id", provider.id)
     .order("date", { ascending: false })
-    .limit(days);
+    .limit(days * 2);
 
-  const rows = trendRows ?? [];
-  const mentionsTotal = rows.reduce((acc, row) => acc + (row.brand_mentions_count ?? 0), 0);
+  const rows = (allMetricRows ?? []).slice(0, days);
+  const prevRows = (allMetricRows ?? []).slice(days, days * 2);
 
-  const avgPositionValues = rows
-    .map((r) => r.avg_position)
-    .filter((v): v is number => typeof v === "number");
-  const avgPosition =
-    avgPositionValues.length > 0
-      ? Math.round((avgPositionValues.reduce((a, b) => a + b, 0) / avgPositionValues.length) * 10) /
-        10
+  // ── Current period KPIs ────────────────────────────────────────────────────
+  const mentionsTotal = rows.reduce((acc, r) => acc + (r.brand_mentions_count ?? 0), 0);
+  const prevMentionsTotal = prevRows.reduce((acc, r) => acc + (r.brand_mentions_count ?? 0), 0);
+
+  const avgNum = (arr: (number | null)[]) => {
+    const v = arr.filter((x): x is number => typeof x === "number");
+    return v.length > 0 ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
+  };
+
+  const visibility = avgNum(rows.map((r) => r.avg_sov));
+  const prevVisibility = avgNum(prevRows.map((r) => r.avg_sov));
+  const avgPosition = avgNum(rows.map((r) => r.avg_position));
+  const prevAvgPosition = avgNum(prevRows.map((r) => r.avg_position));
+
+  const delta = (curr: number | null, prev: number | null) =>
+    curr !== null && prev !== null ? Math.round((curr - prev) * 10) / 10 : null;
+
+  const visibilityDelta = delta(visibility, prevVisibility);
+  const avgPositionDelta = delta(avgPosition, prevAvgPosition);
+  const mentionsDelta =
+    mentionsTotal > 0 || prevMentionsTotal > 0 ? mentionsTotal - prevMentionsTotal : null;
+
+  // ── Sentiment from mentions ────────────────────────────────────────────────
+  const periodStart = new Date();
+  periodStart.setDate(periodStart.getDate() - days);
+  const prevPeriodStart = new Date(periodStart);
+  prevPeriodStart.setDate(prevPeriodStart.getDate() - days);
+
+  const { data: sentimentMentions } = await supabase
+    .from("mentions")
+    .select("sentiment, created_at")
+    .eq("workspace_id", workspace.id)
+    .eq("brand_type", "own")
+    .gte("created_at", prevPeriodStart.toISOString())
+    .order("created_at", { ascending: false });
+
+  const allSentimentMentions = sentimentMentions ?? [];
+  const currSentimentMentions = allSentimentMentions.filter(
+    (m) => new Date(m.created_at) >= periodStart
+  );
+  const prevSentimentMentions = allSentimentMentions.filter(
+    (m) => new Date(m.created_at) < periodStart
+  );
+
+  const avgSentiment = calcAvgSentiment(currSentimentMentions);
+  const prevAvgSentiment = calcAvgSentiment(prevSentimentMentions);
+  const sentimentDelta =
+    avgSentiment !== null && prevAvgSentiment !== null
+      ? Math.round((avgSentiment - prevAvgSentiment) * 100) / 100
       : null;
 
-  const visibilityValues = rows
-    .map((r) => r.avg_sov)
-    .filter((v): v is number => typeof v === "number");
-  const visibility =
-    visibilityValues.length > 0
-      ? Math.round((visibilityValues.reduce((a, b) => a + b, 0) / visibilityValues.length) * 10) /
-        10
-      : null;
+  const sent = sentimentLabel(avgSentiment);
 
-  const consistencyValues = rows
-    .map((r) => r.brand_consistency)
-    .filter((v): v is number => typeof v === "number");
-  const consistency =
-    consistencyValues.length > 0
-      ? Math.round((consistencyValues.reduce((a, b) => a + b, 0) / consistencyValues.length) * 10) /
-        10
-      : 0;
-
+  // ── Sparkline series ───────────────────────────────────────────────────────
   const visibilitySeries = [...rows].reverse().map((r) => r.avg_sov ?? 0);
   const mentionsSeries = [...rows].reverse().map((r) => r.brand_mentions_count ?? 0);
   const avgPositionSeries = [...rows]
     .reverse()
     .map((r) => (r.avg_position != null ? Math.max(0, 100 - r.avg_position * 8) : 0));
-  const consistencySeries = [...rows].reverse().map((r) => r.brand_consistency ?? 0);
+  // Sentiment series: normalize -1..1 → 0..100
+  const sentimentSeries =
+    currSentimentMentions.length > 0 ? [Math.round(((avgSentiment ?? 0) + 1) * 50)] : [50];
 
   const chartData = [...rows].reverse().map((r) => ({
     date: r.date,
@@ -148,6 +249,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     consistencia: r.brand_consistency ?? null,
   }));
 
+  // ── Recent runs ────────────────────────────────────────────────────────────
   const { data: recentRuns } = await supabase
     .from("prompt_runs")
     .select("id, status, created_at, completed_at, prompts(text), llm_providers(name)")
@@ -251,117 +353,132 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
+        {/* ── Header ── */}
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">Dashboard</h1>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Resumen de visibilidad de {workspace.name} en motores de IA
-            </p>
+            <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Showing daily data</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Range selector */}
+            <div className="flex items-center gap-1 bg-slate-100 rounded-full px-1 py-1">
+              {RANGE_OPTIONS.map(({ value, label }) => {
+                const active = days === value;
+                return (
+                  <Link
+                    key={value}
+                    href={`/${slug}/dashboard?llm=${llm}&range=${value}`}
+                    className={[
+                      "px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                      active
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-900",
+                    ].join(" ")}
+                  >
+                    {label}
+                  </Link>
+                );
+              })}
+            </div>
             <ExportDashboardButton workspaceSlug={slug} days={days} llmKey={llm} />
+            {/* Live data badge */}
+            <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+              Live data
+            </span>
+            <RunAllPromptsButton workspaceId={workspace.id} />
             <DashboardRefreshButton workspaceId={workspace.id} slug={workspace.slug} llmKey={llm} />
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {[7, 30, 90].map((d) => {
-            const active = days === d;
-            return (
-              <Link
-                key={d}
-                href={`/${slug}/dashboard?llm=${llm}&range=${d}`}
-                className={[
-                  "px-3 py-1.5 rounded-full border text-xs font-medium transition-colors",
-                  active
-                    ? "bg-indigo-600 text-white border-indigo-600"
-                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                {d}D
-              </Link>
-            );
-          })}
-        </div>
-
+        {/* ── KPI Cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Visibility */}
           <Card className="border border-slate-200 shadow-sm">
             <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Visibilidad
-                  </p>
-                  <p className="text-3xl font-bold text-slate-900 mt-1.5">
-                    {visibility != null ? `${visibility}%` : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-                </div>
-                <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-                  <TrendingUp className="w-4 h-4 text-slate-600" />
+              <div className="flex items-start justify-between mb-1">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                  Visibility
+                </p>
+                <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
+                  <Eye className="w-4 h-4 text-indigo-500" aria-hidden="true" />
                 </div>
               </div>
-              <Sparkline values={visibilitySeries} colorClass="text-indigo-500" />
+              <div className="flex items-baseline gap-2 mt-2">
+                <p className="text-3xl font-bold text-slate-900">
+                  {visibility != null ? `${visibility}%` : "—"}
+                </p>
+                <Delta value={visibilityDelta} suffix="%" />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <Sparkline values={visibilitySeries} strokeColor="#6366f1" fillColor="#6366f1" />
             </CardContent>
           </Card>
 
+          {/* Avg Position */}
           <Card className="border border-slate-200 shadow-sm">
             <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Menciones de marca
-                  </p>
-                  <p className="text-3xl font-bold text-slate-900 mt-1.5">{mentionsTotal}</p>
-                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-                </div>
-                <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center">
-                  <Eye className="w-4 h-4 text-green-600" />
+              <div className="flex items-start justify-between mb-1">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                  Avg Position
+                </p>
+                <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                  <Target className="w-4 h-4 text-blue-500" aria-hidden="true" />
                 </div>
               </div>
-              <Sparkline values={mentionsSeries} colorClass="text-green-500" />
+              <div className="flex items-baseline gap-2 mt-2">
+                <p className="text-3xl font-bold text-slate-900">
+                  {avgPosition != null ? `#${avgPosition}` : "—"}
+                </p>
+                <Delta value={avgPositionDelta} invertColors={true} />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <Sparkline values={avgPositionSeries} strokeColor="#3b82f6" fillColor="#3b82f6" />
             </CardContent>
           </Card>
 
+          {/* Brand Mentions */}
           <Card className="border border-slate-200 shadow-sm">
             <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Posición media
-                  </p>
-                  <p className="text-3xl font-bold text-slate-900 mt-1.5">
-                    {avgPosition != null ? `#${avgPosition}` : "—"}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-                </div>
-                <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center">
-                  <Target className="w-4 h-4 text-indigo-600" />
+              <div className="flex items-start justify-between mb-1">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                  Brand Mentions
+                </p>
+                <div className="w-8 h-8 rounded-full bg-green-50 flex items-center justify-center shrink-0">
+                  <TrendingUp className="w-4 h-4 text-green-500" aria-hidden="true" />
                 </div>
               </div>
-              <Sparkline values={avgPositionSeries} colorClass="text-blue-500" />
+              <div className="flex items-baseline gap-2 mt-2">
+                <p className="text-3xl font-bold text-slate-900">{mentionsTotal}</p>
+                <Delta value={mentionsDelta} />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <Sparkline values={mentionsSeries} strokeColor="#22c55e" fillColor="#22c55e" />
             </CardContent>
           </Card>
 
+          {/* Sentiment */}
           <Card className="border border-slate-200 shadow-sm">
             <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Brand Consistency
-                  </p>
-                  <p className="text-3xl font-bold text-slate-900 mt-1.5">{consistency}%</p>
-                  <p className="text-xs text-slate-400 mt-1">Últimos {days} días</p>
-                </div>
-                <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center">
-                  <BarChart3 className="w-4 h-4 text-purple-600" />
+              <div className="flex items-start justify-between mb-1">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                  Sentiment
+                </p>
+                <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+                  <Smile className="w-4 h-4 text-amber-500" aria-hidden="true" />
                 </div>
               </div>
-              <Sparkline values={consistencySeries} colorClass="text-purple-500" />
+              <div className="flex items-baseline gap-2 mt-2">
+                <p className={`text-3xl font-bold ${sent.color}`}>{sent.text}</p>
+                <Delta value={sentimentDelta} />
+              </div>
+              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <Sparkline values={sentimentSeries} strokeColor="#f59e0b" fillColor="#f59e0b" />
             </CardContent>
           </Card>
         </div>
 
+        {/* ── Analytics panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <MarketShareDonut data={marketShare} ownBrandName={workspace.brand_name} />
           <MentionBreakdownPanel data={breakdown} />
@@ -379,11 +496,20 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           activeLlmKey={llm}
         />
 
-        <TrendChart data={chartData} />
+        {/* ── Visibility Trends ── */}
+        <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
+            Visibility Trends
+          </p>
+          <TrendChart data={chartData} />
+        </div>
 
+        {/* ── Daily data table ── */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
-            <h2 className="text-sm font-semibold text-slate-700">Tendencia diaria ({days} días)</h2>
+            <h2 className="text-sm font-semibold text-slate-700">
+              Tendencia diaria ({days === 1 ? "Ayer" : days === 3650 ? "Todos los datos" : `${days} días`})
+            </h2>
             <p className="text-xs text-slate-500 mt-1">
               Un registro por día y motor IA en <code>daily_workspace_metrics</code>.
             </p>
@@ -420,8 +546,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                     </td>
                   </tr>
                 ) : (
-                  rows.map((r, i) => (
-                    <tr key={`${r.date}-${i}`} className="hover:bg-slate-50/60">
+                  rows.map((r) => (
+                    <tr key={r.date} className="hover:bg-slate-50/60">
                       <td className="px-4 py-3 text-slate-700">
                         {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
                           day: "2-digit",
@@ -452,6 +578,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           </div>
         </div>
 
+        {/* ── Recent runs ── */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="px-5 py-4 border-b border-slate-100">
             <h2 className="text-sm font-semibold text-slate-700">Últimas ejecuciones</h2>
