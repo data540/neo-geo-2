@@ -117,9 +117,14 @@ function Delta({
 // ── Sentiment helpers ──────────────────────────────────────────────────────────
 function sentimentLabel(score: number | null): { text: string; color: string } {
   if (score === null) return { text: "—", color: "text-slate-400" };
-  if (score > 0.3) return { text: "Positive", color: "text-emerald-600" };
-  if (score < -0.1) return { text: "Negative", color: "text-red-500" };
+  if (score >= 0.2) return { text: "Positive", color: "text-emerald-600" };
+  if (score <= -0.2) return { text: "Negative", color: "text-red-500" };
   return { text: "Mixed", color: "text-amber-500" };
+}
+
+function fmtScore(score: number | null): string {
+  if (score === null) return "";
+  return `${score >= 0 ? "+" : ""}${score.toFixed(2)}`;
 }
 
 function calcAvgSentiment(
@@ -499,6 +504,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
               </div>
               <div className="flex items-baseline gap-2 mt-2">
                 <p className={`text-3xl font-bold ${sent.color}`}>{sent.text}</p>
+                {avgSentiment !== null && (
+                  <span className={`text-sm font-mono font-semibold ${sent.color} opacity-75`}>
+                    {fmtScore(avgSentiment)}
+                  </span>
+                )}
                 <Delta value={sentimentDelta} />
               </div>
               <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
