@@ -147,6 +147,12 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const supabase = await createClient();
   const days = VALID_RANGES.includes(range) ? Number(range) : 7;
   const rangeLabel = days === 1 ? "Yesterday" : days === 3650 ? "All time" : `Last ${days} days`;
+  const badgeLabel =
+    days === 1
+      ? "Ayer"
+      : RANGE_OPTIONS.find((r) => r.value === days)?.label
+        ? `Últimos ${RANGE_OPTIONS.find((r) => r.value === days)!.label}`
+        : `Últimos ${days}D`;
 
   const { data: workspace } = await supabase
     .from("workspaces")
@@ -480,8 +486,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
         {/* ── Analytics panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <MarketShareDonut data={marketShare} ownBrandName={workspace.brand_name} />
-          <MentionBreakdownPanel data={breakdown} />
+          <MarketShareDonut data={marketShare} ownBrandName={workspace.brand_name} badgeLabel={badgeLabel} />
+          <MentionBreakdownPanel data={breakdown} badgeLabel={badgeLabel} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

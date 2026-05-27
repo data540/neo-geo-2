@@ -2,6 +2,7 @@ import type { MentionBreakdownEntry, MentionType } from "@/types";
 
 interface Props {
   data: MentionBreakdownEntry[];
+  badgeLabel?: string;
 }
 
 const TYPE_META: Record<
@@ -48,7 +49,7 @@ const ORDER: MentionType[] = [
   "warning",
 ];
 
-export function MentionBreakdownPanel({ data }: Props) {
+export function MentionBreakdownPanel({ data, badgeLabel }: Props) {
   if (data.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-5">
@@ -76,7 +77,7 @@ export function MentionBreakdownPanel({ data }: Props) {
           <p className="text-xs text-slate-500 mt-0.5">Desglose por tipo de mención</p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
-          Últimos 30D
+          {badgeLabel ?? "Últimos 7D"}
         </span>
       </div>
 

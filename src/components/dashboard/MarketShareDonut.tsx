@@ -6,6 +6,7 @@ import type { MarketShareEntry } from "@/types";
 interface Props {
   data: MarketShareEntry[];
   ownBrandName: string;
+  badgeLabel?: string;
 }
 
 const PALETTE = [
@@ -30,7 +31,7 @@ function colorForIndex(idx: number, isOwn: boolean): string {
   return PALETTE[offset % PALETTE.length]!;
 }
 
-export function MarketShareDonut({ data, ownBrandName }: Props) {
+export function MarketShareDonut({ data, ownBrandName, badgeLabel }: Props) {
   const top = data.slice(0, 10);
   const rest = data.slice(10);
   const restShare = rest.reduce((acc, r) => acc + r.sharePct, 0);
@@ -69,7 +70,7 @@ export function MarketShareDonut({ data, ownBrandName }: Props) {
           <p className="text-xs text-slate-500 mt-0.5">Share of Voice normalizado</p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
-          Últimos 30D
+          {badgeLabel ?? "Últimos 7D"}
         </span>
       </div>
 
