@@ -5,6 +5,7 @@ import { detectBrands } from "@/lib/detection/detectBrands";
 import { extractSourcesFromResponse } from "@/lib/detection/extractSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
+import { analyzeSentimentBatch } from "@/lib/llm/sentimentAnalyzer";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -200,6 +201,35 @@ export const runPromptManual = inngest.createFunction(
 
       if (mentions.length > 0) {
         await supabase.from("mentions").insert(mentions);
+      }
+    });
+
+    // 6.5. Análisis de sentimiento con LLM (refina los scores heurísticos)
+    await step.run("analyze-sentiment-llm", async () => {
+      const brandsForSentiment: string[] = [];
+      if (detection.ownBrandMentioned && detection.detectedBrandName) {
+        brandsForSentiment.push(detection.detectedBrandName);
+      }
+      for (const comp of detection.competitors) {
+        brandsForSentiment.push(comp.name);
+      }
+      if (brandsForSentiment.length === 0) return;
+
+      try {
+        const results = await analyzeSentimentBatch(llmResult.rawResponse, brandsForSentiment);
+        for (const r of results) {
+          await supabase
+            .from("mentions")
+            .update({
+              sentiment_score: r.score,
+              sentiment_confidence: r.confidence,
+              sentiment_source: "llm",
+            })
+            .eq("prompt_run_id", runId)
+            .eq("brand_name_detected", r.brandName);
+        }
+      } catch (err) {
+        console.error("[sentiment-llm] failed, keeping heuristic fallback:", err);
       }
     });
 

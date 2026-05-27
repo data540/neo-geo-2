@@ -122,9 +122,12 @@ function sentimentLabel(score: number | null): { text: string; color: string } {
   return { text: "Mixed", color: "text-amber-500" };
 }
 
-function calcAvgSentiment(mentions: Array<{ sentiment: string | null }>): number | null {
+function calcAvgSentiment(
+  mentions: Array<{ sentiment: string | null; sentiment_score: number | null }>
+): number | null {
   if (mentions.length === 0) return null;
   const sum = mentions.reduce((acc, m) => {
+    if (m.sentiment_score !== null) return acc + m.sentiment_score;
     if (m.sentiment === "positive") return acc + 1;
     if (m.sentiment === "negative") return acc - 1;
     return acc;
@@ -224,7 +227,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const { data: sentimentMentions } = await supabase
     .from("mentions")
-    .select("sentiment, created_at")
+    .select("sentiment, sentiment_score, created_at")
     .eq("workspace_id", workspace.id)
     .eq("brand_type", "own")
     .gte("created_at", prevPeriodStart.toISOString())

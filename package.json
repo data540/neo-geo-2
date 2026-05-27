@@ -20,7 +20,8 @@
     "run-prompts": "tsx scripts/run-all-prompts.ts",
     "kb:index": "tsx scripts/index-knowledge.ts",
     "kb:stats": "tsx scripts/index-knowledge.ts --stats",
-    "backfill:mentions": "tsx scripts/backfill-mention-types.ts"
+    "backfill:mentions": "tsx scripts/backfill-mention-types.ts",
+    "backfill:sentiment": "tsx scripts/backfill-sentiment-llm.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.94.0",
