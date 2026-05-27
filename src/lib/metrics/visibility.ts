@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 
 const PAGE_SIZE = 1000;
-const IN_BATCH_SIZE = 500;
+const IN_BATCH_SIZE = 100;
 
 type CompletedRunRow = {
   id: string;
