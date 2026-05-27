@@ -1,4 +1,5 @@
 import type { LlmProviderKey } from "@/types";
+import { DEFAULT_OPENROUTER_MODELS, resolveConfiguredOpenRouterModel } from "./modelDefaults";
 
 export interface RunPromptInput {
   provider: LlmProviderKey;
@@ -31,19 +32,13 @@ type OpenRouterResponse = {
   };
 };
 
-const DEFAULT_OPENROUTER_MODEL: Record<LlmProviderKey, string> = {
-  chatgpt: "openai/gpt-4o-mini",
-  gemini: "google/gemini-2.0-flash-001",
-  perplexity: "perplexity/sonar",
-};
-
 function getOpenRouterModel(provider: LlmProviderKey): string {
   const envMap: Record<LlmProviderKey, string | undefined> = {
     chatgpt: process.env.OPENROUTER_MODEL_CHATGPT,
     gemini: process.env.OPENROUTER_MODEL_GEMINI,
     perplexity: process.env.OPENROUTER_MODEL_PERPLEXITY,
   };
-  return envMap[provider]?.trim() || DEFAULT_OPENROUTER_MODEL[provider];
+  return envMap[provider]?.trim() || DEFAULT_OPENROUTER_MODELS[provider];
 }
 
 export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput> {
@@ -55,7 +50,11 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
     );
   }
 
-  const model = modelOverride?.trim() || getOpenRouterModel(provider);
+  const model = resolveConfiguredOpenRouterModel(
+    provider,
+    modelOverride,
+    getOpenRouterModel(provider)
+  );
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {

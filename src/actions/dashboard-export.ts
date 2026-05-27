@@ -1,7 +1,7 @@
 "use server";
 
 import * as XLSX from "xlsx";
-import { getWorkspaceVisibilityMetrics } from "@/lib/metrics/visibility";
+import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/types";
 
@@ -49,7 +49,7 @@ export async function exportDashboardAction(
   const { data: provider } = llmKey
     ? await supabase.from("llm_providers").select("id").eq("key", llmKey).single()
     : { data: null };
-  const visibilityMetrics = await getWorkspaceVisibilityMetrics({
+  const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
     country: workspace.country,
     days,
@@ -198,7 +198,7 @@ export async function exportDashboardAction(
 
   // Hoja Daily Metrics
   const dailyRowsByDate = new Map(dailyRows.map((d) => [d.date, d]));
-  const dailySheet = visibilityMetrics.daily.map((d) => {
+  const dailySheet = brandPerformanceMetrics.daily.map((d) => {
     const metric = dailyRowsByDate.get(d.date);
 
     return {
@@ -207,7 +207,8 @@ export async function exportDashboardAction(
       "Queries con marca": d.runsWithOwnBrand,
       "Visibilidad (%)": d.visibilityPct ?? "",
       "SOV medio (%)": metric?.avg_sov ?? "",
-      "Posicion media": metric?.avg_position ?? "",
+      "Posicion media": d.avgPosition ?? "",
+      "Posicion media diaria historica": metric?.avg_position ?? "",
       "Consistencia (%)": metric?.brand_consistency ?? "",
     };
   });

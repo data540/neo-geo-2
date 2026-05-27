@@ -1,6 +1,7 @@
 import { Eye, Smile, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BrandVisibilityTrendChart } from "@/components/dashboard/BrandVisibilityTrendChart";
 import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
 import { ExportDashboardButton } from "@/components/dashboard/ExportDashboardButton";
 import { LlmComparisonTable } from "@/components/dashboard/LlmComparisonTable";
@@ -11,7 +12,10 @@ import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Card, CardContent } from "@/components/ui/card";
-import { getWorkspaceVisibilityMetrics } from "@/lib/metrics/visibility";
+import {
+  getWorkspaceBrandPerformanceMetrics,
+  getWorkspaceBrandVisibilityTrendMetrics,
+} from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type {
   LlmComparisonRow,
@@ -185,33 +189,30 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     .limit(days * 2);
 
   const rows = (allMetricRows ?? []).slice(0, days);
-  const prevRows = (allMetricRows ?? []).slice(days, days * 2);
 
   // ── Current period KPIs ────────────────────────────────────────────────────
-  const avgNum = (arr: (number | null)[]) => {
-    const v = arr.filter((x): x is number => typeof x === "number");
-    return v.length > 0 ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
-  };
-
-  const visibilityMetrics = await getWorkspaceVisibilityMetrics({
+  const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
     country: workspace.country,
     days,
     llmProviderId: provider.id,
   });
+  const brandVisibilityTrendMetrics = await getWorkspaceBrandVisibilityTrendMetrics({
+    workspaceId: workspace.id,
+    country: workspace.country,
+    days,
+    llmProviderId: provider.id,
+    ownBrandName: workspace.brand_name,
+  });
 
-  const mentionsTotal = visibilityMetrics.current.runsWithOwnBrand;
-  const prevMentionsTotal = visibilityMetrics.previous.runsWithOwnBrand;
+  const mentionsTotal = brandPerformanceMetrics.current.runsWithOwnBrand;
+  const prevMentionsTotal = brandPerformanceMetrics.previous.runsWithOwnBrand;
 
-  const visibility = visibilityMetrics.current.visibilityPct;
-  const avgPosition = avgNum(rows.map((r) => r.avg_position));
-  const prevAvgPosition = avgNum(prevRows.map((r) => r.avg_position));
+  const visibility = brandPerformanceMetrics.current.visibilityPct;
+  const avgPosition = brandPerformanceMetrics.current.avgPosition;
 
-  const delta = (curr: number | null, prev: number | null) =>
-    curr !== null && prev !== null ? Math.round((curr - prev) * 10) / 10 : null;
-
-  const visibilityDelta = visibilityMetrics.deltaPct;
-  const avgPositionDelta = delta(avgPosition, prevAvgPosition);
+  const visibilityDelta = brandPerformanceMetrics.visibilityDeltaPct;
+  const avgPositionDelta = brandPerformanceMetrics.avgPositionDelta;
   const mentionsDelta =
     mentionsTotal > 0 || prevMentionsTotal > 0 ? mentionsTotal - prevMentionsTotal : null;
 
@@ -247,23 +248,23 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const sent = sentimentLabel(avgSentiment);
 
   // ── Sparkline series ───────────────────────────────────────────────────────
-  const visibilitySeries = visibilityMetrics.daily.map((r) => r.visibilityPct ?? 0);
-  const mentionsSeries = visibilityMetrics.daily.map((r) => r.runsWithOwnBrand);
-  const avgPositionSeries = [...rows]
-    .reverse()
-    .map((r) => (r.avg_position != null ? Math.max(0, 100 - r.avg_position * 8) : 0));
+  const visibilitySeries = brandPerformanceMetrics.daily.map((r) => r.visibilityPct ?? 0);
+  const mentionsSeries = brandPerformanceMetrics.daily.map((r) => r.runsWithOwnBrand);
+  const avgPositionSeries = brandPerformanceMetrics.daily
+    .map((r) => r.avgPosition)
+    .filter((position): position is number => typeof position === "number");
   // Sentiment series: normalize -1..1 → 0..100
   const sentimentSeries =
     currSentimentMentions.length > 0 ? [Math.round(((avgSentiment ?? 0) + 1) * 50)] : [50];
 
   const metricsByDate = new Map(rows.map((r) => [r.date, r]));
-  const chartData = visibilityMetrics.daily.map((r) => {
+  const chartData = brandPerformanceMetrics.daily.map((r) => {
     const metric = metricsByDate.get(r.date);
     return {
       date: r.date,
       menciones: r.runsWithOwnBrand,
       visibilidad: r.visibilityPct,
-      posicion: metric?.avg_position ?? null,
+      posicion: r.avgPosition,
       consistencia: metric?.brand_consistency ?? null,
     };
   });
@@ -455,6 +456,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 <Delta value={avgPositionDelta} invertColors={true} />
               </div>
               <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Posicion media cuando aparece la marca
+              </p>
               <Sparkline values={avgPositionSeries} strokeColor="#3b82f6" fillColor="#3b82f6" />
             </CardContent>
           </Card>
@@ -527,6 +531,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
             Visibility Trends
           </p>
+          <BrandVisibilityTrendChart data={brandVisibilityTrendMetrics} />
           <TrendChart data={chartData} />
         </div>
 
@@ -537,7 +542,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
               Tendencia diaria ({dailyRangeLabel})
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Visibilidad calculada desde runs completados; SOV medio viene de las metricas diarias.
+              Visibilidad y posicion media calculadas desde runs completados; SOV medio viene de las
+              metricas diarias.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -568,14 +574,14 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {visibilityMetrics.daily.length === 0 ? (
+                {brandPerformanceMetrics.daily.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
                       No hay registros diarios en este rango.
                     </td>
                   </tr>
                 ) : (
-                  visibilityMetrics.daily.map((r) => {
+                  brandPerformanceMetrics.daily.map((r) => {
                     const metric = metricsByDate.get(r.date);
 
                     return (
@@ -598,7 +604,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                           {metric?.avg_sov != null ? `${metric.avg_sov}%` : "-"}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-700">
-                          {metric?.avg_position != null ? `#${metric.avg_position}` : "-"}
+                          {r.avgPosition != null ? `#${r.avgPosition}` : "-"}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-700">
                           {metric?.brand_consistency != null ? `${metric.brand_consistency}%` : "-"}
