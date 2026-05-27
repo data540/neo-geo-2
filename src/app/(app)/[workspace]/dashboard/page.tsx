@@ -11,6 +11,7 @@ import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Card, CardContent } from "@/components/ui/card";
+import { getWorkspaceVisibilityMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type {
   LlmComparisonRow,
@@ -147,16 +148,18 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const supabase = await createClient();
   const days = VALID_RANGES.includes(range) ? Number(range) : 7;
   const rangeLabel = days === 1 ? "Yesterday" : days === 3650 ? "All time" : `Last ${days} days`;
+  const selectedRange = RANGE_OPTIONS.find((r) => r.value === days);
+  const dailyRangeLabel = days === 1 ? "Ayer" : days === 3650 ? "Todos los datos" : `${days} días`;
   const badgeLabel =
     days === 1
       ? "Ayer"
-      : RANGE_OPTIONS.find((r) => r.value === days)?.label
-        ? `Últimos ${RANGE_OPTIONS.find((r) => r.value === days)!.label}`
+      : selectedRange?.label
+        ? `Últimos ${selectedRange.label}`
         : `Últimos ${days}D`;
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, name, slug, brand_name")
+    .select("id, name, slug, brand_name, country")
     .eq("slug", slug)
     .single();
 
@@ -185,23 +188,29 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const prevRows = (allMetricRows ?? []).slice(days, days * 2);
 
   // ── Current period KPIs ────────────────────────────────────────────────────
-  const mentionsTotal = rows.reduce((acc, r) => acc + (r.brand_mentions_count ?? 0), 0);
-  const prevMentionsTotal = prevRows.reduce((acc, r) => acc + (r.brand_mentions_count ?? 0), 0);
-
   const avgNum = (arr: (number | null)[]) => {
     const v = arr.filter((x): x is number => typeof x === "number");
     return v.length > 0 ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
   };
 
-  const visibility = avgNum(rows.map((r) => r.avg_sov));
-  const prevVisibility = avgNum(prevRows.map((r) => r.avg_sov));
+  const visibilityMetrics = await getWorkspaceVisibilityMetrics({
+    workspaceId: workspace.id,
+    country: workspace.country,
+    days,
+    llmProviderId: provider.id,
+  });
+
+  const mentionsTotal = visibilityMetrics.current.runsWithOwnBrand;
+  const prevMentionsTotal = visibilityMetrics.previous.runsWithOwnBrand;
+
+  const visibility = visibilityMetrics.current.visibilityPct;
   const avgPosition = avgNum(rows.map((r) => r.avg_position));
   const prevAvgPosition = avgNum(prevRows.map((r) => r.avg_position));
 
   const delta = (curr: number | null, prev: number | null) =>
     curr !== null && prev !== null ? Math.round((curr - prev) * 10) / 10 : null;
 
-  const visibilityDelta = delta(visibility, prevVisibility);
+  const visibilityDelta = visibilityMetrics.deltaPct;
   const avgPositionDelta = delta(avgPosition, prevAvgPosition);
   const mentionsDelta =
     mentionsTotal > 0 || prevMentionsTotal > 0 ? mentionsTotal - prevMentionsTotal : null;
@@ -238,8 +247,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const sent = sentimentLabel(avgSentiment);
 
   // ── Sparkline series ───────────────────────────────────────────────────────
-  const visibilitySeries = [...rows].reverse().map((r) => r.avg_sov ?? 0);
-  const mentionsSeries = [...rows].reverse().map((r) => r.brand_mentions_count ?? 0);
+  const visibilitySeries = visibilityMetrics.daily.map((r) => r.visibilityPct ?? 0);
+  const mentionsSeries = visibilityMetrics.daily.map((r) => r.runsWithOwnBrand);
   const avgPositionSeries = [...rows]
     .reverse()
     .map((r) => (r.avg_position != null ? Math.max(0, 100 - r.avg_position * 8) : 0));
@@ -247,13 +256,17 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const sentimentSeries =
     currSentimentMentions.length > 0 ? [Math.round(((avgSentiment ?? 0) + 1) * 50)] : [50];
 
-  const chartData = [...rows].reverse().map((r) => ({
-    date: r.date,
-    menciones: r.brand_mentions_count ?? null,
-    visibilidad: r.avg_sov ?? null,
-    posicion: r.avg_position ?? null,
-    consistencia: r.brand_consistency ?? null,
-  }));
+  const metricsByDate = new Map(rows.map((r) => [r.date, r]));
+  const chartData = visibilityMetrics.daily.map((r) => {
+    const metric = metricsByDate.get(r.date);
+    return {
+      date: r.date,
+      menciones: r.runsWithOwnBrand,
+      visibilidad: r.visibilityPct,
+      posicion: metric?.avg_position ?? null,
+      consistencia: metric?.brand_consistency ?? null,
+    };
+  });
 
   // ── Recent runs ────────────────────────────────────────────────────────────
   const { data: recentRuns } = await supabase
@@ -417,6 +430,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 <Delta value={visibilityDelta} suffix="%" />
               </div>
               <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Queries completadas donde aparece la marca
+              </p>
               <Sparkline values={visibilitySeries} strokeColor="#6366f1" fillColor="#6366f1" />
             </CardContent>
           </Card>
@@ -486,7 +502,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
         {/* ── Analytics panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <MarketShareDonut data={marketShare} ownBrandName={workspace.brand_name} badgeLabel={badgeLabel} />
+          <MarketShareDonut
+            data={marketShare}
+            ownBrandName={workspace.brand_name}
+            badgeLabel={badgeLabel}
+          />
           <MentionBreakdownPanel data={breakdown} badgeLabel={badgeLabel} />
         </div>
 
@@ -514,10 +534,10 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
             <h2 className="text-sm font-semibold text-slate-700">
-              Tendencia diaria ({days === 1 ? "Ayer" : days === 3650 ? "Todos los datos" : `${days} días`})
+              Tendencia diaria ({dailyRangeLabel})
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Un registro por día y motor IA en <code>daily_workspace_metrics</code>.
+              Visibilidad calculada desde runs completados; SOV medio viene de las metricas diarias.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -528,16 +548,19 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                     Fecha
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Prompts activos
+                    Queries completadas
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Menciones
+                    Queries con marca
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Posición media
+                    Visibilidad
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Visibilidad (SOV)
+                    SOV medio
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Posicion media
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
                     Brand Consistency
@@ -545,39 +568,44 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.length === 0 ? (
+                {visibilityMetrics.daily.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
+                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
                       No hay registros diarios en este rango.
                     </td>
                   </tr>
                 ) : (
-                  rows.map((r) => (
-                    <tr key={r.date} className="hover:bg-slate-50/60">
-                      <td className="px-4 py-3 text-slate-700">
-                        {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.active_prompts_count ?? 0}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.brand_mentions_count ?? 0}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.avg_position != null ? `#${r.avg_position}` : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.avg_sov != null ? `${r.avg_sov}%` : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.brand_consistency != null ? `${r.brand_consistency}%` : "—"}
-                      </td>
-                    </tr>
-                  ))
+                  visibilityMetrics.daily.map((r) => {
+                    const metric = metricsByDate.get(r.date);
+
+                    return (
+                      <tr key={r.date} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 text-slate-700">
+                          {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">{r.completedRuns}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {r.runsWithOwnBrand}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {r.visibilityPct != null ? `${r.visibilityPct}%` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {metric?.avg_sov != null ? `${metric.avg_sov}%` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {metric?.avg_position != null ? `#${metric.avg_position}` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {metric?.brand_consistency != null ? `${metric.brand_consistency}%` : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

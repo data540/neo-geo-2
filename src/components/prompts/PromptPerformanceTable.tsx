@@ -1,9 +1,18 @@
 ﻿"use client";
 
-import { ArrowDownAZ, ArrowUpAZ, ChevronDown, ChevronRight, Search, Trash2 } from "lucide-react";
+import {
+  ArrowDownAZ,
+  ArrowUpAZ,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Play,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { deletePromptsBulkAction } from "@/actions/prompts";
+import { deletePromptsBulkAction, runPromptsBulkNowAction } from "@/actions/prompts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { PromptPerformanceRow, RunStatus, Sentiment } from "@/types";
@@ -104,6 +113,7 @@ export function PromptPerformanceTable({
   const [columnWidths, setColumnWidths] = useState<Record<ColumnKey, number>>(DEFAULT_WIDTHS);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   function toggleExpand(promptId: string) {
@@ -234,6 +244,27 @@ export function PromptPerformanceTable({
     setSelectedIds(new Set());
   }
 
+  async function handleBulkRun() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+
+    setBulkRunning(true);
+    const result = await runPromptsBulkNowAction(ids, workspaceId);
+    setBulkRunning(false);
+
+    if (!result.success) {
+      toast.error(result.error ?? "No se pudieron ejecutar los prompts seleccionados");
+      return;
+    }
+
+    const prompts = result.data?.prompts ?? ids.length;
+    const runs = result.data?.runs ?? 0;
+    toast.success(
+      `Encolados ${runs} runs para ${prompts} prompt${prompts !== 1 ? "s" : ""} seleccionado${prompts !== 1 ? "s" : ""}`
+    );
+    setSelectedIds(new Set());
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
@@ -246,19 +277,39 @@ export function PromptPerformanceTable({
             className="pl-9 bg-white"
           />
         </div>
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          disabled={selectedIds.size === 0 || bulkDeleting}
-          onClick={handleBulkDelete}
-          className="shrink-0"
-        >
-          <Trash2 className="w-4 h-4 mr-1" />
-          {bulkDeleting
-            ? "Eliminando..."
-            : `Eliminar seleccionados${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={bulkRunning || bulkDeleting}
+              onClick={handleBulkRun}
+              className="shrink-0 bg-indigo-600 hover:bg-indigo-700 text-white"
+            >
+              {bulkRunning ? (
+                <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4 mr-1" />
+              )}
+              {bulkRunning
+                ? "Encolando..."
+                : `Ejecutar seleccionados (${selectedIds.size})`}
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={selectedIds.size === 0 || bulkDeleting || bulkRunning}
+            onClick={handleBulkDelete}
+            className="shrink-0"
+          >
+            <Trash2 className="w-4 h-4 mr-1" />
+            {bulkDeleting
+              ? "Eliminando..."
+              : `Eliminar seleccionados${selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}`}
+          </Button>
+        </div>
       </div>
 
       {selectedIds.size > 0 && (

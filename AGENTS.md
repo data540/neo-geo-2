@@ -11,6 +11,8 @@
 - `README.md` is the default Next.js template and does **not** describe this app; trust `src/`, `supabase/migrations/`, and `package.json` instead.
 - Use `pnpm` (lockfile is `pnpm-lock.yaml`).
 - There is no CI or test suite config in-repo right now; do focused local verification.
+- Local development happens in this repo; GitHub `origin/master` is the production source of truth.
+- Do not edit nested local repo copies such as `neo-geo/`; they are ignored local-only artifacts, not part of the root app.
 
 ## Commands that matter
 - Install deps: `pnpm install`
@@ -20,6 +22,8 @@
 - Auto-fix lint/style: `pnpm lint:fix`
 - Format: `pnpm format`
 - Typecheck (no script exists): `pnpm exec tsc --noEmit`
+- Create a development branch from production: `pnpm workflow:new codex/my-change`
+- Sync the optional read-only production mirror: `pnpm prod:sync`
 
 ## Known script/config quirks
 - `package.json` has `seed` -> `tsx scripts/seed.ts`, but `scripts/` is currently empty.

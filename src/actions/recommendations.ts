@@ -2,6 +2,7 @@
 
 import { generateRecommendations } from "@/lib/geo/generateRecommendations";
 import { buildRetrievalQueries, retrieveRelevantKnowledge } from "@/lib/geo/knowledgeRetrieval";
+import { getWorkspaceVisibilityMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult, GeoRecommendation } from "@/types";
 
@@ -42,10 +43,6 @@ export async function generateRecommendationsAction(
     .order("date", { ascending: false });
 
   const rows = metrics ?? [];
-  const avgSov =
-    rows.length > 0
-      ? Math.round((rows.reduce((a, b) => a + (b.avg_sov ?? 0), 0) / rows.length) * 10) / 10
-      : null;
   const avgPosition =
     rows.length > 0
       ? Math.round((rows.reduce((a, b) => a + (b.avg_position ?? 0), 0) / rows.length) * 10) / 10
@@ -57,6 +54,11 @@ export async function generateRecommendationsAction(
       : null;
   const totalMentions = rows.reduce((a, b) => a + (b.brand_mentions_count ?? 0), 0);
   const latestActivePrompts = rows[0]?.active_prompts_count ?? 0;
+  const visibilityMetrics = await getWorkspaceVisibilityMetrics({
+    workspaceId,
+    country: workspace.country,
+    days: 7,
+  });
 
   const { data: promptMetrics } = await supabase
     .from("daily_prompt_metrics")
@@ -96,7 +98,7 @@ export async function generateRecommendationsAction(
     brandName: workspace.brand_name,
     sector: brandProfile?.positioning ?? "aerolínea",
     country: workspace.country,
-    visibilityPct: avgSov,
+    visibilityPct: visibilityMetrics.current.visibilityPct,
     avgPosition,
     consistencyPct: avgConsistency,
     brandMentionsCount: totalMentions,

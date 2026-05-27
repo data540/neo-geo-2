@@ -29,7 +29,7 @@ export function buildRetrievalQueries(metrics: RetrievalMetricsInput): string[] 
 
   if (metrics.visibilityPct !== null && metrics.visibilityPct < 50) {
     queries.push(
-      `Cómo aumentar Share of Voice en LLMs para marca con visibilidad ${metrics.visibilityPct}% en sector ${sector}`
+      `Como aumentar presencia de marca en queries LLM con visibilidad ${metrics.visibilityPct}% en sector ${sector}`
     );
   }
   if (metrics.consistencyPct !== null && metrics.consistencyPct < 60) {

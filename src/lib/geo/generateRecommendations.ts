@@ -28,7 +28,7 @@ Tu tarea es analizar los datos de rendimiento de una marca en LLMs y generar rec
 Reglas estrictas:
 1. **Cada recomendación debe estar respaldada por al menos una fuente** de la base de conocimiento (campo "sources" con los slugs source_file).
 2. **No inventes tácticas**: si la base de conocimiento no cubre un tema, no des recomendaciones especulativas sobre ese tema.
-3. **Sé específico**: usa los números reales del workspace (SOV, posición, etc.) en las descripciones.
+3. **Sé específico**: usa los números reales del workspace (visibilidad, SOV, posición, etc.) en las descripciones.
 4. **Acciones concretas**: cada actionItem debe ser ejecutable en <2 semanas. Nada de "mejora tu SEO" — di exactamente qué hacer.
 5. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
 
@@ -55,7 +55,7 @@ Sector: ${w.sector}
 País: ${w.country}
 
 ## Métricas actuales (últimos 7 días)
-- Visibilidad (SOV): ${w.visibilityPct !== null ? `${w.visibilityPct}%` : "sin datos"}
+- Visibilidad: ${w.visibilityPct !== null ? `${w.visibilityPct}% de queries con mención de marca` : "sin datos"}
 - Posición media: ${w.avgPosition !== null ? w.avgPosition : "sin datos"}
 - Consistencia: ${w.consistencyPct !== null ? `${w.consistencyPct}%` : "sin datos"}
 - Menciones de marca: ${w.brandMentionsCount}

@@ -273,7 +273,7 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="Raw Share of Voice: % absoluto de menciones sobre el total (own + competidores)."
+                tooltip="SOV operativo del competidor en esta tabla: sus menciones frente al pool analizado del periodo. No es la serie normalizada del donut Market Share."
               />
               <th className="px-4 py-3 text-left text-slate-500 font-medium">
                 <div className="inline-flex items-center gap-1">

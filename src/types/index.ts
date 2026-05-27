@@ -275,7 +275,7 @@ export interface WorkspaceKpis {
 // ── Sidebar KPIs (mini-panel in navigation) ───────────────────────────────────
 
 export interface SidebarKpis {
-  visibility: number | null; // percentage 0-100 (avg_sov)
+  visibility: number | null; // percentage 0-100 of completed queries mentioning own brand
   visibilityDelta: number | null; // percentage points change vs previous 7 days
   avgPosition: number | null; // #X.X, null if no data
   avgPositionDelta: number | null; // absolute change vs previous 7 days

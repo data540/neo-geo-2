@@ -4,6 +4,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
+import { splitPromptLines } from "@/lib/prompts/parsePromptLines";
 import { createClient } from "@/lib/supabase/server";
 import {
   bulkCreatePromptsSchema,
@@ -25,56 +26,6 @@ function getServiceClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
-}
-
-const PROMPT_HEADER_TOKENS = new Set([
-  "prompt",
-  "prompts",
-  "pregunta",
-  "preguntas",
-  "question",
-  "questions",
-  "texto",
-  "text",
-  "contenido",
-  "content",
-  "mensaje",
-  "mensajes",
-  "query",
-  "consulta",
-]);
-
-function normalizeHeaderToken(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/["'`]/g, "");
-}
-
-function isHeaderLikeLine(value: string): boolean {
-  const normalized = normalizeHeaderToken(value);
-  return PROMPT_HEADER_TOKENS.has(normalized);
-}
-
-function splitPromptLines(text: string): string[] {
-  const hasRealLineBreak = /[\r\n\u2028\u2029]/u.test(text);
-  const normalizedText = hasRealLineBreak
-    ? text.replace(/\r\n|\r|\u2028|\u2029/gu, "\n")
-    : text.replace(/\\r\\n|\\n|\\r/g, "\n");
-
-  const lines = normalizedText
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  const firstLine = lines[0];
-  if (typeof firstLine === "string" && isHeaderLikeLine(firstLine)) {
-    return lines.slice(1);
-  }
-
-  return lines;
 }
 
 async function requireManage(workspaceId: string): Promise<boolean> {
@@ -283,7 +234,7 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
 
 export async function createPromptsBulkAction(
   data: unknown
-): Promise<ActionResult<{ created: number; queued: number }>> {
+): Promise<ActionResult<{ created: number; queued: number; warning?: string }>> {
   const parsed = bulkCreatePromptsSchema.safeParse(data);
   if (!parsed.success) {
     return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
@@ -324,6 +275,7 @@ export async function createPromptsBulkAction(
   }
 
   let queued = 0;
+  let warning: string | undefined;
   if (runAfterImport && insertedPrompts && insertedPrompts.length > 0) {
     const service = getServiceClient();
 
@@ -345,34 +297,59 @@ export async function createPromptsBulkAction(
         }))
       );
 
-      const { data: createdRuns } = await service
+      const { data: createdRuns, error: runsError } = await service
         .from("prompt_runs")
         .insert(runRows)
         .select("id, prompt_id");
 
-      queued = createdRuns?.length ?? 0;
-
-      // Disparar un evento multi por cada prompt importado
-      const events = insertedPrompts.map((p) => {
-        const promptRunIds = (createdRuns ?? [])
-          .filter((r) => r.prompt_id === p.id)
-          .map((r) => r.id as string);
-        return {
-          name: "prompt/run.multi" as const,
-          data: { promptId: p.id as string, workspaceId, runIds: promptRunIds },
-        };
-      });
-
-      if (events.length > 0) {
-        await inngest.send(events);
+      if (runsError) {
+        warning =
+          "Los prompts se importaron, pero no se pudieron crear las ejecuciones automáticas.";
       }
+
+      if (!runsError && createdRuns && createdRuns.length > 0) {
+        const events = insertedPrompts
+          .map((p) => {
+            const promptRunIds = createdRuns
+              .filter((r) => r.prompt_id === p.id)
+              .map((r) => r.id as string);
+            return {
+              name: "prompt/run.multi" as const,
+              data: { promptId: p.id as string, workspaceId, runIds: promptRunIds },
+            };
+          })
+          .filter((event) => event.data.runIds.length > 0);
+
+        if (events.length > 0) {
+          try {
+            await inngest.send(events);
+            queued = createdRuns.length;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Error desconocido";
+            warning =
+              "Los prompts se importaron, pero no se pudieron encolar en Inngest. Comprueba que Inngest dev esté arrancado o desactiva la ejecución automática al importar.";
+
+            await service
+              .from("prompt_runs")
+              .delete()
+              .in(
+                "id",
+                createdRuns.map((run) => run.id as string)
+              );
+
+            console.warn(`[createPromptsBulkAction] Inngest enqueue failed: ${message}`);
+          }
+        }
+      }
+    } else {
+      warning = "Los prompts se importaron, pero no hay LLMs habilitados para ejecutarlos.";
     }
   }
 
   const workspaceSlug = await getWorkspaceSlug(workspaceId);
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
 
-  return { success: true, data: { created: normalizedPrompts.length, queued } };
+  return { success: true, data: { created: normalizedPrompts.length, queued, warning } };
 }
 
 export async function runAllPromptsNowAction(
@@ -444,6 +421,101 @@ export async function runAllPromptsNowAction(
   return {
     success: true,
     data: { prompts: activePrompts.length, runs: createdRuns.length },
+  };
+}
+
+export async function runPromptsBulkNowAction(
+  promptIds: string[],
+  workspaceId: string
+): Promise<ActionResult<{ prompts: number; runs: number }>> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) {
+    return { success: false, error: "Sin permisos" };
+  }
+
+  const uniquePromptIds = Array.from(new Set(promptIds.map((id) => id.trim()).filter(Boolean)));
+  if (uniquePromptIds.length === 0) {
+    return { success: false, error: "No hay prompts seleccionados" };
+  }
+
+  const service = getServiceClient();
+
+  const { data: prompts, error: promptsError } = await service
+    .from("prompts")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .in("id", uniquePromptIds);
+
+  if (promptsError || !prompts || prompts.length === 0) {
+    return { success: false, error: "No se encontraron prompts válidos para ejecutar" };
+  }
+
+  const { data: llmConfigs } = await service
+    .from("workspace_llm_config")
+    .select("llm_provider_id")
+    .eq("workspace_id", workspaceId)
+    .eq("enabled", true);
+
+  const providerIds = (llmConfigs ?? []).map((c) => c.llm_provider_id as string);
+  if (providerIds.length === 0) {
+    return { success: false, error: "No hay LLMs habilitados en este workspace" };
+  }
+
+  const runRows = prompts.flatMap((prompt) =>
+    providerIds.map((llmProviderId) => ({
+      workspace_id: workspaceId,
+      prompt_id: prompt.id as string,
+      llm_provider_id: llmProviderId,
+      status: "queued",
+    }))
+  );
+
+  const { data: createdRuns, error: runError } = await service
+    .from("prompt_runs")
+    .insert(runRows)
+    .select("id, prompt_id");
+
+  if (runError || !createdRuns || createdRuns.length === 0) {
+    return { success: false, error: "No se pudieron crear los runs" };
+  }
+
+  const events = prompts
+    .map((prompt) => {
+      const promptRunIds = createdRuns
+        .filter((run) => run.prompt_id === prompt.id)
+        .map((run) => run.id as string);
+      return {
+        name: "prompt/run.multi" as const,
+        data: { promptId: prompt.id as string, workspaceId, runIds: promptRunIds },
+      };
+    })
+    .filter((event) => event.data.runIds.length > 0);
+
+  try {
+    await inngest.send(events);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Error desconocido";
+
+    await service
+      .from("prompt_runs")
+      .delete()
+      .in(
+        "id",
+        createdRuns.map((run) => run.id as string)
+      );
+
+    return {
+      success: false,
+      error: `No se pudieron encolar los prompts en Inngest: ${message}`,
+    };
+  }
+
+  const workspaceSlug = await getWorkspaceSlug(workspaceId);
+  if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
+
+  return {
+    success: true,
+    data: { prompts: prompts.length, runs: createdRuns.length },
   };
 }
 

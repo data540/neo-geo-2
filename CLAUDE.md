@@ -10,12 +10,27 @@ pnpm build        # TypeScript check + production build
 pnpm lint         # Biome linter check
 pnpm lint:fix     # Biome linter with auto-fix
 pnpm format       # Biome formatter
+pnpm workflow:new codex/my-change  # Create a dev branch from origin/master
+pnpm prod:sync    # Sync optional read-only production mirror
 pnpm migrate      # Run SQL migrations via pg against DATABASE_URL
 pnpm seed         # Seed Escuela CES workspace (SEED_USER_EMAIL / SEED_USER_PASSWORD env vars)
 pnpm kb:index     # Re-index content/geo-knowledge/ markdown into knowledge_chunks (pgvector RAG)
 pnpm kb:stats     # Show per-file chunk and token stats from knowledge_chunks
 pnpm backfill:mentions  # Re-clasifica mentions sin mention_type usando classifyMentionType()
 ```
+
+## Development vs production workflow
+
+GitHub `origin/master` is the production source of truth. The local folder `C:\Users\David\VS neo-geo-2` is the development workspace.
+
+Rules for Claude Code:
+- Do not commit directly to `master` unless the user explicitly asks for an emergency hotfix.
+- Create feature branches with `codex/<short-name>` from `origin/master`.
+- Run `pnpm lint`, `pnpm exec tsc --noEmit`, and `pnpm build` before proposing a merge to production.
+- Keep optional local production mirrors read-only and sync them with `pnpm prod:sync`.
+- Do not edit nested repo copies such as `neo-geo/`; they are local-only artifacts ignored by the root repo.
+
+Full workflow: `docs/development-production-workflow.md`.
 
 Para el seed con usuario específico:
 ```bash

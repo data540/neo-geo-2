@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { isHeaderLikeRow, splitPromptLines } from "@/lib/prompts/parsePromptLines";
 
 interface Props {
   workspaceId: string;
@@ -32,43 +33,6 @@ const COUNTRIES = [
   { code: "ES", name: "Espana" },
   { code: "CO", name: "Colombia" },
 ];
-
-const PROMPT_HEADER_TOKENS = new Set([
-  "prompt",
-  "prompts",
-  "pregunta",
-  "preguntas",
-  "question",
-  "questions",
-  "texto",
-  "text",
-  "contenido",
-  "content",
-  "mensaje",
-  "mensajes",
-  "query",
-  "consulta",
-]);
-
-function normalizeHeaderToken(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/["'`]/g, "");
-}
-
-function isHeaderLikeLine(value: string): boolean {
-  const normalized = normalizeHeaderToken(value);
-  return PROMPT_HEADER_TOKENS.has(normalized);
-}
-
-function isHeaderLikeRow(values: string[]): boolean {
-  const meaningful = values.map((value) => value.trim()).filter(Boolean);
-  if (meaningful.length === 0) return false;
-  return meaningful.every((value) => isHeaderLikeLine(value));
-}
 
 function parseCsvLike(text: string): string[] {
   const lines = splitPromptLines(text);
@@ -90,25 +54,6 @@ function parseCsvLike(text: string): string[] {
   return candidates.length > 0 ? candidates : lines;
 }
 
-function splitPromptLines(text: string): string[] {
-  const hasRealLineBreak = /[\r\n\u2028\u2029]/u.test(text);
-  const normalizedText = hasRealLineBreak
-    ? text.replace(/\r\n|\r|\u2028|\u2029/gu, "\n")
-    : text.replace(/\\r\\n|\\n|\\r/g, "\n");
-
-  const lines = normalizedText
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const firstLine = lines[0];
-  if (typeof firstLine === "string" && isHeaderLikeLine(firstLine)) {
-    return lines.slice(1);
-  }
-
-  return lines;
-}
-
 export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -118,7 +63,7 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
   const [runAfterImport, setRunAfterImport] = useState(true);
 
   const previewPrompts = useMemo(() => {
-    const typed = parseCsvLike(plainText);
+    const typed = splitPromptLines(plainText);
     return Array.from(new Set([...parsedFromFile, ...typed].map((p) => p.trim()).filter(Boolean)));
   }, [plainText, parsedFromFile]);
 
@@ -176,18 +121,22 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
       workspaceId,
       country,
       prompts: previewPrompts,
-      rawText: plainText,
       runAfterImport,
     });
 
     if (result.success) {
       const created = result.data?.created ?? 0;
       const queued = result.data?.queued ?? 0;
-      toast.success(
-        runAfterImport
-          ? `Importados ${created} prompts y encolados ${queued} runs`
-          : `Importados ${created} prompts`
-      );
+      const warning = result.data?.warning;
+      if (warning) {
+        toast.warning(warning);
+      } else {
+        toast.success(
+          runAfterImport
+            ? `Importados ${created} prompts y encolados ${queued} runs`
+            : `Importados ${created} prompts`
+        );
+      }
       setOpen(false);
       setPlainText("");
       setParsedFromFile([]);
@@ -248,7 +197,7 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="bulk-text">Texto plano (una linea por prompt o CSV pegado)</Label>
+            <Label htmlFor="bulk-text">Texto plano, una linea por prompt</Label>
             <Textarea
               id="bulk-text"
               rows={8}
