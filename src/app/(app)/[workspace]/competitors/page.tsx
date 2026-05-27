@@ -1,5 +1,4 @@
 import { notFound } from "next/navigation";
-import { detectBrands } from "@/lib/detection/detectBrands";
 import { createClient } from "@/lib/supabase/server";
 import { AddCompetitorForm } from "./AddCompetitorForm";
 import { AnalyzeExecutedPromptsButton } from "./AnalyzeExecutedPromptsButton";
@@ -13,7 +12,7 @@ import type { CompetitorDynamic } from "./MarketDynamicsCards";
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string }>;
+  searchParams: Promise<{ llm?: string; range?: string }>;
 }
 
 interface CompetitorRow {
@@ -29,13 +28,13 @@ interface MentionRow {
   brand_type: "own" | "competitor" | null;
   position: number | null;
   sentiment: "positive" | "neutral" | "negative" | "no_data" | null;
+  mention_type: string | null;
   created_at: string;
 }
 
 interface RunRow {
   id: string;
   prompt_id: string;
-  raw_response: string | null;
   created_at: string;
 }
 
@@ -45,10 +44,20 @@ interface CompetitorPerformanceRow {
   avgPosition: number | null;
   sov: number | null;
   sentiment: "positive" | "neutral" | "negative" | "no_data";
-  consistency: number;
+  sentimentScore: number | null;
+  visibility: number;
   mentions: number;
   promptsCovered: number;
   lastSeenAt: string | null;
+  mentionBreakdown: {
+    primary_recommendation: number;
+    list_option: number;
+    comparison: number;
+    general_mention: number;
+    warning: number;
+  };
+  recScore: number | null;
+  threatLevel: "high" | "medium" | "low";
 }
 
 function round1(value: number): number {
@@ -88,15 +97,32 @@ function getDominantSentiment(
 
 const LLM_OPTIONS = [
   { key: "chatgpt", label: "ChatGPT" },
-  { key: "claude", label: "Claude" },
-  { key: "gemini", label: "Gemini" },
+  { key: "gemini", label: "AI Overviews" },
   { key: "perplexity", label: "Perplexity" },
-  { key: "deepseek", label: "DeepSeek" },
 ] as const;
 
 export default async function CompetitorsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt" } = await searchParams;
+  const { llm = "chatgpt", range = "30" } = await searchParams;
+
+  // ── Cálculo de ventana temporal ────────────────────────────────────────────
+  const isYesterday = range === "yesterday";
+  const todayMidnightUTC = new Date();
+  todayMidnightUTC.setUTCHours(0, 0, 0, 0);
+  const yesterdayMidnightUTC = new Date(todayMidnightUTC);
+  yesterdayMidnightUTC.setUTCDate(yesterdayMidnightUTC.getUTCDate() - 1);
+
+  const PERIOD_DAYS = isYesterday ? 1 : range === "7" ? 7 : range === "90" ? 90 : 30;
+  const BUCKET_DAYS = isYesterday ? 1 : range === "7" ? 1 : range === "90" ? 15 : 5;
+  const TOTAL_BUCKETS = 7;
+  const queryLimit = isYesterday ? 2000 : range === "7" ? 2000 : range === "90" ? 20000 : 6000;
+
+  // Para Yesterday: desde ayer 00:00 UTC hasta hoy 00:00 UTC
+  // Para rangos numéricos: miramos el doble del período para poder comparar
+  const lookbackIso = isYesterday
+    ? yesterdayMidnightUTC.toISOString()
+    : new Date(Date.now() - PERIOD_DAYS * 2 * 24 * 60 * 60 * 1000).toISOString();
+  const ceilingIso: string | null = isYesterday ? todayMidnightUTC.toISOString() : null;
   const supabase = await createClient();
 
   const { data: workspace } = await supabase
@@ -137,87 +163,48 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     .eq("key", llm)
     .single();
 
-  const sixtyDaysAgoIso = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: completedRunsData } = await supabase
+  let runsQuery = supabase
     .from("prompt_runs")
-    .select("id, prompt_id, raw_response, created_at")
+    .select("id, prompt_id, created_at")
     .eq("workspace_id", workspace.id)
     .eq("llm_provider_id", provider?.id ?? "")
     .eq("status", "completed")
-    .gte("created_at", sixtyDaysAgoIso)
+    .gte("created_at", lookbackIso)
     .order("created_at", { ascending: false })
-    .limit(2000);
+    .limit(queryLimit);
+  if (ceilingIso) runsQuery = runsQuery.lt("created_at", ceilingIso);
+  const { data: completedRunsData } = await runsQuery;
 
   const completedRuns = (completedRunsData ?? []) as RunRow[];
   const runIds = completedRuns.map((r) => r.id);
   const runIdToPromptId = new Map(completedRuns.map((r) => [r.id, r.prompt_id]));
 
+  // Nota: .in("prompt_run_id", runIds) falla con "Bad Request" cuando hay
+  // cientos de IDs (URL de ~25KB). En su lugar filtramos por workspace_id + fecha
+  // y luego reducimos client-side al proveedor LLM activo con un Set.
   let mentions: MentionRow[] = [];
   if (runIds.length > 0) {
-    const { data: mentionRows } = await supabase
+    const runIdSet = new Set(runIds);
+    let mentionsQuery = supabase
       .from("mentions")
-      .select("prompt_run_id, brand_id, brand_type, position, sentiment, created_at")
-      .in("prompt_run_id", runIds);
-    mentions = (mentionRows ?? []) as MentionRow[];
-  }
-
-  if (ownBrandData && completedRuns.length > 0 && competitors.length > 0) {
-    const existingMentionKeys = new Set(
-      mentions.map((m) => `${m.prompt_run_id}|${m.brand_type}|${m.brand_id ?? "own"}`)
-    );
-
-    for (const run of completedRuns) {
-      if (!run.raw_response) continue;
-
-      const detection = detectBrands({
-        rawResponse: run.raw_response,
-        ownBrand: {
-          id: ownBrandData.id as string,
-          name: ownBrandData.name as string,
-          aliases: (ownBrandData.aliases as string[] | null) ?? [],
-        },
-        competitors: competitors.map((c) => ({
-          id: c.id,
-          name: c.name,
-          aliases: c.aliases ?? [],
-        })),
-      });
-
-      if (detection.ownBrandMentioned) {
-        const ownKey = `${run.id}|own|${ownBrandData.id}`;
-        if (!existingMentionKeys.has(ownKey)) {
-          mentions.push({
-            prompt_run_id: run.id,
-            brand_id: ownBrandData.id as string,
-            brand_type: "own",
-            position: detection.ownBrandPosition,
-            sentiment: detection.sentiment,
-            created_at: run.created_at,
-          });
-          existingMentionKeys.add(ownKey);
-        }
-      }
-
-      for (const comp of detection.competitors) {
-        const compKey = `${run.id}|competitor|${comp.brandId}`;
-        if (existingMentionKeys.has(compKey)) continue;
-        mentions.push({
-          prompt_run_id: run.id,
-          brand_id: comp.brandId,
-          brand_type: "competitor",
-          position: comp.position,
-          sentiment: comp.sentiment,
-          created_at: run.created_at,
-        });
-        existingMentionKeys.add(compKey);
-      }
-    }
+      .select("prompt_run_id, brand_id, brand_type, position, sentiment, mention_type, created_at")
+      .eq("workspace_id", workspace.id)
+      .gte("created_at", lookbackIso)
+      .limit(15000);
+    if (ceilingIso) mentionsQuery = mentionsQuery.lt("created_at", ceilingIso);
+    const { data: mentionRows } = await mentionsQuery;
+    mentions = ((mentionRows ?? []) as MentionRow[]).filter((m) => runIdSet.has(m.prompt_run_id));
   }
 
   const ownMentions = mentions.filter((m) => m.brand_type === "own").length;
   const competitorMentionsAll = mentions.filter((m) => m.brand_type === "competitor").length;
   const sovPool = ownMentions + competitorMentionsAll;
   const totalRuns = completedRuns.length;
+
+  // Para VISIBILITY: % de prompts únicos cubiertos en este período/LLM
+  const totalUniquePrompts = new Set(completedRuns.map((r) => r.prompt_id)).size;
+  // Para THREAT: SOV de la marca propia (sin normalizar)
+  const ownSovPct = sovPool > 0 ? (ownMentions / sovPool) * 100 : 0;
 
   const competitorPerformance: CompetitorPerformanceRow[] = competitors
     .map((competitor) => {
@@ -238,9 +225,48 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
         positions.length > 0
           ? round1(positions.reduce((a, b) => a + b, 0) / positions.length)
           : null;
-      const consistency = totalRuns > 0 ? round1((runIdsSet.size / totalRuns) * 100) : 0;
+
+      // VISIBILITY: % de prompts únicos donde aparece el competidor
+      const visibility =
+        totalUniquePrompts > 0 ? round1((promptIdsSet.size / totalUniquePrompts) * 100) : 0;
+
       const sov = sovPool > 0 ? round1((cMentions.length / sovPool) * 100) : null;
       const sentiment = getDominantSentiment(cMentions.map((m) => m.sentiment));
+
+      // SENTIMENT SCORE: media de +1/0/−1 (excluyendo no_data)
+      const sentimentedMentions = cMentions.filter((m) => m.sentiment && m.sentiment !== "no_data");
+      const sentimentScore =
+        sentimentedMentions.length > 0
+          ? round1(
+              sentimentedMentions.reduce(
+                (acc, m) =>
+                  acc + (m.sentiment === "positive" ? 1 : m.sentiment === "negative" ? -1 : 0),
+                0
+              ) / sentimentedMentions.length
+            )
+          : null;
+
+      // MENTION BREAKDOWN por tipo
+      const mentionBreakdown = {
+        primary_recommendation: cMentions.filter((m) => m.mention_type === "primary_recommendation")
+          .length,
+        list_option: cMentions.filter((m) => m.mention_type === "list_option").length,
+        comparison: cMentions.filter((m) => m.mention_type === "comparison").length,
+        general_mention: cMentions.filter((m) => m.mention_type === "general_mention").length,
+        warning: cMentions.filter((m) => m.mention_type === "warning").length,
+      };
+
+      // REC. SCORE: % de menciones de tipo primary_recommendation (0-100)
+      const recScore =
+        cMentions.length > 0
+          ? round1((mentionBreakdown.primary_recommendation / cMentions.length) * 100)
+          : null;
+
+      // THREAT LEVEL: relativo al SOV de la marca propia
+      const compSovPct = sovPool > 0 ? (cMentions.length / sovPool) * 100 : 0;
+      const threatLevel: "high" | "medium" | "low" =
+        compSovPct > ownSovPct * 1.2 ? "high" : compSovPct > ownSovPct * 0.4 ? "medium" : "low";
+
       const lastSeenAt =
         cMentions.length > 0
           ? (cMentions
@@ -254,18 +280,22 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
         avgPosition,
         sov,
         sentiment,
-        consistency,
+        sentimentScore,
+        visibility,
         mentions: cMentions.length,
         promptsCovered: promptIdsSet.size,
         lastSeenAt,
+        mentionBreakdown,
+        recScore,
+        threatLevel,
       };
     })
     .sort((a, b) => {
-      if (a.avgPosition === null && b.avgPosition === null) return b.consistency - a.consistency;
+      if (a.avgPosition === null && b.avgPosition === null) return b.visibility - a.visibility;
       if (a.avgPosition === null) return 1;
       if (b.avgPosition === null) return -1;
       if (a.avgPosition !== b.avgPosition) return a.avgPosition - b.avgPosition;
-      return b.consistency - a.consistency;
+      return b.visibility - a.visibility;
     });
 
   // KPIs de la marca propia
@@ -280,12 +310,9 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
       ? round1(ownPositions.reduce((a, b) => a + b, 0) / ownPositions.length)
       : null;
   const ownSov = sovPool > 0 ? round1((ownMentions / sovPool) * 100) : null;
-  const highThreats = competitorPerformance.filter((c) => (c.sov ?? 0) > (ownSov ?? 0)).length;
+  const highThreats = competitorPerformance.filter((c) => c.threatLevel === "high").length;
 
   // === Tendencias temporales: buckets + deltas ===
-  const BUCKET_DAYS = 5;
-  const TOTAL_BUCKETS = 7;
-  const PERIOD_DAYS = 30;
   const nowMs = Date.now();
   const dayMs = 24 * 60 * 60 * 1000;
 
@@ -304,8 +331,8 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
   function bucketIndexForDate(iso: string): number {
     const t = new Date(iso).getTime();
     for (let i = 0; i < buckets.length; i++) {
-      const b = buckets[i]!;
-      if (t >= b.start && t < b.end) return i;
+      const b = buckets[i];
+      if (b && t >= b.start && t < b.end) return i;
     }
     return -1;
   }
@@ -333,7 +360,7 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
   for (const c of competitorPerformance) idToBrandName.set(c.competitorId, c.name);
 
   // Acumular posiciones por bucket × brand
-  const bucketPositions = new Map<string, number[]>(); // key = `${bucketIdx}|${brandId}`
+  const bucketPositions = new Map<string, number[]>();
   // Acumular métricas por ventana × brand (solo competidores)
   type WindowAgg = {
     competitorMentions: number;
@@ -496,25 +523,62 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {LLM_OPTIONS.map((option) => {
-            const isActive = llm === option.key;
-            const href = `/${slug}/competitors?llm=${option.key}`;
-            return (
-              <a
-                key={option.key}
-                href={href}
-                className={[
-                  "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                  isActive
-                    ? "border-blue-200 bg-blue-50 text-blue-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                {option.label}
-              </a>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Filtros LLM */}
+          <div className="flex items-center gap-2">
+            {LLM_OPTIONS.map((option) => {
+              const isActive = llm === option.key;
+              const href = `/${slug}/competitors?llm=${option.key}&range=${range}`;
+              return (
+                <a
+                  key={option.key}
+                  href={href}
+                  className={[
+                    "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    isActive
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  {option.label}
+                </a>
+              );
+            })}
+          </div>
+
+          <div className="w-px h-5 bg-slate-200" />
+
+          {/* Selector de rango de fechas */}
+          <div className="flex items-center gap-1.5">
+            <a
+              href={`/${slug}/competitors?llm=${llm}&range=yesterday`}
+              className={[
+                "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                isYesterday
+                  ? "border-indigo-600 bg-indigo-600 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+              ].join(" ")}
+            >
+              Yesterday
+            </a>
+            {([7, 30, 90] as const).map((d) => {
+              const active = !isYesterday && PERIOD_DAYS === d;
+              return (
+                <a
+                  key={d}
+                  href={`/${slug}/competitors?llm=${llm}&range=${d}`}
+                  className={[
+                    "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                    active
+                      ? "border-indigo-600 bg-indigo-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                  ].join(" ")}
+                >
+                  {d}D
+                </a>
+              );
+            })}
+          </div>
         </div>
 
         <CompetitorKpiCards
@@ -535,7 +599,12 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
           periodDays={PERIOD_DAYS}
         />
 
-        <CompetitorTableSortable rows={competitorPerformance} totalRuns={totalRuns} llm={llm} />
+        <CompetitorTableSortable
+          rows={competitorPerformance}
+          totalRuns={totalRuns}
+          llm={llm}
+          rangeLabel={isYesterday ? "Yesterday" : `últimos ${PERIOD_DAYS} días`}
+        />
 
         <AddCompetitorForm workspaceId={workspace.id} />
 

@@ -6,37 +6,37 @@ import { createClient } from "@/lib/supabase/server";
 import { createCompetitorSchema, updateCompetitorSchema } from "@/lib/validations/schemas";
 import type { ActionResult } from "@/types";
 
-const AIRLINE_NAME_HINTS = [
-  "air",
-  "airlines",
-  "airways",
-  "avianca",
-  "iberia",
-  "latam",
-  "ryanair",
-  "vueling",
-  "wizz",
-  "easyjet",
-  "klm",
-  "lufthansa",
-  "turkish",
-  "aeromexico",
-  "volaris",
-  "copa",
-  "delta",
-  "united",
-  "american",
-  "jetblue",
-  "emirates",
-  "qatar",
-  "etihad",
-  "air europa",
-  "air france",
-  "sky",
-  "flight",
-  "airline",
-  "aeroline",
-];
+// Palabras genéricas que nunca son nombres de marca
+const GENERIC_EXCLUSIONS = new Set([
+  "espana",
+  "colombia",
+  "mexico",
+  "argentina",
+  "chile",
+  "peru",
+  "madrid",
+  "bogota",
+  "barcelona",
+  "medellin",
+  "aeropuerto",
+  "ciudad",
+  "pais",
+  "region",
+  "empresa",
+  "compania",
+  "servicio",
+  "servicios",
+  "producto",
+  "productos",
+  "solucion",
+  "soluciones",
+  "plataforma",
+  "herramienta",
+]);
+
+// Verbos y frases genéricas que no son marcas
+const GENERIC_PHRASE_PATTERN =
+  /(^|\s)(compara|comparar|elige|elegir|busca|buscar|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas|precio|precios|oferta|ofertas|reserva|reservar|descuento)($|\s)/i;
 
 function normalizeName(value: string): string {
   return value
@@ -50,17 +50,11 @@ function normalizeName(value: string): string {
 function shouldKeepCompetitorCandidate(name: string): boolean {
   const normalized = normalizeName(name);
   if (normalized.length < 3) return false;
-  if (
-    /(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(
-      normalized
-    )
-  ) {
-    return false;
-  }
-  if (/^(espana|colombia|madrid|bogota|barcelona|medellin|aeropuerto)$/i.test(normalized)) {
-    return false;
-  }
-  return AIRLINE_NAME_HINTS.some((hint) => normalized.includes(hint));
+  if (GENERIC_EXCLUSIONS.has(normalized)) return false;
+  if (GENERIC_PHRASE_PATTERN.test(normalized)) return false;
+  // Debe tener al menos una letra mayúscula inicial (nombre propio)
+  if (!/^[A-ZÁÉÍÓÚÑ]/.test(name.trim())) return false;
+  return true;
 }
 
 async function requireManage(workspaceId: string): Promise<boolean> {

@@ -284,7 +284,7 @@ export function extractPotentialCompetitorsFromResponse(rawResponse: string): st
     const lower = candidate.toLowerCase();
     if (candidate.length < 3) continue;
     if (GENERIC_NON_BRANDS.has(lower)) continue;
-    if (/^(Top|Ruta|Vuelo|Clase|Programa|Tarifa|Equipaje|Check)$/i.test(candidate)) continue;
+    if (/^(Top|Los|Las|Otros|Otras|Para|Como|Esta|Esto|Este|Esos|Esas)$/i.test(candidate)) continue;
     if (/[0-9]{2,}/.test(candidate)) continue;
     candidates.add(candidate);
   }

@@ -24,7 +24,8 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
-      toast.error("Credenciales incorrectas. Inténtalo de nuevo.");
+      console.error("Login error:", error);
+      toast.error(error.message || "Credenciales incorrectas. Inténtalo de nuevo.");
       setLoading(false);
       return;
     }

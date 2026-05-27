@@ -88,7 +88,6 @@ export function CompetitorRankChart({ data, brandNames, ownBrandName }: Props) {
     return a.localeCompare(b);
   });
 
-  // Calcular max para dominio Y
   let maxPos = 1;
   for (const point of data) {
     for (const brand of brandNames) {
