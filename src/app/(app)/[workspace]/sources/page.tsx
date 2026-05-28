@@ -29,7 +29,7 @@ export default async function SourcesPage({ params, searchParams }: Props) {
 
   if (!workspace) notFound();
 
-  const { data: rows } = await supabase.rpc("get_workspace_source_rankings", {
+  const { data: rawRows } = await supabase.rpc("get_workspace_source_rankings", {
     workspace_slug: slug,
     days,
     llm_key: llm ?? null,
@@ -37,7 +37,23 @@ export default async function SourcesPage({ params, searchParams }: Props) {
     limit_n: 100,
   });
 
-  const rankingRows = (rows ?? []) as SourceRankingRow[];
+  const rankingRows: SourceRankingRow[] = (rawRows ?? []).map(
+    (row: {
+      domain: string;
+      citations_count: number;
+      urls_total: number;
+      pct_of_runs: number;
+      example_prompt_text: string | null;
+      extra_prompt_count: number;
+    }) => ({
+      domain: row.domain,
+      citationsCount: row.citations_count,
+      urlsTotal: row.urls_total,
+      pctOfRuns: row.pct_of_runs,
+      examplePromptText: row.example_prompt_text,
+      extraPromptCount: row.extra_prompt_count,
+    })
+  );
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
