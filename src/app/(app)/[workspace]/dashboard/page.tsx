@@ -29,7 +29,7 @@ import type {
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string; range?: string }>;
+  searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
 }
 
 // ── Sparkline with filled area ─────────────────────────────────────────────────
@@ -155,7 +155,7 @@ const VALID_RANGES = RANGE_OPTIONS.map((r) => String(r.value));
 
 export default async function DashboardPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", range = "7" } = await searchParams;
+  const { llm = "chatgpt", range = "7", country } = await searchParams;
 
   const supabase = await createClient();
   const days = VALID_RANGES.includes(range) ? Number(range) : 7;
@@ -201,13 +201,13 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   // ── Current period KPIs ────────────────────────────────────────────────────
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
-    country: workspace.country,
+    country: country ?? null,
     days,
     llmProviderId: provider.id,
   });
   const brandVisibilityTrendMetrics = await getWorkspaceBrandVisibilityTrendMetrics({
     workspaceId: workspace.id,
-    country: workspace.country,
+    country: country ?? null,
     days,
     llmProviderId: provider.id,
     ownBrandName: workspace.brand_name,
@@ -232,13 +232,41 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const prevPeriodStart = new Date(periodStart);
   prevPeriodStart.setDate(prevPeriodStart.getDate() - days);
 
-  const { data: sentimentMentions } = await supabase
+  // Filtro de país para sentiment: obtener prompt_ids del país seleccionado
+  let sentimentPromptIds: string[] | null = null;
+  if (country) {
+    const { data: countryPrompts } = await supabase
+      .from("prompts")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("country", country);
+    sentimentPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
+  }
+
+  let sentimentQuery = supabase
     .from("mentions")
-    .select("sentiment, sentiment_score, created_at")
+    .select("sentiment, sentiment_score, created_at, prompt_run_id")
     .eq("workspace_id", workspace.id)
     .eq("brand_type", "own")
     .gte("created_at", prevPeriodStart.toISOString())
     .order("created_at", { ascending: false });
+
+  const { data: sentimentMentionsRaw } = await sentimentQuery;
+
+  // Filtrar client-side por país si aplica (via prompt_run → prompt_id lookup)
+  let sentimentRunIds: Set<string> | null = null;
+  if (sentimentPromptIds !== null) {
+    const { data: filteredRuns } = await supabase
+      .from("prompt_runs")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .in("prompt_id", sentimentPromptIds.length > 0 ? sentimentPromptIds : ["__none__"]);
+    sentimentRunIds = new Set((filteredRuns ?? []).map((r) => r.id as string));
+  }
+
+  const { data: sentimentMentions } = { data: sentimentRunIds
+    ? (sentimentMentionsRaw ?? []).filter((m) => sentimentRunIds!.has((m as { prompt_run_id: string }).prompt_run_id))
+    : sentimentMentionsRaw };
 
   const allSentimentMentions = sentimentMentions ?? [];
   const currSentimentMentions = allSentimentMentions.filter(
@@ -319,21 +347,23 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   };
 
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
-    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llm }),
-    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llm }),
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: slug,
       days,
       limit_n: 5,
       llm_key: llm,
+      p_country_filter: country ?? null,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: slug,
       days,
       limit_n: 5,
       llm_key: llm,
+      p_country_filter: country ?? null,
     }),
-    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days }),
+    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: country ?? null }),
   ]);
 
   const marketShare: MarketShareEntry[] = ((marketShareRes.data ?? []) as MarketShareRow[]).map(

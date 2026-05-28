@@ -12,6 +12,7 @@ type OwnMentionRow = {
   id: string;
   prompt_run_id: string | null;
   position: number | null;
+  position_source: string | null;
 };
 
 type BrandMentionRow = {
@@ -373,9 +374,22 @@ async function fetchCompletedRuns(params: {
   llmProviderId?: string | null;
   sinceIso?: string | null;
   untilIso?: string | null;
+  country?: string | null;
 }): Promise<CompletedRunRow[]> {
   const supabase = await createClient();
   const rows: CompletedRunRow[] = [];
+
+  // Filtro de país: obtener prompt_ids del país indicado
+  let countryPromptIds: string[] | null = null;
+  if (params.country) {
+    const { data: countryPrompts } = await supabase
+      .from("prompts")
+      .select("id")
+      .eq("workspace_id", params.workspaceId)
+      .eq("country", params.country);
+    countryPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
+    if (countryPromptIds.length === 0) return [];
+  }
 
   for (let offset = 0; ; offset += PAGE_SIZE) {
     let query = supabase
@@ -397,6 +411,10 @@ async function fetchCompletedRuns(params: {
 
     if (params.llmProviderId) {
       query = query.eq("llm_provider_id", params.llmProviderId);
+    }
+
+    if (countryPromptIds) {
+      query = query.in("prompt_id", countryPromptIds);
     }
 
     const { data, error } = await query;
@@ -483,10 +501,9 @@ async function fetchOwnMentionRunIds(params: {
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const { data, error } = await supabase
         .from("mentions")
-        .select("id, prompt_run_id, position")
+        .select("id, prompt_run_id, position, position_source")
         .eq("workspace_id", params.workspaceId)
         .eq("brand_type", "own")
-        .not("position", "is", null)
         .in("prompt_run_id", batch)
         .order("id", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
@@ -496,9 +513,19 @@ async function fetchOwnMentionRunIds(params: {
       const page = (data ?? []) as OwnMentionRow[];
       for (const row of page) {
         if (!row.prompt_run_id) continue;
-        ownMentionRunIds.add(row.prompt_run_id);
+        ownMentionRunIds.add(row.prompt_run_id); // visibilidad % cuenta cualquier mención
 
-        if (typeof row.position === "number" && Number.isFinite(row.position)) {
+        // AVG POSITION solo cuenta posiciones de listas reales o LLM — no orden textual
+        const isRankedPosition =
+          row.position_source === "numbered_list" ||
+          row.position_source === "bullet_list" ||
+          row.position_source === "llm";
+
+        if (
+          isRankedPosition &&
+          typeof row.position === "number" &&
+          Number.isFinite(row.position)
+        ) {
           const current = bestPositions.get(row.prompt_run_id);
           if (current === undefined || row.position < current) {
             bestPositions.set(row.prompt_run_id, row.position);
@@ -529,6 +556,7 @@ export async function getWorkspaceBrandPerformanceMetrics(params: {
     llmProviderId: params.llmProviderId,
     sinceIso: previousStart.toISOString(),
     untilIso: now.toISOString(),
+    country: params.country ?? null,
   });
 
   const ownMentions = await fetchOwnMentionRunIds({
@@ -593,6 +621,7 @@ export async function getWorkspaceBrandVisibilityTrendMetrics(params: {
     llmProviderId: params.llmProviderId,
     sinceIso: paddedSince ? dateFromKey(paddedSince).toISOString() : null,
     untilIso: new Date().toISOString(),
+    country: params.country ?? null,
   });
 
   const runDateKeys = runs

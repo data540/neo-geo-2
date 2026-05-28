@@ -12,7 +12,7 @@ import type { CompetitorDynamic } from "./MarketDynamicsCards";
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string; range?: string }>;
+  searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
 }
 
 interface CompetitorRow {
@@ -103,7 +103,7 @@ const LLM_OPTIONS = [
 
 export default async function CompetitorsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", range = "30" } = await searchParams;
+  const { llm = "chatgpt", range = "30", country } = await searchParams;
 
   // ── Cálculo de ventana temporal ────────────────────────────────────────────
   const isYesterday = range === "yesterday";
@@ -163,6 +163,17 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     .eq("key", llm)
     .single();
 
+  // Filtro de país: obtener prompt_ids del país seleccionado
+  let countryPromptIds: string[] | null = null;
+  if (country) {
+    const { data: countryPrompts } = await supabase
+      .from("prompts")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("country", country);
+    countryPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
+  }
+
   let runsQuery = supabase
     .from("prompt_runs")
     .select("id, prompt_id, created_at")
@@ -173,6 +184,9 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     .order("created_at", { ascending: false })
     .limit(queryLimit);
   if (ceilingIso) runsQuery = runsQuery.lt("created_at", ceilingIso);
+  if (countryPromptIds !== null) {
+    runsQuery = runsQuery.in("prompt_id", countryPromptIds.length > 0 ? countryPromptIds : ["__none__"]);
+  }
   const { data: completedRunsData } = await runsQuery;
 
   const completedRuns = (completedRunsData ?? []) as RunRow[];
