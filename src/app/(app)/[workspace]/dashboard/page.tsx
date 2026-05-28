@@ -218,6 +218,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const visibility = brandPerformanceMetrics.current.visibilityPct;
   const avgPosition = brandPerformanceMetrics.current.avgPosition;
+  const minPosition = brandPerformanceMetrics.current.minPosition;
+  const maxPosition = brandPerformanceMetrics.current.maxPosition;
 
   const visibilityDelta = brandPerformanceMetrics.visibilityDeltaPct;
   const avgPositionDelta = brandPerformanceMetrics.avgPositionDelta;
@@ -463,9 +465,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 </p>
                 <Delta value={avgPositionDelta} invertColors={true} />
               </div>
-              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
-              <p className="text-[11px] text-slate-400 mt-1">
-                Posicion media cuando aparece la marca
+              <p className="text-xs text-slate-400 mt-1">
+                {rangeLabel}
+                {minPosition !== null && maxPosition !== null && minPosition !== maxPosition && (
+                  <span className="ml-1">· #{minPosition}–#{maxPosition}</span>
+                )}
               </p>
               <Sparkline values={avgPositionSeries} strokeColor="#3b82f6" fillColor="#3b82f6" />
             </CardContent>

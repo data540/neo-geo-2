@@ -36,6 +36,8 @@ export type VisibilityPeriodMetrics = {
 
 export type BrandPerformancePeriodMetrics = VisibilityPeriodMetrics & {
   avgPosition: number | null;
+  minPosition: number | null;
+  maxPosition: number | null;
 };
 
 export type DailyVisibilityMetric = VisibilityPeriodMetrics & {
@@ -300,6 +302,8 @@ function summarizeRuns(
       positions.length > 0
         ? round1(positions.reduce((sum, position) => sum + position, 0) / positions.length)
         : null,
+    minPosition: positions.length > 0 ? Math.min(...positions) : null,
+    maxPosition: positions.length > 0 ? Math.max(...positions) : null,
   };
 }
 
@@ -358,6 +362,8 @@ function buildDailyMetrics(
               row.positions.reduce((sum, position) => sum + position, 0) / row.positions.length
             )
           : null,
+      minPosition: row.positions.length > 0 ? Math.min(...row.positions) : null,
+      maxPosition: row.positions.length > 0 ? Math.max(...row.positions) : null,
     };
   });
 }
@@ -480,6 +486,7 @@ async function fetchOwnMentionRunIds(params: {
         .select("id, prompt_run_id, position")
         .eq("workspace_id", params.workspaceId)
         .eq("brand_type", "own")
+        .not("position", "is", null)
         .in("prompt_run_id", batch)
         .order("id", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
