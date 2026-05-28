@@ -1,0 +1,41 @@
+-- 0027: Añade p_country_filter a get_workspace_kpis para que el filtro de país
+-- se propague correctamente a get_workspace_prompt_performance.
+
+create or replace function get_workspace_kpis(
+  p_workspace_slug text,
+  p_llm_key text default 'chatgpt',
+  p_country_filter text default null
+)
+returns table (
+  active_prompts_count bigint,
+  brand_mentions_count bigint,
+  avg_position numeric,
+  brand_consistency numeric,
+  avg_sov numeric
+)
+language sql
+security definer
+stable
+as $$
+  with performance as (
+    select *
+    from get_workspace_prompt_performance(p_workspace_slug, p_llm_key, p_country_filter)
+    where prompt_status = 'active'
+  )
+  select
+    count(*)::bigint as active_prompts_count,
+    count(*) filter (where brand_mentioned)::bigint as brand_mentions_count,
+    round(
+      avg(brand_position) filter (where brand_mentioned = true and brand_position is not null),
+      1
+    ) as avg_position,
+    round(
+      (
+        (count(*) filter (where consistency_score >= 70))::numeric
+        / nullif(count(*), 0)::numeric
+      ) * 100,
+      1
+    ) as brand_consistency,
+    round(avg(sov) filter (where sov is not null), 1) as avg_sov
+  from performance;
+$$;
