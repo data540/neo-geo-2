@@ -1,5 +1,5 @@
-import OpenAI from "openai";
 import { z } from "zod";
+import { createEmbeddings } from "@/lib/llm/embeddings";
 import type { GeoResearchInput, PromptCandidate, RetrievedChunk } from "@/types";
 import { PROMPT_GENERATOR_TEMPLATE } from "./masterPrompts";
 import { formatKnowledgeBlock } from "./promptResearchSkill";
@@ -155,19 +155,11 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 async function deduplicateByEmbedding(candidates: PromptCandidate[]): Promise<PromptCandidate[]> {
-  const apiKey = process.env.OPENAI_API_KEY_EMBEDDINGS || process.env.OPENAI_API_KEY;
-  if (!apiKey || candidates.length === 0) return candidates;
-
-  const client = new OpenAI({ apiKey });
+  if (candidates.length === 0) return candidates;
   const texts = candidates.map((c) => c.prompt);
 
   try {
-    const response = await client.embeddings.create({
-      model: "text-embedding-3-small",
-      input: texts,
-      dimensions: 1536,
-    });
-    const embeddings = response.data.map((d) => d.embedding);
+    const embeddings = await createEmbeddings(texts);
 
     const kept: PromptCandidate[] = [];
     const keptEmbeddings: number[][] = [];

@@ -6,16 +6,14 @@ import dotenv from "dotenv";
 import matter from "gray-matter";
 import type { Heading, Root, RootContent } from "mdast";
 import { toString as mdastToString } from "mdast-util-to-string";
-import OpenAI from "openai";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
+import { createEmbeddings } from "../src/lib/llm/embeddings";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config({ path: ".env" });
 
 const KB_DIR = path.join(process.cwd(), "content/geo-knowledge");
-const EMBEDDING_MODEL = "text-embedding-3-small";
-const EMBEDDING_DIMS = 1536;
 const EMBEDDING_PRICE_PER_M_TOKENS = 0.02;
 const MIN_CHUNK_CHARS = 100;
 const MAX_CHUNK_CHARS = 6000;
@@ -147,13 +145,8 @@ function extractH1(ast: Root): string | null {
   return null;
 }
 
-async function embedBatch(openai: OpenAI, texts: string[]): Promise<number[][]> {
-  const response = await openai.embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: texts,
-    dimensions: EMBEDDING_DIMS,
-  });
-  return response.data.map((d) => d.embedding);
+async function embedBatch(texts: string[]): Promise<number[][]> {
+  return createEmbeddings(texts);
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: service client type varies across callers
@@ -229,12 +222,14 @@ async function main() {
     return;
   }
 
-  const apiKey = process.env.OPENAI_API_KEY_EMBEDDINGS ?? process.env.OPENAI_API_KEY;
+  const apiKey =
+    process.env.OPENROUTER_API_KEY ??
+    process.env.OPENAI_API_KEY_EMBEDDINGS ??
+    process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.error("Faltan OPENAI_API_KEY_EMBEDDINGS u OPENAI_API_KEY");
+    console.error("Faltan OPENROUTER_API_KEY, OPENAI_API_KEY_EMBEDDINGS u OPENAI_API_KEY");
     process.exit(1);
   }
-  const openai = new OpenAI({ apiKey });
 
   if (!fs.existsSync(KB_DIR)) {
     console.error(`No existe la carpeta ${KB_DIR}`);
@@ -322,7 +317,7 @@ async function main() {
     process.stdout.write(
       `  Embedding batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(toUpsert.length / BATCH_SIZE)} (${uniqueBatch.length} chunks)... `
     );
-    const embeddings = await embedBatch(openai, texts);
+    const embeddings = await embedBatch(texts);
     const rows = uniqueBatch.map((chunk, idx) => ({
       ...chunk,
       embedding: embeddings[idx],

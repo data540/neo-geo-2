@@ -46,7 +46,7 @@
 - Copy `.env.local.example` to `.env.local` for required keys.
 - **All LLM calls are routed through OpenRouter — no mocks.** `src/lib/llm/runner.ts` and every GEO module (`generatePromptCandidates`, `normalizeCandidates`, `auditPromptCoverage`, `prioritizePrompts`, `generateRecommendations`, `generateWorkspacePrompts`) throw a hard error if `OPENROUTER_API_KEY` is missing. The previous `src/lib/llm/mock.ts` was deleted on purpose. Never reintroduce mock fallbacks: prompt-run flows must fail visibly when keys are missing rather than silently returning fake data.
 - Provider mapping: `LlmProviderKey` (`chatgpt`, `claude`, `gemini`, `perplexity`, `deepseek`) → OpenRouter model defaults in `runner.ts` (override with `OPENROUTER_MODEL_*` env vars or `workspace_llm_config.model`). The legacy `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `PERPLEXITY_API_KEY` env vars are **not used anymore**.
-- Embeddings (RAG, dedup) are the only exception: they call OpenAI directly via `OPENAI_API_KEY_EMBEDDINGS` (falls back to `OPENAI_API_KEY`).
+- Embeddings (RAG, dedup) also go through OpenRouter first via `OPENROUTER_API_KEY` and `OPENROUTER_EMBEDDING_MODEL` (default `openai/text-embedding-3-small`). Only if OpenRouter is unavailable/fails do they fall back to OpenAI via `OPENAI_API_KEY_EMBEDDINGS` or `OPENAI_API_KEY`.
 - Inngest signing/event keys are read from env in `src/inngest/client.ts` and `src/app/api/inngest/route.ts`.
 
 ## Safe verification flow for changes

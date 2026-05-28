@@ -89,7 +89,7 @@ Todas las tablas tienen RLS activo. Las funciones helper `is_workspace_member(uu
 
 - [src/lib/llm/runner.ts](src/lib/llm/runner.ts): único entry point para ejecuciones de prompts. Mapea cada `LlmProviderKey` a un modelo OpenRouter via `DEFAULT_OPENROUTER_MODEL`. Override por env (`OPENROUTER_MODEL_*`) o por workspace (`workspace_llm_config.model`).
 - Pipeline GEO ([src/lib/geo/](src/lib/geo/)): `generatePromptCandidates`, `normalizeCandidates`, `auditPromptCoverage`, `prioritizePrompts`, `generateRecommendations` y `generateWorkspacePrompts` **lanzan error** si falta `OPENROUTER_API_KEY`. Ninguno tiene fallback heurístico.
-- Embeddings (`text-embedding-3-small`) son la única excepción: usan OpenAI directo (`OPENAI_API_KEY_EMBEDDINGS` o `OPENAI_API_KEY` como fallback).
+- Embeddings: intentan primero OpenRouter (`OPENROUTER_API_KEY`, modelo `OPENROUTER_EMBEDDING_MODEL` o `openai/text-embedding-3-small` por defecto). OpenAI directo (`OPENAI_API_KEY_EMBEDDINGS` o `OPENAI_API_KEY`) queda solo como fallback final.
 - Las claves individuales `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY` **ya no se usan** — todo va por OpenRouter.
 
 > ⚠️ **No reintroducir mocks bajo ningún concepto.** Si una API key falta, el código debe fallar visible — no devolver datos simulados. El archivo `src/lib/llm/mock.ts` fue eliminado intencionadamente.
@@ -108,11 +108,11 @@ Export Excel multi-hoja vía `ExportDashboardButton` → `exportDashboardAction`
 
 ### Knowledge base RAG (Recomendaciones GEO)
 La feature `/[workspace]/recommendations` usa RAG sobre la knowledge base experta en `content/geo-knowledge/` (vault Obsidian, 155+ notas .md):
-1. **Ingesta** (`pnpm kb:index`): parsea cada `.md`, trocea por headings H2/H3, genera embeddings con `text-embedding-3-small` (1536 dims) y upsertea en `knowledge_chunks` (pgvector). Idempotente: solo procesa lo que cambia (hash sha256 por chunk).
+1. **Ingesta** (`pnpm kb:index`): parsea cada `.md`, trocea por headings H2/H3, genera embeddings vía OpenRouter con `openai/text-embedding-3-small` por defecto (1536 dims) y upsertea en `knowledge_chunks` (pgvector). Idempotente: solo procesa lo que cambia (hash sha256 por chunk).
 2. **Retrieval** (`src/lib/geo/knowledgeRetrieval.ts`): a partir de las métricas débiles del workspace construye 1-4 queries en lenguaje natural, las embebe y llama a la RPC `match_knowledge_chunks` (cosine similarity, ivfflat). Top 10 chunks dedup.
 3. **Generación**: `generateRecommendations()` pasa los chunks completos a Claude 3.5 Haiku vía OpenRouter y pide citar `source_file` por recomendación. La UI muestra las fuentes como badges.
 
-Variables: `OPENAI_API_KEY_EMBEDDINGS` (o `OPENAI_API_KEY` como fallback) para indexar y embeber queries.
+Variables: `OPENROUTER_API_KEY` para indexar y embeber queries vía OpenRouter. Fallback final: `OPENAI_API_KEY_EMBEDDINGS` o `OPENAI_API_KEY`.
 
 ### Server Actions
 Todas en `src/actions/`. Patrón obligatorio:
@@ -148,7 +148,8 @@ OPENROUTER_APP_NAME          # Opcional — X-Title para OpenRouter analytics
 OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4o-mini
 OPENROUTER_MODEL_GEMINI      # Opcional — override del default google/gemini-2.0-flash-001
 OPENROUTER_MODEL_PERPLEXITY  # Opcional — override del default perplexity/sonar
-OPENAI_API_KEY_EMBEDDINGS    # OBLIGATORIA para embeddings RAG (text-embedding-3-small)
+OPENROUTER_EMBEDDING_MODEL   # Opcional — default openai/text-embedding-3-small
+OPENAI_API_KEY_EMBEDDINGS    # Fallback final para embeddings si falla/no está OpenRouter
 OPENAI_API_KEY               # Fallback de OPENAI_API_KEY_EMBEDDINGS si no está configurada
 ```
 
