@@ -176,6 +176,13 @@ export type MentionType =
 
 export type SentimentSource = "heuristic" | "llm" | "manual";
 
+export type PositionSource =
+  | "numbered_list"
+  | "bullet_list"
+  | "appearance_order"
+  | "llm"
+  | "manual";
+
 export interface Mention {
   id: string;
   workspace_id: string;
@@ -184,6 +191,7 @@ export interface Mention {
   brand_name_detected: string | null;
   brand_type: BrandType | null;
   position: number | null;
+  position_source: PositionSource | null;
   sentiment: Sentiment | null;
   sentiment_score: number | null;
   sentiment_confidence: number | null;
