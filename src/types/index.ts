@@ -330,6 +330,36 @@ export interface SourceRankingEntry {
   pctOfRuns: number;
 }
 
+export interface SourceRankingRow {
+  domain: string;
+  citationsCount: number;
+  urlsTotal: number;
+  pctOfRuns: number;
+  examplePromptText: string | null;
+  extraPromptCount: number;
+}
+
+export interface SourceDetailCitedUrl {
+  url: string;
+  title: string | null;
+  mentionCount: number;
+  ownBrandPresent: boolean;
+  competitorCount: number;
+  llmKeys: string[];
+  usedInPrompts: string[];
+}
+
+export interface SourceDetail {
+  brandPresence: {
+    urlsWithOwnBrand: number;
+    totalUrls: number;
+    pct: number;
+  };
+  topCompetitors: Array<{ brandId: string; name: string; count: number }>;
+  citedByLlms: Array<{ key: string; name: string }>;
+  citedUrls: SourceDetailCitedUrl[];
+}
+
 export interface LlmComparisonRow {
   llmKey: LlmProviderKey;
   llmName: string;
