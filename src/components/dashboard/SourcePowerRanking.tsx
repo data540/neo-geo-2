@@ -3,6 +3,7 @@ import type { SourceRankingEntry } from "@/types";
 
 interface Props {
   data: SourceRankingEntry[];
+  badgeLabel?: string;
 }
 
 function rootDomain(domain: string): string {
@@ -14,16 +15,23 @@ function rootDomain(domain: string): string {
   );
 }
 
-export function SourcePowerRanking({ data }: Props) {
+export function SourcePowerRanking({ data, badgeLabel = "Últimos 30D" }: Props) {
   if (data.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-5">
-        <div className="mb-3">
-          <h3 className="text-sm font-semibold text-slate-900">Source Power Ranking</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Dominios citados como fuente</p>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Source Power Ranking</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Dominios citados como fuente · todos los LLMs
+            </p>
+          </div>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
+            {badgeLabel}
+          </span>
         </div>
         <p className="text-center text-xs text-slate-400 py-12">
-          Sin fuentes citadas todavía. Los LLMs con búsqueda web (Perplexity, AI Overview) reportan
+          Sin fuentes citadas todavía. Los LLMs con búsqueda web (Perplexity, AI Overviews) reportan
           dominios.
         </p>
       </div>
@@ -37,10 +45,12 @@ export function SourcePowerRanking({ data }: Props) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">Source Power Ranking</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Dominios citados como fuente</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Dominios citados como fuente · todos los LLMs
+          </p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
-          Últimos 30D
+          {badgeLabel}
         </span>
       </div>
 

@@ -360,7 +360,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
       workspace_slug: slug,
       days,
       limit_n: 5,
-      llm_key: llm,
+      llm_key: null,
       p_country_filter: country ?? null,
     }),
     supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: country ?? null }),
@@ -563,7 +563,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <TopCompetitorsPanel data={topCompetitors} />
-          <SourcePowerRanking data={topSources} />
+          <SourcePowerRanking data={topSources} badgeLabel={badgeLabel} />
         </div>
 
         <LlmComparisonTable
