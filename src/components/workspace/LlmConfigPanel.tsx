@@ -9,19 +9,16 @@ import {
   upsertLlmConfigAction,
 } from "@/actions/llm-config";
 import { Button } from "@/components/ui/button";
+import {
+  DEFAULT_OPENROUTER_MODELS,
+  resolveConfiguredOpenRouterModel,
+} from "@/lib/llm/modelDefaults";
 import type { LlmProviderKey, WorkspaceMemberRole } from "@/types";
 
 const PROVIDER_LABELS: Record<LlmProviderKey, string> = {
   chatgpt: "ChatGPT",
   gemini: "AI Overviews",
   perplexity: "Perplexity",
-};
-
-// Default models shown before OpenRouter loads
-const DEFAULT_MODELS: Record<LlmProviderKey, string> = {
-  chatgpt: "openai/gpt-4o-mini",
-  gemini: "google/gemini-2.0-flash-001",
-  perplexity: "perplexity/sonar",
 };
 
 interface ProviderConfig {
@@ -54,26 +51,29 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
     Object.fromEntries(configs.map((c) => [c.providerId, c.promptsPerDay]))
   );
   const [models, setModels] = useState<Record<string, string>>(() =>
-    Object.fromEntries(configs.map((c) => [c.providerId, c.model ?? DEFAULT_MODELS[c.providerKey]]))
+    Object.fromEntries(
+      configs.map((c) => [c.providerId, resolveConfiguredOpenRouterModel(c.providerKey, c.model)])
+    )
   );
   // OpenRouter model lists per provider key
   const [modelLists, setModelLists] = useState<Record<string, OpenRouterModel[]>>({});
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
 
-  // Load models for all enabled providers on mount
+  // Load models for all enabled providers on mount.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: configs are server-rendered for this settings view.
   useEffect(() => {
     for (const config of configs) {
       loadModelsForProvider(config.providerId, config.providerKey);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadModelsForProvider(providerId: string, providerKey: LlmProviderKey) {
     if (modelLists[providerId]) return; // already loaded
     setLoadingModels((prev) => ({ ...prev, [providerId]: true }));
     const result = await getOpenRouterModelsAction(providerKey);
-    if (result.success && result.data) {
-      setModelLists((prev) => ({ ...prev, [providerId]: result.data! }));
+    const providerModels = result.success ? result.data : null;
+    if (providerModels) {
+      setModelLists((prev) => ({ ...prev, [providerId]: providerModels }));
     }
     setLoadingModels((prev) => ({ ...prev, [providerId]: false }));
   }
@@ -95,7 +95,7 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
         configs: configs.map((c) => ({
           llmProviderId: c.providerId,
           promptsPerDay: values[c.providerId] ?? 0,
-          model: models[c.providerId] ?? DEFAULT_MODELS[c.providerKey],
+          model: resolveConfiguredOpenRouterModel(c.providerKey, models[c.providerId]),
         })),
       });
       if (result.success) {
@@ -132,7 +132,8 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
       <div className="space-y-8">
         {configs.map((config) => {
           const current = values[config.providerId] ?? 0;
-          const selectedModel = models[config.providerId] ?? DEFAULT_MODELS[config.providerKey];
+          const selectedModel =
+            models[config.providerId] ?? DEFAULT_OPENROUTER_MODELS[config.providerKey];
           const list = modelLists[config.providerId] ?? [];
           const isLoadingList = loadingModels[config.providerId] ?? false;
           const selectedModelData = list.find((m) => m.id === selectedModel);

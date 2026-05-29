@@ -50,5 +50,11 @@ content/**/.trash/
 
 # local agent / dev artifacts
 .claude/
+.vscode/
 .dev.log
+.inngest.log
 supabase/.temp/
+
+# local-only repo copies
+/neo-geo/
+/neo-geo-2-prod/

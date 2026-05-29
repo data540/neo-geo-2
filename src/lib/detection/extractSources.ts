@@ -4,7 +4,7 @@ export interface ExtractedSource {
   title: string | null;
 }
 
-function normalizeUrl(raw: string): string | null {
+export function normalizeUrl(raw: string): string | null {
   const cleaned = raw.trim().replace(/[),.;!?]+$/g, "");
   try {
     const parsed = new URL(cleaned);

@@ -9,44 +9,54 @@ interface Props {
   badgeLabel?: string;
 }
 
+const OWN_COLOR = "#1237e8";
+const REST_COLOR = "#cbd5e1";
 const PALETTE = [
-  "#4f46e5", // indigo (own)
-  "#f97316", // orange
-  "#14b8a6", // teal
-  "#a855f7", // purple
-  "#ec4899", // pink
-  "#0ea5e9", // sky
-  "#22c55e", // green
-  "#eab308", // amber
-  "#64748b", // slate
-  "#dc2626", // red
-  "#06b6d4", // cyan
-  "#8b5cf6", // violet
+  "#f97316",
+  "#14b8a6",
+  "#a855f7",
+  "#ec4899",
+  "#0ea5e9",
+  "#22c55e",
+  "#eab308",
+  "#64748b",
+  "#dc2626",
+  "#06b6d4",
+  "#8b5cf6",
 ];
 
-function colorForIndex(idx: number, isOwn: boolean): string {
-  if (isOwn) return PALETTE[0]!;
-  // Reservar índice 0 para own brand
-  const offset = idx + 1;
-  return PALETTE[offset % PALETTE.length]!;
+function colorForBrand(name: string, isOwn: boolean): string {
+  if (isOwn) return OWN_COLOR;
+
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+
+  return PALETTE[Math.abs(hash) % PALETTE.length]!;
 }
 
 export function MarketShareDonut({ data, ownBrandName, badgeLabel }: Props) {
-  const top = data.slice(0, 10);
-  const rest = data.slice(10);
-  const restShare = rest.reduce((acc, r) => acc + r.sharePct, 0);
-  const chartData = top.map((d, idx) => ({
+  const sortedData = [...data].sort((a, b) => b.mentionsCount - a.mentionsCount);
+  const visible = sortedData.slice(0, 10);
+  const rest = sortedData.slice(10);
+  const restShare = Math.round(rest.reduce((acc, r) => acc + r.sharePct, 0) * 10) / 10;
+  const maxVisibleShare = Math.max(...visible.map((d) => d.sharePct), 1);
+  const chartData = visible.map((d) => ({
     name: d.brandName,
     value: d.sharePct,
+    mentionsCount: d.mentionsCount,
     isOwn: d.brandType === "own",
-    color: colorForIndex(idx, d.brandType === "own"),
+    color: colorForBrand(d.brandName, d.brandType === "own"),
   }));
+
   if (restShare > 0) {
     chartData.push({
-      name: `+${rest.length} más`,
-      value: Math.round(restShare * 10) / 10,
+      name: `+${rest.length} more competitors`,
+      value: restShare,
+      mentionsCount: rest.reduce((acc, r) => acc + r.mentionsCount, 0),
       isOwn: false,
-      color: "#cbd5e1",
+      color: REST_COLOR,
     });
   }
 
@@ -55,7 +65,9 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel }: Props) {
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="mb-3">
           <h3 className="text-sm font-semibold text-slate-900">Market Share</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Share of Voice normalizado</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            SOV normalizado sobre marcas detectadas
+          </p>
         </div>
         <p className="text-center text-xs text-slate-400 py-12">Sin menciones en este rango.</p>
       </div>
@@ -67,10 +79,12 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel }: Props) {
       <div className="flex items-center justify-between mb-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">Market Share</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Share of Voice normalizado</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            SOV normalizado sobre marcas detectadas
+          </p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
-          {badgeLabel ?? "Últimos 7D"}
+          {badgeLabel ?? "Ultimos 7D"}
         </span>
       </div>
 
@@ -95,7 +109,12 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel }: Props) {
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-3 space-y-1.5 max-h-56 overflow-y-auto pr-1">
+      <p className="text-[11px] leading-relaxed text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+        Suma 100%. Incluye {ownBrandName} y competidores detectados. La tabla de competidores puede
+        usar otro denominador operativo.
+      </p>
+
+      <div className="mt-3 space-y-2 max-h-56 overflow-y-auto pr-1">
         {chartData.map((entry) => (
           <div key={entry.name} className="flex items-center gap-2 text-sm">
             <span
@@ -106,13 +125,16 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel }: Props) {
             <span className="flex-1 min-w-0 truncate text-slate-700">
               {entry.name}
               {entry.isOwn && (
-                <span className="ml-1.5 text-xs text-indigo-600 font-medium">(Tú)</span>
+                <span className="ml-1.5 text-xs text-indigo-600 font-medium">(Tu)</span>
               )}
             </span>
             <div className="w-20 h-1 rounded-full bg-slate-100 overflow-hidden hidden sm:block">
               <div
                 className="h-full rounded-full"
-                style={{ width: `${Math.min(100, entry.value)}%`, backgroundColor: entry.color }}
+                style={{
+                  width: `${Math.min(100, (entry.value / maxVisibleShare) * 100)}%`,
+                  backgroundColor: entry.color,
+                }}
               />
             </div>
             <span className="text-xs font-semibold text-slate-900 tabular-nums w-12 text-right">

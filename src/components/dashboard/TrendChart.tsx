@@ -3,7 +3,6 @@
 import { useState } from "react";
 import {
   CartesianGrid,
-  Legend,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -36,7 +35,7 @@ const METRICS: {
   { key: "menciones", label: "Menciones de marca", color: "#22c55e", unit: "", yAxisId: "left" },
   {
     key: "visibilidad",
-    label: "Visibilidad (SOV %)",
+    label: "Visibilidad (%)",
     color: "#6366f1",
     unit: "%",
     yAxisId: "right",

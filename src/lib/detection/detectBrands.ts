@@ -1,4 +1,5 @@
-import type { MentionType, Sentiment } from "@/types";
+import { extractRankingFromList, type ListSource } from "@/lib/detection/extractRanking";
+import type { MentionType, PositionSource, Sentiment } from "@/types";
 
 interface BrandInput {
   id: string;
@@ -16,6 +17,7 @@ interface CompetitorDetection {
   brandId: string;
   name: string;
   position: number | null;
+  positionSource: PositionSource | null;
   sentiment: Exclude<Sentiment, "no_data">;
   mentionType: MentionType;
   confidence: number;
@@ -37,6 +39,7 @@ const GENERIC_NON_BRANDS = new Set([
 export interface DetectBrandsOutput {
   ownBrandMentioned: boolean;
   ownBrandPosition: number | null;
+  ownBrandPositionSource: PositionSource | null;
   detectedBrandName: string | null;
   competitors: CompetitorDetection[];
   sentiment: Sentiment;
@@ -44,75 +47,89 @@ export interface DetectBrandsOutput {
   confidence: number;
 }
 
-function levenshtein(a: string, b: string): number {
-  const m = a.length;
-  const n = b.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, (_, i) =>
-    Array.from({ length: n + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0))
-  );
-
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (a[i - 1] === b[j - 1]) {
-        dp[i]![j] = dp[i - 1]![j - 1]!;
-      } else {
-        dp[i]![j] = 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
-      }
-    }
-  }
-  return dp[m]![n]!;
+interface MentionInfo {
+  position: number;
+  matchedName: string;
+  source: PositionSource;
 }
 
-function isFuzzyMatch(text: string, term: string, threshold = 0.8): boolean {
-  if (text.includes(term)) return true;
-  const maxLen = Math.max(text.length, term.length);
-  if (maxLen === 0) return true;
-  const dist = levenshtein(text.toLowerCase(), term.toLowerCase());
-  return 1 - dist / maxLen >= threshold;
+function findFirstIndex(text: string, brand: BrandInput): { idx: number; name: string } | null {
+  const textLower = text.toLowerCase();
+  const allNames = [brand.name, ...brand.aliases];
+  let best: { idx: number; name: string } | null = null;
+  for (const name of allNames) {
+    const idx = textLower.indexOf(name.toLowerCase());
+    if (idx >= 0 && (best === null || idx < best.idx)) {
+      best = { idx, name };
+    }
+  }
+  return best;
+}
+
+function extractByAppearanceOrder(
+  text: string,
+  brands: BrandInput[]
+): Map<string, MentionInfo> {
+  const result = new Map<string, MentionInfo>();
+  const hits: Array<{ brandId: string; idx: number; name: string }> = [];
+  for (const brand of brands) {
+    const hit = findFirstIndex(text, brand);
+    if (hit) hits.push({ brandId: brand.id, idx: hit.idx, name: hit.name });
+  }
+  hits.sort((a, b) => a.idx - b.idx);
+  hits.forEach((h, i) => {
+    result.set(h.brandId, {
+      position: i + 1,
+      matchedName: h.name,
+      source: "appearance_order",
+    });
+  });
+  return result;
+}
+
+function listSourceToPositionSource(source: ListSource): PositionSource {
+  return source === "numbered_list" ? "numbered_list" : "bullet_list";
 }
 
 function extractMentionedBrands(
   text: string,
   brands: BrandInput[]
-): Map<string, { position: number; matchedName: string }> {
-  const textLower = text.toLowerCase();
-  const result = new Map<string, { position: number; matchedName: string }>();
-
-  // Dividir en párrafos/oraciones para inferir orden
-  const segments = text.split(/\n|\.|\?|!/).filter((s) => s.trim().length > 0);
-
-  let globalPosition = 1;
-  for (const segment of segments) {
-    const segLower = segment.toLowerCase();
-
-    for (const brand of brands) {
-      if (result.has(brand.id)) continue;
-
-      const allNames = [brand.name, ...brand.aliases];
-      for (const name of allNames) {
-        const nameLower = name.toLowerCase();
-        if (segLower.includes(nameLower) || isFuzzyMatch(segLower, nameLower)) {
-          result.set(brand.id, { position: globalPosition, matchedName: name });
-          break;
-        }
+): Map<string, MentionInfo> {
+  // Capa 1: regex de listas numeradas / bullets
+  const ranking = extractRankingFromList(text, brands);
+  if (ranking.size > 0) {
+    const result = new Map<string, MentionInfo>();
+    for (const [brandId, match] of ranking) {
+      result.set(brandId, {
+        position: match.rank,
+        matchedName: match.matchedName,
+        source: listSourceToPositionSource(match.source),
+      });
+    }
+    // Rellena marcas mencionadas pero no rankeadas en la lista
+    const remaining = brands.filter((b) => !result.has(b.id));
+    if (remaining.length > 0) {
+      const fallback = extractByAppearanceOrder(text, remaining);
+      const usedRanks = new Set([...result.values()].map((m) => m.position));
+      let nextRank = Math.max(0, ...usedRanks) + 1;
+      // Asignar ranks consecutivos por orden de aparición para los no rankeados
+      const sorted = [...fallback.entries()].sort((a, b) => a[1].position - b[1].position);
+      for (const [brandId, info] of sorted) {
+        while (usedRanks.has(nextRank)) nextRank++;
+        result.set(brandId, {
+          position: nextRank,
+          matchedName: info.matchedName,
+          source: "appearance_order",
+        });
+        usedRanks.add(nextRank);
+        nextRank++;
       }
     }
-    globalPosition++;
+    return result;
   }
 
-  // Fallback: búsqueda directa en el texto completo
-  for (const brand of brands) {
-    if (result.has(brand.id)) continue;
-    const allNames = [brand.name, ...brand.aliases];
-    for (const name of allNames) {
-      if (textLower.includes(name.toLowerCase())) {
-        result.set(brand.id, { position: 99, matchedName: name });
-        break;
-      }
-    }
-  }
-
-  return result;
+  // Capa 3: orden de aparición textual de las marcas
+  return extractByAppearanceOrder(text, brands);
 }
 
 const POSITIVE_WORDS = [
@@ -231,6 +248,7 @@ export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
   const ownMention = mentionMap.get(ownBrand.id);
   const ownBrandMentioned = Boolean(ownMention);
   const ownBrandPosition = ownMention?.position ?? null;
+  const ownBrandPositionSource = ownMention?.source ?? null;
   const detectedBrandName = ownMention?.matchedName ?? null;
 
   const competitorDetections: CompetitorDetection[] = competitors.flatMap((comp) => {
@@ -240,6 +258,7 @@ export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
       brandId: comp.id,
       name: comp.name,
       position: mention.position,
+      positionSource: mention.source,
       sentiment: detectSentiment(rawResponse, mention.matchedName),
       mentionType: classifyMentionType(rawResponse, mention.matchedName, mention.position),
       confidence: 0.85,
@@ -258,6 +277,7 @@ export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
   return {
     ownBrandMentioned,
     ownBrandPosition,
+    ownBrandPositionSource,
     detectedBrandName,
     competitors: competitorDetections,
     sentiment,

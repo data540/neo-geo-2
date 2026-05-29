@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { PromptKpiCards } from "@/components/prompts/PromptKpiCards";
 import { PromptPerformanceCard } from "@/components/prompts/PromptPerformanceCard";
 import { PromptsPageHeader } from "@/components/prompts/PromptsPageHeader";
+import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type { PromptPerformanceRow, RunStatus, WorkspaceKpis } from "@/types";
 
@@ -43,6 +44,13 @@ export default async function PromptsPage({ params, searchParams }: Props) {
 
   const usagePct = enabledLlms.length > 0 ? Math.round(100 / enabledLlms.length) : 100;
 
+  // Proveedor LLM activo (para filtrar POSICIÓN MEDIA igual que el resto de KPIs)
+  const focusLlmConfig = (llmConfigs ?? []).find((c) => {
+    const provider = c.llm_providers as unknown as { key: string };
+    return provider.key === (focusLlm ?? "chatgpt");
+  });
+  const focusLlmProviderId = (focusLlmConfig?.llm_provider_id as string) ?? null;
+
   // Métricas cross-LLM (sin filtro de LLM, o filtradas por focusLlm si se especifica)
   const { data: rows } = await supabase.rpc("get_workspace_prompt_performance", {
     p_workspace_slug: slug,
@@ -51,10 +59,19 @@ export default async function PromptsPage({ params, searchParams }: Props) {
   });
 
   // KPIs (cross-LLM o filtrados)
-  const { data: kpis } = await supabase.rpc("get_workspace_kpis", {
-    p_workspace_slug: slug,
-    p_llm_key: focusLlm ?? "chatgpt",
-  });
+  const [{ data: kpis }, brandMetrics] = await Promise.all([
+    supabase.rpc("get_workspace_kpis", {
+      p_workspace_slug: slug,
+      p_llm_key: focusLlm ?? "chatgpt",
+      p_country_filter: country ?? null,
+    }),
+    getWorkspaceBrandPerformanceMetrics({
+      workspaceId: workspace.id,
+      days: 7,
+      country: country ?? null,
+      llmProviderId: focusLlmProviderId,
+    }),
+  ]);
 
   // Tags disponibles
   const { data: allTags } = await supabase
@@ -136,7 +153,8 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     ? {
         activePromptsCount: rawKpis.activePromptsCount ?? rawKpis.active_prompts_count ?? 0,
         brandMentionsCount: rawKpis.brandMentionsCount ?? rawKpis.brand_mentions_count ?? 0,
-        avgPosition: rawKpis.avgPosition ?? rawKpis.avg_position ?? null,
+        // Usa la misma lógica que el dashboard: solo posiciones de listas reales o LLM
+        avgPosition: brandMetrics.current.avgPosition,
         brandConsistency: rawKpis.brandConsistency ?? rawKpis.brand_consistency ?? 0,
         avgSov: rawKpis.avgSov ?? rawKpis.avg_sov ?? null,
       }

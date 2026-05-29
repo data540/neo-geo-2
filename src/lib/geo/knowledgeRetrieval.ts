@@ -1,9 +1,7 @@
-import OpenAI from "openai";
+import { createEmbedding } from "@/lib/llm/embeddings";
 import { createClient } from "@/lib/supabase/server";
 import type { RetrievedChunk } from "@/types";
 
-const EMBEDDING_MODEL = "text-embedding-3-small";
-const EMBEDDING_DIMS = 1536;
 const DEFAULT_TOP_K_PER_QUERY = 4;
 const DEFAULT_TOTAL_CAP = 10;
 
@@ -29,7 +27,7 @@ export function buildRetrievalQueries(metrics: RetrievalMetricsInput): string[] 
 
   if (metrics.visibilityPct !== null && metrics.visibilityPct < 50) {
     queries.push(
-      `Cómo aumentar Share of Voice en LLMs para marca con visibilidad ${metrics.visibilityPct}% en sector ${sector}`
+      `Como aumentar presencia de marca en queries LLM con visibilidad ${metrics.visibilityPct}% en sector ${sector}`
     );
   }
   if (metrics.consistencyPct !== null && metrics.consistencyPct < 60) {
@@ -66,17 +64,7 @@ export function buildRetrievalQueries(metrics: RetrievalMetricsInput): string[] 
 }
 
 async function embedQuery(query: string): Promise<number[]> {
-  const apiKey = process.env.OPENAI_API_KEY_EMBEDDINGS ?? process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("Missing OPENAI_API_KEY for embeddings");
-  const openai = new OpenAI({ apiKey });
-  const response = await openai.embeddings.create({
-    model: EMBEDDING_MODEL,
-    input: query,
-    dimensions: EMBEDDING_DIMS,
-  });
-  const first = response.data[0];
-  if (!first) throw new Error("Empty embedding response");
-  return first.embedding;
+  return createEmbedding(query);
 }
 
 interface MatchRow {

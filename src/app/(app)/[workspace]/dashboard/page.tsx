@@ -1,6 +1,7 @@
 import { Eye, Smile, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BrandVisibilityTrendChart } from "@/components/dashboard/BrandVisibilityTrendChart";
 import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
 import { ExportDashboardButton } from "@/components/dashboard/ExportDashboardButton";
 import { LlmComparisonTable } from "@/components/dashboard/LlmComparisonTable";
@@ -11,6 +12,10 @@ import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  getWorkspaceBrandPerformanceMetrics,
+  getWorkspaceBrandVisibilityTrendMetrics,
+} from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type {
   LlmComparisonRow,
@@ -24,7 +29,7 @@ import type {
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string; range?: string }>;
+  searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
 }
 
 // ── Sparkline with filled area ─────────────────────────────────────────────────
@@ -112,14 +117,22 @@ function Delta({
 // ── Sentiment helpers ──────────────────────────────────────────────────────────
 function sentimentLabel(score: number | null): { text: string; color: string } {
   if (score === null) return { text: "—", color: "text-slate-400" };
-  if (score > 0.3) return { text: "Positive", color: "text-emerald-600" };
-  if (score < -0.1) return { text: "Negative", color: "text-red-500" };
+  if (score >= 0.2) return { text: "Positive", color: "text-emerald-600" };
+  if (score <= -0.2) return { text: "Negative", color: "text-red-500" };
   return { text: "Mixed", color: "text-amber-500" };
 }
 
-function calcAvgSentiment(mentions: Array<{ sentiment: string | null }>): number | null {
+function fmtScore(score: number | null): string {
+  if (score === null) return "";
+  return `${score >= 0 ? "+" : ""}${score.toFixed(2)}`;
+}
+
+function calcAvgSentiment(
+  mentions: Array<{ sentiment: string | null; sentiment_score: number | null }>
+): number | null {
   if (mentions.length === 0) return null;
   const sum = mentions.reduce((acc, m) => {
+    if (m.sentiment_score !== null) return acc + m.sentiment_score;
     if (m.sentiment === "positive") return acc + 1;
     if (m.sentiment === "negative") return acc - 1;
     return acc;
@@ -142,21 +155,23 @@ const VALID_RANGES = RANGE_OPTIONS.map((r) => String(r.value));
 
 export default async function DashboardPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", range = "7" } = await searchParams;
+  const { llm = "chatgpt", range = "7", country } = await searchParams;
 
   const supabase = await createClient();
   const days = VALID_RANGES.includes(range) ? Number(range) : 7;
   const rangeLabel = days === 1 ? "Yesterday" : days === 3650 ? "All time" : `Last ${days} days`;
+  const selectedRange = RANGE_OPTIONS.find((r) => r.value === days);
+  const dailyRangeLabel = days === 1 ? "Ayer" : days === 3650 ? "Todos los datos" : `${days} días`;
   const badgeLabel =
     days === 1
       ? "Ayer"
-      : RANGE_OPTIONS.find((r) => r.value === days)?.label
-        ? `Últimos ${RANGE_OPTIONS.find((r) => r.value === days)!.label}`
+      : selectedRange?.label
+        ? `Últimos ${selectedRange.label}`
         : `Últimos ${days}D`;
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, name, slug, brand_name")
+    .select("id, name, slug, brand_name, country")
     .eq("slug", slug)
     .single();
 
@@ -182,27 +197,32 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     .limit(days * 2);
 
   const rows = (allMetricRows ?? []).slice(0, days);
-  const prevRows = (allMetricRows ?? []).slice(days, days * 2);
 
   // ── Current period KPIs ────────────────────────────────────────────────────
-  const mentionsTotal = rows.reduce((acc, r) => acc + (r.brand_mentions_count ?? 0), 0);
-  const prevMentionsTotal = prevRows.reduce((acc, r) => acc + (r.brand_mentions_count ?? 0), 0);
+  const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
+    workspaceId: workspace.id,
+    country: country ?? null,
+    days,
+    llmProviderId: provider.id,
+  });
+  const brandVisibilityTrendMetrics = await getWorkspaceBrandVisibilityTrendMetrics({
+    workspaceId: workspace.id,
+    country: country ?? null,
+    days,
+    llmProviderId: provider.id,
+    ownBrandName: workspace.brand_name,
+  });
 
-  const avgNum = (arr: (number | null)[]) => {
-    const v = arr.filter((x): x is number => typeof x === "number");
-    return v.length > 0 ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : null;
-  };
+  const mentionsTotal = brandPerformanceMetrics.current.runsWithOwnBrand;
+  const prevMentionsTotal = brandPerformanceMetrics.previous.runsWithOwnBrand;
 
-  const visibility = avgNum(rows.map((r) => r.avg_sov));
-  const prevVisibility = avgNum(prevRows.map((r) => r.avg_sov));
-  const avgPosition = avgNum(rows.map((r) => r.avg_position));
-  const prevAvgPosition = avgNum(prevRows.map((r) => r.avg_position));
+  const visibility = brandPerformanceMetrics.current.visibilityPct;
+  const avgPosition = brandPerformanceMetrics.current.avgPosition;
+  const minPosition = brandPerformanceMetrics.current.minPosition;
+  const maxPosition = brandPerformanceMetrics.current.maxPosition;
 
-  const delta = (curr: number | null, prev: number | null) =>
-    curr !== null && prev !== null ? Math.round((curr - prev) * 10) / 10 : null;
-
-  const visibilityDelta = delta(visibility, prevVisibility);
-  const avgPositionDelta = delta(avgPosition, prevAvgPosition);
+  const visibilityDelta = brandPerformanceMetrics.visibilityDeltaPct;
+  const avgPositionDelta = brandPerformanceMetrics.avgPositionDelta;
   const mentionsDelta =
     mentionsTotal > 0 || prevMentionsTotal > 0 ? mentionsTotal - prevMentionsTotal : null;
 
@@ -212,13 +232,41 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const prevPeriodStart = new Date(periodStart);
   prevPeriodStart.setDate(prevPeriodStart.getDate() - days);
 
-  const { data: sentimentMentions } = await supabase
+  // Filtro de país para sentiment: obtener prompt_ids del país seleccionado
+  let sentimentPromptIds: string[] | null = null;
+  if (country) {
+    const { data: countryPrompts } = await supabase
+      .from("prompts")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .eq("country", country);
+    sentimentPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
+  }
+
+  let sentimentQuery = supabase
     .from("mentions")
-    .select("sentiment, created_at")
+    .select("sentiment, sentiment_score, created_at, prompt_run_id")
     .eq("workspace_id", workspace.id)
     .eq("brand_type", "own")
     .gte("created_at", prevPeriodStart.toISOString())
     .order("created_at", { ascending: false });
+
+  const { data: sentimentMentionsRaw } = await sentimentQuery;
+
+  // Filtrar client-side por país si aplica (via prompt_run → prompt_id lookup)
+  let sentimentRunIds: Set<string> | null = null;
+  if (sentimentPromptIds !== null) {
+    const { data: filteredRuns } = await supabase
+      .from("prompt_runs")
+      .select("id")
+      .eq("workspace_id", workspace.id)
+      .in("prompt_id", sentimentPromptIds.length > 0 ? sentimentPromptIds : ["__none__"]);
+    sentimentRunIds = new Set((filteredRuns ?? []).map((r) => r.id as string));
+  }
+
+  const { data: sentimentMentions } = { data: sentimentRunIds
+    ? (sentimentMentionsRaw ?? []).filter((m) => sentimentRunIds!.has((m as { prompt_run_id: string }).prompt_run_id))
+    : sentimentMentionsRaw };
 
   const allSentimentMentions = sentimentMentions ?? [];
   const currSentimentMentions = allSentimentMentions.filter(
@@ -238,22 +286,26 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const sent = sentimentLabel(avgSentiment);
 
   // ── Sparkline series ───────────────────────────────────────────────────────
-  const visibilitySeries = [...rows].reverse().map((r) => r.avg_sov ?? 0);
-  const mentionsSeries = [...rows].reverse().map((r) => r.brand_mentions_count ?? 0);
-  const avgPositionSeries = [...rows]
-    .reverse()
-    .map((r) => (r.avg_position != null ? Math.max(0, 100 - r.avg_position * 8) : 0));
+  const visibilitySeries = brandPerformanceMetrics.daily.map((r) => r.visibilityPct ?? 0);
+  const mentionsSeries = brandPerformanceMetrics.daily.map((r) => r.runsWithOwnBrand);
+  const avgPositionSeries = brandPerformanceMetrics.daily
+    .map((r) => r.avgPosition)
+    .filter((position): position is number => typeof position === "number");
   // Sentiment series: normalize -1..1 → 0..100
   const sentimentSeries =
     currSentimentMentions.length > 0 ? [Math.round(((avgSentiment ?? 0) + 1) * 50)] : [50];
 
-  const chartData = [...rows].reverse().map((r) => ({
-    date: r.date,
-    menciones: r.brand_mentions_count ?? null,
-    visibilidad: r.avg_sov ?? null,
-    posicion: r.avg_position ?? null,
-    consistencia: r.brand_consistency ?? null,
-  }));
+  const metricsByDate = new Map(rows.map((r) => [r.date, r]));
+  const chartData = brandPerformanceMetrics.daily.map((r) => {
+    const metric = metricsByDate.get(r.date);
+    return {
+      date: r.date,
+      menciones: r.runsWithOwnBrand,
+      visibilidad: r.visibilityPct,
+      posicion: r.avgPosition,
+      consistencia: metric?.brand_consistency ?? null,
+    };
+  });
 
   // ── Recent runs ────────────────────────────────────────────────────────────
   const { data: recentRuns } = await supabase
@@ -295,21 +347,23 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   };
 
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
-    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llm }),
-    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llm }),
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: slug,
       days,
       limit_n: 5,
       llm_key: llm,
+      p_country_filter: country ?? null,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: slug,
       days,
       limit_n: 5,
-      llm_key: llm,
+      llm_key: null,
+      p_country_filter: country ?? null,
     }),
-    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days }),
+    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: country ?? null }),
   ]);
 
   const marketShare: MarketShareEntry[] = ((marketShareRes.data ?? []) as MarketShareRow[]).map(
@@ -417,6 +471,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 <Delta value={visibilityDelta} suffix="%" />
               </div>
               <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Queries completadas donde aparece la marca
+              </p>
               <Sparkline values={visibilitySeries} strokeColor="#6366f1" fillColor="#6366f1" />
             </CardContent>
           </Card>
@@ -438,7 +495,12 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 </p>
                 <Delta value={avgPositionDelta} invertColors={true} />
               </div>
-              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                {rangeLabel}
+                {minPosition !== null && maxPosition !== null && minPosition !== maxPosition && (
+                  <span className="ml-1">· #{minPosition}–#{maxPosition}</span>
+                )}
+              </p>
               <Sparkline values={avgPositionSeries} strokeColor="#3b82f6" fillColor="#3b82f6" />
             </CardContent>
           </Card>
@@ -476,6 +538,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
               </div>
               <div className="flex items-baseline gap-2 mt-2">
                 <p className={`text-3xl font-bold ${sent.color}`}>{sent.text}</p>
+                {avgSentiment !== null && (
+                  <span className={`text-sm font-mono font-semibold ${sent.color} opacity-75`}>
+                    {fmtScore(avgSentiment)}
+                  </span>
+                )}
                 <Delta value={sentimentDelta} />
               </div>
               <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
@@ -486,13 +553,17 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
         {/* ── Analytics panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <MarketShareDonut data={marketShare} ownBrandName={workspace.brand_name} badgeLabel={badgeLabel} />
+          <MarketShareDonut
+            data={marketShare}
+            ownBrandName={workspace.brand_name}
+            badgeLabel={badgeLabel}
+          />
           <MentionBreakdownPanel data={breakdown} badgeLabel={badgeLabel} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <TopCompetitorsPanel data={topCompetitors} />
-          <SourcePowerRanking data={topSources} />
+          <SourcePowerRanking data={topSources} badgeLabel={badgeLabel} />
         </div>
 
         <LlmComparisonTable
@@ -507,6 +578,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
             Visibility Trends
           </p>
+          <BrandVisibilityTrendChart data={brandVisibilityTrendMetrics} />
           <TrendChart data={chartData} />
         </div>
 
@@ -514,10 +586,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100">
             <h2 className="text-sm font-semibold text-slate-700">
-              Tendencia diaria ({days === 1 ? "Ayer" : days === 3650 ? "Todos los datos" : `${days} días`})
+              Tendencia diaria ({dailyRangeLabel})
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Un registro por día y motor IA en <code>daily_workspace_metrics</code>.
+              Visibilidad y posicion media calculadas desde runs completados; SOV medio viene de las
+              metricas diarias.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -528,16 +601,19 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                     Fecha
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Prompts activos
+                    Queries completadas
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Menciones
+                    Queries con marca
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Posición media
+                    Visibilidad
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    Visibilidad (SOV)
+                    SOV medio
+                  </th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    Posicion media
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
                     Brand Consistency
@@ -545,39 +621,44 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.length === 0 ? (
+                {brandPerformanceMetrics.daily.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
+                    <td colSpan={7} className="px-4 py-10 text-center text-sm text-slate-400">
                       No hay registros diarios en este rango.
                     </td>
                   </tr>
                 ) : (
-                  rows.map((r) => (
-                    <tr key={r.date} className="hover:bg-slate-50/60">
-                      <td className="px-4 py-3 text-slate-700">
-                        {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.active_prompts_count ?? 0}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.brand_mentions_count ?? 0}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.avg_position != null ? `#${r.avg_position}` : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.avg_sov != null ? `${r.avg_sov}%` : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-right text-slate-700">
-                        {r.brand_consistency != null ? `${r.brand_consistency}%` : "—"}
-                      </td>
-                    </tr>
-                  ))
+                  brandPerformanceMetrics.daily.map((r) => {
+                    const metric = metricsByDate.get(r.date);
+
+                    return (
+                      <tr key={r.date} className="hover:bg-slate-50/60">
+                        <td className="px-4 py-3 text-slate-700">
+                          {new Date(`${r.date}T00:00:00`).toLocaleDateString("es-ES", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">{r.completedRuns}</td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {r.runsWithOwnBrand}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {r.visibilityPct != null ? `${r.visibilityPct}%` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {metric?.avg_sov != null ? `${metric.avg_sov}%` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {r.avgPosition != null ? `#${r.avgPosition}` : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">
+                          {metric?.brand_consistency != null ? `${metric.brand_consistency}%` : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

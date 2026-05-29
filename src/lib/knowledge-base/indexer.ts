@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { existsSync, readdirSync, readFileSync } from "fs";
-import OpenAI from "openai";
 import path from "path";
+import { createEmbeddings } from "@/lib/llm/embeddings";
 import { createClient } from "@/lib/supabase/server";
 import type { KnowledgeBaseStats, KnowledgeFile } from "@/types";
 
@@ -135,13 +135,6 @@ function parseMarkdownFile(
 }
 
 export async function embedChunks(chunks: ChunkData[]): Promise<number[][]> {
-  const apiKey = process.env.OPENAI_API_KEY_EMBEDDINGS || process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("No embedding API key configured");
-  }
-
-  const client = new OpenAI({ apiKey });
-
   const embeddings: number[][] = [];
 
   // Process in batches
@@ -149,13 +142,7 @@ export async function embedChunks(chunks: ChunkData[]): Promise<number[][]> {
     const batch = chunks.slice(i, i + BATCH_SIZE);
     const texts = batch.map((c) => c.content);
 
-    const response = await client.embeddings.create({
-      model: "text-embedding-3-small",
-      input: texts,
-      dimensions: 1536,
-    });
-
-    embeddings.push(...response.data.map((d) => d.embedding));
+    embeddings.push(...(await createEmbeddings(texts)));
   }
 
   return embeddings;
@@ -220,13 +207,6 @@ export async function reindexKnowledgeBase(): Promise<{
   let totalTokens = 0;
 
   const supabase = await createClient();
-  const apiKey = process.env.OPENAI_API_KEY_EMBEDDINGS || process.env.OPENAI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("No embedding API key configured");
-  }
-
-  const openai = new OpenAI({ apiKey });
 
   // Process each file
   for (const filename of files) {
@@ -241,13 +221,7 @@ export async function reindexKnowledgeBase(): Promise<{
       const batch = chunks.slice(i, i + BATCH_SIZE);
       const texts = batch.map((c) => c.content);
 
-      const response = await openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: texts,
-        dimensions: 1536,
-      });
-
-      embeddings.push(...response.data.map((d) => d.embedding));
+      embeddings.push(...(await createEmbeddings(texts)));
     }
 
     // Upsert into database

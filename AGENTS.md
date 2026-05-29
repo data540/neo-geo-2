@@ -11,6 +11,8 @@
 - `README.md` is the default Next.js template and does **not** describe this app; trust `src/`, `supabase/migrations/`, and `package.json` instead.
 - Use `pnpm` (lockfile is `pnpm-lock.yaml`).
 - There is no CI or test suite config in-repo right now; do focused local verification.
+- Local development happens in this repo; GitHub `origin/master` is the production source of truth.
+- Do not edit nested local repo copies such as `neo-geo/`; they are ignored local-only artifacts, not part of the root app.
 
 ## Commands that matter
 - Install deps: `pnpm install`
@@ -20,6 +22,8 @@
 - Auto-fix lint/style: `pnpm lint:fix`
 - Format: `pnpm format`
 - Typecheck (no script exists): `pnpm exec tsc --noEmit`
+- Create a development branch from production: `pnpm workflow:new codex/my-change`
+- Sync the optional read-only production mirror: `pnpm prod:sync`
 
 ## Known script/config quirks
 - `package.json` has `seed` -> `tsx scripts/seed.ts`, but `scripts/` is currently empty.
@@ -42,7 +46,7 @@
 - Copy `.env.local.example` to `.env.local` for required keys.
 - **All LLM calls are routed through OpenRouter — no mocks.** `src/lib/llm/runner.ts` and every GEO module (`generatePromptCandidates`, `normalizeCandidates`, `auditPromptCoverage`, `prioritizePrompts`, `generateRecommendations`, `generateWorkspacePrompts`) throw a hard error if `OPENROUTER_API_KEY` is missing. The previous `src/lib/llm/mock.ts` was deleted on purpose. Never reintroduce mock fallbacks: prompt-run flows must fail visibly when keys are missing rather than silently returning fake data.
 - Provider mapping: `LlmProviderKey` (`chatgpt`, `claude`, `gemini`, `perplexity`, `deepseek`) → OpenRouter model defaults in `runner.ts` (override with `OPENROUTER_MODEL_*` env vars or `workspace_llm_config.model`). The legacy `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` / `PERPLEXITY_API_KEY` env vars are **not used anymore**.
-- Embeddings (RAG, dedup) are the only exception: they call OpenAI directly via `OPENAI_API_KEY_EMBEDDINGS` (falls back to `OPENAI_API_KEY`).
+- Embeddings (RAG, dedup) also go through OpenRouter first via `OPENROUTER_API_KEY` and `OPENROUTER_EMBEDDING_MODEL` (default `openai/text-embedding-3-small`). Only if OpenRouter is unavailable/fails do they fall back to OpenAI via `OPENAI_API_KEY_EMBEDDINGS` or `OPENAI_API_KEY`.
 - Inngest signing/event keys are read from env in `src/inngest/client.ts` and `src/app/api/inngest/route.ts`.
 
 ## Safe verification flow for changes

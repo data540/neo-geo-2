@@ -1,6 +1,7 @@
 "use server";
 
 import * as XLSX from "xlsx";
+import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type { ActionResult } from "@/types";
 
@@ -32,7 +33,7 @@ export async function exportDashboardAction(
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, slug, name, brand_name")
+    .select("id, slug, name, brand_name, country")
     .eq("slug", workspaceSlug)
     .single();
   if (!workspace) return { success: false, error: "Workspace not found" };
@@ -44,6 +45,28 @@ export async function exportDashboardAction(
     .eq("user_id", user.id)
     .single();
   if (!membership) return { success: false, error: "Not a member" };
+
+  const { data: provider } = llmKey
+    ? await supabase.from("llm_providers").select("id").eq("key", llmKey).single()
+    : { data: null };
+  const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
+    workspaceId: workspace.id,
+    country: workspace.country,
+    days,
+    llmProviderId: provider?.id ?? null,
+  });
+  let dailyMetricsQuery = supabase
+    .from("daily_workspace_metrics")
+    .select(
+      "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
+    )
+    .eq("workspace_id", workspace.id)
+    .order("date", { ascending: false })
+    .limit(days);
+
+  if (provider?.id) {
+    dailyMetricsQuery = dailyMetricsQuery.eq("llm_provider_id", provider.id);
+  }
 
   // Cargar todos los datasets en paralelo
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes, dailyRes] =
@@ -74,14 +97,7 @@ export async function exportDashboardAction(
         workspace_slug: workspaceSlug,
         days,
       }),
-      supabase
-        .from("daily_workspace_metrics")
-        .select(
-          "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
-        )
-        .eq("workspace_id", workspace.id)
-        .order("date", { ascending: false })
-        .limit(days),
+      dailyMetricsQuery,
     ]);
 
   // Hoja KPIs (resumen)
@@ -181,14 +197,21 @@ export async function exportDashboardAction(
   }));
 
   // Hoja Daily Metrics
-  const dailySheet = dailyRows.map((d) => ({
-    Fecha: d.date,
-    "Prompts activos": d.active_prompts_count ?? 0,
-    Menciones: d.brand_mentions_count ?? 0,
-    "Posición media": d.avg_position ?? "",
-    "Visibilidad (%)": d.avg_sov ?? "",
-    "Consistencia (%)": d.brand_consistency ?? "",
-  }));
+  const dailyRowsByDate = new Map(dailyRows.map((d) => [d.date, d]));
+  const dailySheet = brandPerformanceMetrics.daily.map((d) => {
+    const metric = dailyRowsByDate.get(d.date);
+
+    return {
+      Fecha: d.date,
+      "Queries completadas": d.completedRuns,
+      "Queries con marca": d.runsWithOwnBrand,
+      "Visibilidad (%)": d.visibilityPct ?? "",
+      "SOV medio (%)": metric?.avg_sov ?? "",
+      "Posicion media": d.avgPosition ?? "",
+      "Posicion media diaria historica": metric?.avg_position ?? "",
+      "Consistencia (%)": metric?.brand_consistency ?? "",
+    };
+  });
 
   // Construir workbook
   const wb = XLSX.utils.book_new();

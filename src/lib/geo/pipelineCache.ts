@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import OpenAI from "openai";
+import { createEmbedding } from "@/lib/llm/embeddings";
 import { createClient } from "@/lib/supabase/server";
 
 export type PipelineCachePhase = "generation" | "normalize" | "audit" | "prioritize";
@@ -50,22 +50,8 @@ function sha256(str: string): string {
   return crypto.createHash("sha256").update(str).digest("hex");
 }
 
-function getEmbeddingClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY_EMBEDDINGS || process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("No OpenAI API key for embeddings");
-  return new OpenAI({ apiKey });
-}
-
 async function embedText(text: string): Promise<number[]> {
-  const client = getEmbeddingClient();
-  const response = await client.embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-    dimensions: 1536,
-  });
-  const embedding = response.data[0]?.embedding;
-  if (!embedding) throw new Error("No embedding returned");
-  return embedding;
+  return createEmbedding(text);
 }
 
 export async function pipelineCacheLookup<T>(

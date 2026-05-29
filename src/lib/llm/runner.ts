@@ -1,4 +1,9 @@
+import {
+  type ExtractedCitation,
+  extractCitationsFromOpenRouter,
+} from "@/lib/detection/extractCitations";
 import type { LlmProviderKey } from "@/types";
+import { DEFAULT_OPENROUTER_MODELS, resolveConfiguredOpenRouterModel } from "./modelDefaults";
 
 export interface RunPromptInput {
   provider: LlmProviderKey;
@@ -17,10 +22,12 @@ export interface RunPromptOutput {
   outputTokens?: number;
   /** Cost in USD as reported directly by OpenRouter (upstream_inference_cost) */
   costUsd?: number;
+  /** Structured citations extracted from OpenRouter's message.annotations[] / data.citations[] */
+  citations?: ExtractedCitation[];
 }
 
 type OpenRouterResponse = {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string; annotations?: unknown } }>;
   model?: string;
   usage?: {
     prompt_tokens?: number;
@@ -29,12 +36,7 @@ type OpenRouterResponse = {
     output_tokens?: number;
     cost_details?: { upstream_inference_cost?: number };
   };
-};
-
-const DEFAULT_OPENROUTER_MODEL: Record<LlmProviderKey, string> = {
-  chatgpt: "openai/gpt-4o-mini",
-  gemini: "google/gemini-2.0-flash-001",
-  perplexity: "perplexity/sonar",
+  citations?: unknown;
 };
 
 function getOpenRouterModel(provider: LlmProviderKey): string {
@@ -43,7 +45,7 @@ function getOpenRouterModel(provider: LlmProviderKey): string {
     gemini: process.env.OPENROUTER_MODEL_GEMINI,
     perplexity: process.env.OPENROUTER_MODEL_PERPLEXITY,
   };
-  return envMap[provider]?.trim() || DEFAULT_OPENROUTER_MODEL[provider];
+  return envMap[provider]?.trim() || DEFAULT_OPENROUTER_MODELS[provider];
 }
 
 export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput> {
@@ -55,7 +57,11 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
     );
   }
 
-  const model = modelOverride?.trim() || getOpenRouterModel(provider);
+  const model = resolveConfiguredOpenRouterModel(
+    provider,
+    modelOverride,
+    getOpenRouterModel(provider)
+  );
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -85,5 +91,6 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
     inputTokens: data.usage?.prompt_tokens ?? data.usage?.input_tokens,
     outputTokens: data.usage?.completion_tokens ?? data.usage?.output_tokens,
     costUsd: data.usage?.cost_details?.upstream_inference_cost,
+    citations: extractCitationsFromOpenRouter(data),
   };
 }

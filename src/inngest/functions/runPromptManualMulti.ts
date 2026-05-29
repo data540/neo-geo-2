@@ -2,9 +2,11 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { detectBrands } from "@/lib/detection/detectBrands";
-import { extractSourcesFromResponse } from "@/lib/detection/extractSources";
+import { persistSourcesForRun } from "@/lib/llm/persistSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
+import { analyzePositionBatch } from "@/lib/llm/positionAnalyzer";
+import { analyzeSentimentBatch } from "@/lib/llm/sentimentAnalyzer";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -148,20 +150,14 @@ export const runPromptManualMulti = inngest.createFunction(
             })),
           });
 
-          // Fuentes
-          const sources = extractSourcesFromResponse(llmResult.rawResponse);
-          if (sources.length > 0) {
-            await supabase.from("sources").insert(
-              sources.map((s) => ({
-                workspace_id: workspaceId,
-                prompt_run_id: runId,
-                url: s.url,
-                domain: s.domain,
-                title: s.title,
-                cited_by_llm: true,
-              }))
-            );
-          }
+          // Fuentes (annotations + URLs en texto plano)
+          await persistSourcesForRun({
+            supabase,
+            workspaceId,
+            promptRunId: runId,
+            rawResponse: llmResult.rawResponse,
+            citations: llmResult.citations,
+          });
 
           // Mentions
           const mentions: Record<string, unknown>[] = [];
@@ -173,6 +169,7 @@ export const runPromptManualMulti = inngest.createFunction(
               brand_name_detected: detection.detectedBrandName,
               brand_type: "own",
               position: detection.ownBrandPosition,
+              position_source: detection.ownBrandPositionSource,
               sentiment: detection.sentiment !== "no_data" ? detection.sentiment : null,
               mention_type: detection.mentionType,
               confidence: detection.confidence,
@@ -186,6 +183,7 @@ export const runPromptManualMulti = inngest.createFunction(
               brand_name_detected: comp.name,
               brand_type: "competitor",
               position: comp.position,
+              position_source: comp.positionSource,
               sentiment: comp.sentiment,
               mention_type: comp.mentionType,
               confidence: comp.confidence,
@@ -193,6 +191,66 @@ export const runPromptManualMulti = inngest.createFunction(
           }
           if (mentions.length > 0) {
             await supabase.from("mentions").insert(mentions);
+          }
+
+          // Análisis de sentimiento con LLM (refina los scores heurísticos)
+          {
+            const brandsForSentiment: string[] = [];
+            if (detection.ownBrandMentioned && detection.detectedBrandName) {
+              brandsForSentiment.push(detection.detectedBrandName);
+            }
+            for (const comp of detection.competitors) {
+              brandsForSentiment.push(comp.name);
+            }
+            if (brandsForSentiment.length > 0) {
+              try {
+                const results = await analyzeSentimentBatch(
+                  llmResult.rawResponse,
+                  brandsForSentiment
+                );
+                for (const r of results) {
+                  await supabase
+                    .from("mentions")
+                    .update({
+                      sentiment_score: r.score,
+                      sentiment_confidence: r.confidence,
+                      sentiment_source: "llm",
+                    })
+                    .eq("prompt_run_id", runId)
+                    .eq("brand_name_detected", r.brandName);
+                }
+              } catch (err) {
+                console.error("[sentiment-llm multi] failed, keeping heuristic fallback:", err);
+              }
+            }
+          }
+
+          // Refinar posición con LLM cuando no hay lista regex-detectable
+          {
+            const allAppearanceOrder = mentions.every(
+              (m) =>
+                m.position_source === "appearance_order" || m.position_source == null
+            );
+            if (allAppearanceOrder && mentions.length > 0) {
+              const brandNames = mentions
+                .map((m) => m.brand_name_detected as string | null)
+                .filter((n): n is string => Boolean(n));
+              if (brandNames.length > 0) {
+                try {
+                  const results = await analyzePositionBatch(llmResult.rawResponse, brandNames);
+                  for (const r of results) {
+                    if (r.rank === null) continue;
+                    await supabase
+                      .from("mentions")
+                      .update({ position: r.rank, position_source: "llm" })
+                      .eq("prompt_run_id", runId)
+                      .eq("brand_name_detected", r.brandName);
+                  }
+                } catch (err) {
+                  console.error("[position-llm multi] failed, keeping appearance_order fallback:", err);
+                }
+              }
+            }
           }
 
           // Métricas diarias

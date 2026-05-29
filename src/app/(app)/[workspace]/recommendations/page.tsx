@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { RecommendationsPanel } from "@/components/workspace/RecommendationsPanel";
 import { generateRecommendations } from "@/lib/geo/generateRecommendations";
 import { buildRetrievalQueries, retrieveRelevantKnowledge } from "@/lib/geo/knowledgeRetrieval";
+import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -44,14 +45,6 @@ export default async function RecommendationsPage({ params }: Props) {
     .order("date", { ascending: false });
 
   const rows = metrics ?? [];
-  const avgSov =
-    rows.length > 0
-      ? Math.round((rows.reduce((a, b) => a + (b.avg_sov ?? 0), 0) / rows.length) * 10) / 10
-      : null;
-  const avgPosition =
-    rows.length > 0
-      ? Math.round((rows.reduce((a, b) => a + (b.avg_position ?? 0), 0) / rows.length) * 10) / 10
-      : null;
   const avgConsistency =
     rows.length > 0
       ? Math.round((rows.reduce((a, b) => a + (b.brand_consistency ?? 0), 0) / rows.length) * 10) /
@@ -59,6 +52,11 @@ export default async function RecommendationsPage({ params }: Props) {
       : null;
   const totalMentions = rows.reduce((a, b) => a + (b.brand_mentions_count ?? 0), 0);
   const latestActivePrompts = rows[0]?.active_prompts_count ?? 0;
+  const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
+    workspaceId: workspace.id,
+    country: workspace.country,
+    days: 7,
+  });
 
   const { data: promptMetrics } = await supabase
     .from("daily_prompt_metrics")
@@ -110,8 +108,8 @@ export default async function RecommendationsPage({ params }: Props) {
     brandName: workspace.brand_name,
     sector: brandProfile?.positioning ?? "aerolínea",
     country: workspace.country,
-    visibilityPct: avgSov,
-    avgPosition,
+    visibilityPct: brandPerformanceMetrics.current.visibilityPct,
+    avgPosition: brandPerformanceMetrics.current.avgPosition,
     consistencyPct: avgConsistency,
     brandMentionsCount: totalMentions,
     activePromptsCount: latestActivePrompts,

@@ -2,9 +2,11 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { detectBrands } from "@/lib/detection/detectBrands";
-import { extractSourcesFromResponse } from "@/lib/detection/extractSources";
+import { persistSourcesForRun } from "@/lib/llm/persistSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
+import { analyzePositionBatch } from "@/lib/llm/positionAnalyzer";
+import { analyzeSentimentBatch } from "@/lib/llm/sentimentAnalyzer";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -149,21 +151,15 @@ export const runPromptManual = inngest.createFunction(
       )
     );
 
-    // 5.1 Detectar e insertar fuentes citadas
+    // 5.1 Detectar e insertar fuentes citadas (annotations + URLs en texto plano)
     await step.run("insert-sources", async () => {
-      const sources = extractSourcesFromResponse(llmResult.rawResponse);
-      if (sources.length === 0) return;
-
-      await supabase.from("sources").insert(
-        sources.map((s) => ({
-          workspace_id: workspaceId,
-          prompt_run_id: runId,
-          url: s.url,
-          domain: s.domain,
-          title: s.title,
-          cited_by_llm: true,
-        }))
-      );
+      await persistSourcesForRun({
+        supabase,
+        workspaceId,
+        promptRunId: runId,
+        rawResponse: llmResult.rawResponse,
+        citations: llmResult.citations,
+      });
     });
 
     // 6. Insertar mentions
@@ -178,6 +174,7 @@ export const runPromptManual = inngest.createFunction(
           brand_name_detected: detection.detectedBrandName,
           brand_type: "own",
           position: detection.ownBrandPosition,
+          position_source: detection.ownBrandPositionSource,
           sentiment: detection.sentiment !== "no_data" ? detection.sentiment : null,
           mention_type: detection.mentionType,
           confidence: detection.confidence,
@@ -192,6 +189,7 @@ export const runPromptManual = inngest.createFunction(
           brand_name_detected: comp.name,
           brand_type: "competitor",
           position: comp.position,
+          position_source: comp.positionSource,
           sentiment: comp.sentiment,
           mention_type: comp.mentionType,
           confidence: comp.confidence,
@@ -200,6 +198,67 @@ export const runPromptManual = inngest.createFunction(
 
       if (mentions.length > 0) {
         await supabase.from("mentions").insert(mentions);
+      }
+    });
+
+    // 6.5. Análisis de sentimiento con LLM (refina los scores heurísticos)
+    await step.run("analyze-sentiment-llm", async () => {
+      const brandsForSentiment: string[] = [];
+      if (detection.ownBrandMentioned && detection.detectedBrandName) {
+        brandsForSentiment.push(detection.detectedBrandName);
+      }
+      for (const comp of detection.competitors) {
+        brandsForSentiment.push(comp.name);
+      }
+      if (brandsForSentiment.length === 0) return;
+
+      try {
+        const results = await analyzeSentimentBatch(llmResult.rawResponse, brandsForSentiment);
+        for (const r of results) {
+          await supabase
+            .from("mentions")
+            .update({
+              sentiment_score: r.score,
+              sentiment_confidence: r.confidence,
+              sentiment_source: "llm",
+            })
+            .eq("prompt_run_id", runId)
+            .eq("brand_name_detected", r.brandName);
+        }
+      } catch (err) {
+        console.error("[sentiment-llm] failed, keeping heuristic fallback:", err);
+      }
+    });
+
+    // 6.6. Refinar posición con LLM cuando no hay lista regex-detectable
+    await step.run("refine-position-llm", async () => {
+      const { data: mentionsRun } = await supabase
+        .from("mentions")
+        .select("brand_name_detected, position_source")
+        .eq("prompt_run_id", runId);
+
+      const allAppearanceOrder = (mentionsRun ?? []).every(
+        (m) => m.position_source === "appearance_order" || m.position_source === null
+      );
+      if (!allAppearanceOrder) return; // lista regex ya disponible — skip
+
+      const brandNames = (mentionsRun ?? [])
+        .map((m) => m.brand_name_detected)
+        .filter((n): n is string => Boolean(n));
+      if (brandNames.length === 0) return;
+
+      try {
+        const results = await analyzePositionBatch(llmResult.rawResponse, brandNames);
+        for (const r of results) {
+          if (r.rank === null) continue;
+          await supabase
+            .from("mentions")
+            .update({ position: r.rank, position_source: "llm" })
+            .eq("prompt_run_id", runId)
+            .eq("brand_name_detected", r.brandName);
+        }
+      } catch (err) {
+        console.error("[position-llm] failed, keeping appearance_order fallback:", err);
       }
     });
 

@@ -174,6 +174,15 @@ export type MentionType =
   | "general_mention"
   | "warning";
 
+export type SentimentSource = "heuristic" | "llm" | "manual";
+
+export type PositionSource =
+  | "numbered_list"
+  | "bullet_list"
+  | "appearance_order"
+  | "llm"
+  | "manual";
+
 export interface Mention {
   id: string;
   workspace_id: string;
@@ -182,7 +191,11 @@ export interface Mention {
   brand_name_detected: string | null;
   brand_type: BrandType | null;
   position: number | null;
+  position_source: PositionSource | null;
   sentiment: Sentiment | null;
+  sentiment_score: number | null;
+  sentiment_confidence: number | null;
+  sentiment_source: SentimentSource | null;
   mention_type: MentionType | null;
   confidence: number;
   created_at: string;
@@ -275,7 +288,7 @@ export interface WorkspaceKpis {
 // ── Sidebar KPIs (mini-panel in navigation) ───────────────────────────────────
 
 export interface SidebarKpis {
-  visibility: number | null; // percentage 0-100 (avg_sov)
+  visibility: number | null; // percentage 0-100 of completed queries mentioning own brand
   visibilityDelta: number | null; // percentage points change vs previous 7 days
   avgPosition: number | null; // #X.X, null if no data
   avgPositionDelta: number | null; // absolute change vs previous 7 days
@@ -315,6 +328,36 @@ export interface SourceRankingEntry {
   domain: string;
   citationsCount: number;
   pctOfRuns: number;
+}
+
+export interface SourceRankingRow {
+  domain: string;
+  citationsCount: number;
+  urlsTotal: number;
+  pctOfRuns: number;
+  examplePromptText: string | null;
+  extraPromptCount: number;
+}
+
+export interface SourceDetailCitedUrl {
+  url: string;
+  title: string | null;
+  mentionCount: number;
+  ownBrandPresent: boolean;
+  competitorCount: number;
+  llmKeys: string[];
+  usedInPrompts: string[];
+}
+
+export interface SourceDetail {
+  brandPresence: {
+    urlsWithOwnBrand: number;
+    totalUrls: number;
+    pct: number;
+  };
+  topCompetitors: Array<{ brandId: string; name: string; count: number }>;
+  citedByLlms: Array<{ key: string; name: string }>;
+  citedUrls: SourceDetailCitedUrl[];
 }
 
 export interface LlmComparisonRow {
