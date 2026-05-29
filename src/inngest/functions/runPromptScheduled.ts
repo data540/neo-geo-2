@@ -23,7 +23,8 @@ export const runPromptScheduled = inngest.createFunction(
   {
     id: "prompt-run-scheduled",
     name: "Run Prompts Scheduled",
-    triggers: [{ cron: "0 7 * * *" }],
+    // 06:00 UTC = 08:00 Madrid en verano (CEST). En invierno (CET) cae a 07:00 Madrid.
+    triggers: [{ cron: "0 6 * * *" }],
   },
   async ({ step }) => {
     const supabase = getServiceClient();
