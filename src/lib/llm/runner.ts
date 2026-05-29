@@ -1,3 +1,7 @@
+import {
+  type ExtractedCitation,
+  extractCitationsFromOpenRouter,
+} from "@/lib/detection/extractCitations";
 import type { LlmProviderKey } from "@/types";
 import { DEFAULT_OPENROUTER_MODELS, resolveConfiguredOpenRouterModel } from "./modelDefaults";
 
@@ -18,10 +22,12 @@ export interface RunPromptOutput {
   outputTokens?: number;
   /** Cost in USD as reported directly by OpenRouter (upstream_inference_cost) */
   costUsd?: number;
+  /** Structured citations extracted from OpenRouter's message.annotations[] / data.citations[] */
+  citations?: ExtractedCitation[];
 }
 
 type OpenRouterResponse = {
-  choices?: Array<{ message?: { content?: string } }>;
+  choices?: Array<{ message?: { content?: string; annotations?: unknown } }>;
   model?: string;
   usage?: {
     prompt_tokens?: number;
@@ -30,6 +36,7 @@ type OpenRouterResponse = {
     output_tokens?: number;
     cost_details?: { upstream_inference_cost?: number };
   };
+  citations?: unknown;
 };
 
 function getOpenRouterModel(provider: LlmProviderKey): string {
@@ -84,5 +91,6 @@ export async function runPrompt(input: RunPromptInput): Promise<RunPromptOutput>
     inputTokens: data.usage?.prompt_tokens ?? data.usage?.input_tokens,
     outputTokens: data.usage?.completion_tokens ?? data.usage?.output_tokens,
     costUsd: data.usage?.cost_details?.upstream_inference_cost,
+    citations: extractCitationsFromOpenRouter(data),
   };
 }
