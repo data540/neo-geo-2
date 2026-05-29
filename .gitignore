@@ -50,6 +50,7 @@ content/**/.trash/
 
 # local agent / dev artifacts
 .claude/
+.vscode/
 .dev.log
 .inngest.log
 supabase/.temp/
