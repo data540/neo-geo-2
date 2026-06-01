@@ -8,16 +8,18 @@ import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type { PromptPerformanceRow, RunStatus, WorkspaceKpis } from "@/types";
 
-function calcBrandConsistency(rows: PromptPerformanceRow[]): BrandConsistencyStats {
+function calcBrandConsistency(
+  rows: PromptPerformanceRow[],
+  visibilityScore: number
+): BrandConsistencyStats {
   const total = rows.length;
   const passing = rows.filter((r) => r.consistency_score >= 70).length;
   const failing = rows.filter((r) => r.consistency_score < 70);
-  const score = total > 0 ? Math.round((passing / total) * 100) : 0;
   return {
     total,
     passing,
     failing: total - passing,
-    score,
+    score: Math.round(visibilityScore),
     failingPrompts: failing
       .sort((a, b) => a.consistency_score - b.consistency_score)
       .map((r) => ({ text: r.prompt_text, rate: r.consistency_score })),
@@ -191,7 +193,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
 
         <PromptKpiCards kpis={workspaceKpis} enabledLlms={enabledLlms} usagePct={usagePct} />
 
-        <BrandConsistencySummary stats={calcBrandConsistency(promptRows)} />
+        <BrandConsistencySummary stats={calcBrandConsistency(promptRows, workspaceKpis.brandConsistency)} />
 
         <PromptPerformanceCard
           rows={promptRows}

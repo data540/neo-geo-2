@@ -40,7 +40,7 @@ export function BrandConsistencySummary({ stats }: Props) {
             <span className="text-base font-normal text-slate-400">%</span>
           </p>
           <p className="text-xs text-slate-400 mt-1">
-            {passing} of {total} prompts show consistent brand presence (70%+ appearance rate)
+            Percentage of queries where your brand is mentioned
           </p>
         </div>
         <div className={`w-9 h-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
