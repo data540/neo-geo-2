@@ -1,12 +1,14 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Globe, HelpCircle } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Globe, HelpCircle } from "lucide-react";
 import { Fragment, useState } from "react";
 import { getSourceRating, getSourceType, rootDomain } from "@/lib/sources/classify";
 import type { SourceRankingRow } from "@/types";
 import { SourceDetailPanel } from "./SourceDetailPanel";
 import { SourceRatingBadge } from "./SourceRatingBadge";
 import { SourceTypeBadge } from "./SourceTypeBadge";
+
+const PAGE_SIZE = 25;
 
 interface Props {
   rows: SourceRankingRow[];
@@ -26,8 +28,16 @@ export function SourceRankingsTable({
   country,
 }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
 
+  const totalPages = Math.ceil(rows.length / PAGE_SIZE);
+  const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
   const maxPct = rows.reduce((m, r) => Math.max(m, r.pctOfRuns), 0);
+
+  function goToPage(next: number) {
+    setPage(next);
+    setExpanded(null);
+  }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -72,8 +82,8 @@ export function SourceRankingsTable({
               </td>
             </tr>
           ) : (
-            rows.map((row, idx) => {
-              const rank = idx + 1;
+            pageRows.map((row, idx) => {
+              const rank = page * PAGE_SIZE + idx + 1;
               const isOpen = expanded === row.domain;
               const type = getSourceType(row.domain);
               const rating = getSourceRating(row.pctOfRuns);
@@ -165,6 +175,38 @@ export function SourceRankingsTable({
           )}
         </tbody>
       </table>
+
+      {totalPages > 1 && (
+        <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-sm">
+          <span className="text-xs text-slate-500">
+            {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, rows.length)} de{" "}
+            {rows.length} fuentes
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => goToPage(page - 1)}
+              disabled={page === 0}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
+              Anterior
+            </button>
+            <span className="px-2 text-xs text-slate-400 tabular-nums">
+              {page + 1} / {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => goToPage(page + 1)}
+              disabled={page >= totalPages - 1}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Siguiente
+              <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

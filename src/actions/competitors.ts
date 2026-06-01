@@ -32,6 +32,16 @@ const GENERIC_EXCLUSIONS = new Set([
   "soluciones",
   "plataforma",
   "herramienta",
+  // geographic abbreviations — not brand names
+  "latam",
+  "emea",
+  "apac",
+  "mena",
+  "dach",
+  "amer",
+  "cee",
+  "ue",
+  "eeuu",
 ]);
 
 // Verbos y frases genéricas que no son marcas
@@ -155,6 +165,14 @@ export async function deleteCompetitorAction(
   if (!canManage) return { success: false, error: "Sin permisos" };
 
   const supabase = await createClient();
+
+  // Desvincular menciones antes de borrar (FK sin ON DELETE CASCADE)
+  await supabase
+    .from("mentions")
+    .update({ brand_id: null, brand_type: null })
+    .eq("brand_id", brandId)
+    .eq("workspace_id", workspaceId);
+
   const { error } = await supabase
     .from("brands")
     .delete()

@@ -557,6 +557,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
             data={marketShare}
             ownBrandName={workspace.brand_name}
             badgeLabel={badgeLabel}
+            workspaceId={workspace.id}
           />
           <MentionBreakdownPanel data={breakdown} badgeLabel={badgeLabel} />
         </div>

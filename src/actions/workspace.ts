@@ -11,16 +11,19 @@ import {
   inviteWorkspaceMemberSchema,
   removeWorkspaceSchema,
 } from "@/lib/validations/schemas";
-import type { ActionResult, ExtractedBrandProfile } from "@/types";
+import type { ActionResult, CompanyBioProfile } from "@/types";
 
 const PROMPTS_PER_WORKSPACE = 10;
 
 function getServiceClient() {
-  return createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { autoRefreshToken: false, persistSession: false } }
-  );
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Supabase service credentials are not configured");
+  }
+  return createSupabaseClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 }
 
 function generateSlug(brandName: string): string {
@@ -184,7 +187,7 @@ export async function createWorkspaceAction(
 
 export async function extractBrandProfileAction(
   workspaceId: string
-): Promise<ActionResult<ExtractedBrandProfile>> {
+): Promise<ActionResult<CompanyBioProfile>> {
   const supabase = await createClient();
 
   const { data: canManage } = await supabase.rpc("can_manage_workspace", {
@@ -202,14 +205,129 @@ export async function extractBrandProfileAction(
     return { success: false, error: "No hay dominio configurado en este workspace" };
   }
 
-  const extracted = await extractBrandProfile(workspace.domain);
+  try {
+    const extracted = await extractBrandProfile(workspace.domain);
 
-  const allNull = Object.values(extracted).every((v) => v === null);
-  if (allNull) {
-    return { success: false, error: "No se pudo extraer información del sitio web" };
+    const { error } = await supabase.from("brand_profiles").upsert(
+      {
+        workspace_id: workspaceId,
+        profile_data: extracted.profile,
+        analysis_source_url: extracted.sourceUrl,
+        analysis_model: extracted.model,
+        analysis_input_digest: extracted.inputDigest,
+        analyzed_at: extracted.profile.analysisInfo.analyzedAt,
+        analysis_error: null,
+        extracted_summary: extracted.legacy.extractedSummary,
+        positioning: extracted.legacy.positioning,
+        audience: extracted.legacy.audience,
+        products_services: extracted.legacy.productsServices,
+        differentiators: extracted.legacy.differentiators,
+      },
+      { onConflict: "workspace_id" }
+    );
+
+    if (error) {
+      return { success: false, error: `No se pudo guardar el perfil: ${error.message}` };
+    }
+
+    const { data: refreshedWorkspace } = await supabase
+      .from("workspaces")
+      .select("slug")
+      .eq("id", workspaceId)
+      .single();
+    if (refreshedWorkspace?.slug) revalidatePath(`/${refreshedWorkspace.slug}/company-bio`);
+
+    return { success: true, data: extracted.profile };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "No se pudo extraer informacion del sitio web";
+    await supabase.from("brand_profiles").upsert(
+      {
+        workspace_id: workspaceId,
+        analysis_error: message,
+      },
+      { onConflict: "workspace_id" }
+    );
+    return { success: false, error: message };
+  }
+}
+
+export async function saveCompanyBioProfileAction(
+  workspaceId: string,
+  profile: CompanyBioProfile
+): Promise<ActionResult<CompanyBioProfile>> {
+  const supabase = await createClient();
+
+  const { data: canManage } = await supabase.rpc("can_manage_workspace", {
+    p_workspace_id: workspaceId,
+  });
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const website = profile.company.website?.trim() || null;
+  const summary = profile.businessOverview.summary?.trim() || null;
+  const legacyProducts = profile.productsServices.filter(Boolean).join("\n") || null;
+  const legacyFeatures = profile.keyFeatures.filter(Boolean).join("\n") || null;
+
+  const { error: workspaceError } = await supabase
+    .from("workspaces")
+    .update({
+      brand_name: profile.company.name,
+      name: profile.company.name,
+      domain: website,
+      brand_statement: summary,
+    })
+    .eq("id", workspaceId);
+
+  if (workspaceError) {
+    return {
+      success: false,
+      error: `No se pudo actualizar el workspace: ${workspaceError.message}`,
+    };
   }
 
-  return { success: true, data: extracted };
+  const { error: brandError } = await supabase
+    .from("brands")
+    .update({
+      name: profile.company.name,
+      domain: website,
+    })
+    .eq("workspace_id", workspaceId)
+    .eq("type", "own");
+
+  if (brandError) {
+    return {
+      success: false,
+      error: `No se pudo actualizar la marca propia: ${brandError.message}`,
+    };
+  }
+
+  const { error } = await supabase.from("brand_profiles").upsert(
+    {
+      workspace_id: workspaceId,
+      profile_data: profile,
+      extracted_summary: summary,
+      positioning: profile.company.category ?? profile.company.industry,
+      audience: profile.targetAudience || null,
+      products_services: legacyProducts,
+      differentiators: legacyFeatures,
+      analysis_source_url: profile.analysisInfo.sourceUrl || website,
+      analyzed_at: profile.analysisInfo.analyzedAt,
+      analysis_error: null,
+    },
+    { onConflict: "workspace_id" }
+  );
+
+  if (error)
+    return { success: false, error: `No se pudo guardar la Company Bio: ${error.message}` };
+
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("slug")
+    .eq("id", workspaceId)
+    .single();
+  if (workspace?.slug) revalidatePath(`/${workspace.slug}/company-bio`);
+
+  return { success: true, data: profile };
 }
 
 export async function inviteWorkspaceMemberByEmailAction(

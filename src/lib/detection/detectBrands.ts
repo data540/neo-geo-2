@@ -34,6 +34,16 @@ const GENERIC_NON_BRANDS = new Set([
   "airline",
   "aerolinea",
   "aerolineas",
+  // geographic abbreviations — not brand names
+  "latam",
+  "emea",
+  "apac",
+  "mena",
+  "dach",
+  "amer",
+  "cee",
+  "ue",
+  "eeuu",
 ]);
 
 export interface DetectBrandsOutput {
@@ -66,10 +76,7 @@ function findFirstIndex(text: string, brand: BrandInput): { idx: number; name: s
   return best;
 }
 
-function extractByAppearanceOrder(
-  text: string,
-  brands: BrandInput[]
-): Map<string, MentionInfo> {
+function extractByAppearanceOrder(text: string, brands: BrandInput[]): Map<string, MentionInfo> {
   const result = new Map<string, MentionInfo>();
   const hits: Array<{ brandId: string; idx: number; name: string }> = [];
   for (const brand of brands) {
@@ -91,10 +98,7 @@ function listSourceToPositionSource(source: ListSource): PositionSource {
   return source === "numbered_list" ? "numbered_list" : "bullet_list";
 }
 
-function extractMentionedBrands(
-  text: string,
-  brands: BrandInput[]
-): Map<string, MentionInfo> {
+function extractMentionedBrands(text: string, brands: BrandInput[]): Map<string, MentionInfo> {
   // Capa 1: regex de listas numeradas / bullets
   const ranking = extractRankingFromList(text, brands);
   if (ranking.size > 0) {

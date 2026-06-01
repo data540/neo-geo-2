@@ -149,13 +149,20 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     avg_sov?: number | null;
   } | null;
 
+  // Brand Consistency: prompts con appearance rate ≥ 70% / total prompts × 100
+  const brandConsistencyScore =
+    promptRows.length > 0
+      ? Math.round(
+          (promptRows.filter((r) => r.consistency_score >= 70).length / promptRows.length) * 100
+        )
+      : 0;
+
   const workspaceKpis: WorkspaceKpis = rawKpis
     ? {
         activePromptsCount: rawKpis.activePromptsCount ?? rawKpis.active_prompts_count ?? 0,
         brandMentionsCount: rawKpis.brandMentionsCount ?? rawKpis.brand_mentions_count ?? 0,
-        // Usa la misma lógica que el dashboard: solo posiciones de listas reales o LLM
         avgPosition: brandMetrics.current.avgPosition,
-        brandConsistency: rawKpis.brandConsistency ?? rawKpis.brand_consistency ?? 0,
+        brandConsistency: brandConsistencyScore,
         avgSov: rawKpis.avgSov ?? rawKpis.avg_sov ?? null,
       }
     : defaultKpis;
@@ -171,11 +178,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
           totalActive={activeCount}
         />
 
-        <PromptKpiCards
-          kpis={workspaceKpis}
-          enabledLlms={enabledLlms}
-          usagePct={usagePct}
-        />
+        <PromptKpiCards kpis={workspaceKpis} enabledLlms={enabledLlms} usagePct={usagePct} />
 
         <PromptPerformanceCard
           rows={promptRows}

@@ -29,7 +29,9 @@ function bgForExtreme(value: number, max: number, min: number, isPosition = fals
 }
 
 export function LlmComparisonTable({ rows, workspaceSlug, range, activeLlmKey }: Props) {
-  const visibleRows = rows.filter((r) => r.totalRuns > 0);
+  const visibleRows = rows
+    .filter((r) => r.totalRuns > 0)
+    .sort((a, b) => a.llmName.localeCompare(b.llmName));
   if (visibleRows.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-5">
