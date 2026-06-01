@@ -1,10 +1,28 @@
 import { notFound } from "next/navigation";
+import { BrandConsistencySummary } from "@/components/prompts/BrandConsistencySummary";
+import type { BrandConsistencyStats } from "@/components/prompts/BrandConsistencySummary";
 import { PromptKpiCards } from "@/components/prompts/PromptKpiCards";
 import { PromptPerformanceCard } from "@/components/prompts/PromptPerformanceCard";
 import { PromptsPageHeader } from "@/components/prompts/PromptsPageHeader";
 import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type { PromptPerformanceRow, RunStatus, WorkspaceKpis } from "@/types";
+
+function calcBrandConsistency(rows: PromptPerformanceRow[]): BrandConsistencyStats {
+  const total = rows.length;
+  const passing = rows.filter((r) => r.consistency_score >= 70).length;
+  const failing = rows.filter((r) => r.consistency_score < 70);
+  const score = total > 0 ? Math.round((passing / total) * 100) : 0;
+  return {
+    total,
+    passing,
+    failing: total - passing,
+    score,
+    failingPrompts: failing
+      .sort((a, b) => b.consistency_score - a.consistency_score)
+      .map((r) => ({ text: r.prompt_text, rate: r.consistency_score })),
+  };
+}
 
 interface EnabledLlm {
   key: string;
@@ -171,11 +189,9 @@ export default async function PromptsPage({ params, searchParams }: Props) {
           totalActive={activeCount}
         />
 
-        <PromptKpiCards
-          kpis={workspaceKpis}
-          enabledLlms={enabledLlms}
-          usagePct={usagePct}
-        />
+        <PromptKpiCards kpis={workspaceKpis} enabledLlms={enabledLlms} usagePct={usagePct} />
+
+        <BrandConsistencySummary stats={calcBrandConsistency(promptRows)} />
 
         <PromptPerformanceCard
           rows={promptRows}
