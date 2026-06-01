@@ -19,7 +19,7 @@ function calcBrandConsistency(rows: PromptPerformanceRow[]): BrandConsistencySta
     failing: total - passing,
     score,
     failingPrompts: failing
-      .sort((a, b) => b.consistency_score - a.consistency_score)
+      .sort((a, b) => a.consistency_score - b.consistency_score)
       .map((r) => ({ text: r.prompt_text, rate: r.consistency_score })),
   };
 }
