@@ -1,30 +1,10 @@
 import { notFound } from "next/navigation";
-import { BrandConsistencySummary } from "@/components/prompts/BrandConsistencySummary";
-import type { BrandConsistencyStats } from "@/components/prompts/BrandConsistencySummary";
 import { PromptKpiCards } from "@/components/prompts/PromptKpiCards";
 import { PromptPerformanceCard } from "@/components/prompts/PromptPerformanceCard";
 import { PromptsPageHeader } from "@/components/prompts/PromptsPageHeader";
 import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import type { PromptPerformanceRow, RunStatus, WorkspaceKpis } from "@/types";
-
-function calcBrandConsistency(
-  rows: PromptPerformanceRow[],
-  visibilityScore: number
-): BrandConsistencyStats {
-  const total = rows.length;
-  const passing = rows.filter((r) => r.consistency_score >= 70).length;
-  const failing = rows.filter((r) => r.consistency_score < 70);
-  return {
-    total,
-    passing,
-    failing: total - passing,
-    score: Math.round(visibilityScore),
-    failingPrompts: failing
-      .sort((a, b) => a.consistency_score - b.consistency_score)
-      .map((r) => ({ text: r.prompt_text, rate: r.consistency_score })),
-  };
-}
 
 interface EnabledLlm {
   key: string;
@@ -169,13 +149,20 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     avg_sov?: number | null;
   } | null;
 
+  // Brand Consistency: prompts con appearance rate ≥ 70% / total prompts × 100
+  const brandConsistencyScore =
+    promptRows.length > 0
+      ? Math.round(
+          (promptRows.filter((r) => r.consistency_score >= 70).length / promptRows.length) * 100
+        )
+      : 0;
+
   const workspaceKpis: WorkspaceKpis = rawKpis
     ? {
         activePromptsCount: rawKpis.activePromptsCount ?? rawKpis.active_prompts_count ?? 0,
         brandMentionsCount: rawKpis.brandMentionsCount ?? rawKpis.brand_mentions_count ?? 0,
-        // Usa la misma lógica que el dashboard: solo posiciones de listas reales o LLM
         avgPosition: brandMetrics.current.avgPosition,
-        brandConsistency: rawKpis.brandConsistency ?? rawKpis.brand_consistency ?? 0,
+        brandConsistency: brandConsistencyScore,
         avgSov: rawKpis.avgSov ?? rawKpis.avg_sov ?? null,
       }
     : defaultKpis;
@@ -192,8 +179,6 @@ export default async function PromptsPage({ params, searchParams }: Props) {
         />
 
         <PromptKpiCards kpis={workspaceKpis} enabledLlms={enabledLlms} usagePct={usagePct} />
-
-        <BrandConsistencySummary stats={calcBrandConsistency(promptRows, workspaceKpis.brandConsistency)} />
 
         <PromptPerformanceCard
           rows={promptRows}
