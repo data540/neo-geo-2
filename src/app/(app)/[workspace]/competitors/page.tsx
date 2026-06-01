@@ -311,22 +311,9 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
 
   // KPIs de la marca propia
   const ownMentionRows = mentions.filter((m) => m.brand_type === "own");
-  const ownRunIdsWithMention = new Set(ownMentionRows.map((m) => m.prompt_run_id));
-
-  // Brand Visibility = prompts con appearance rate ≥ 70% / total prompts × 100
-  // (misma fórmula que Consistencia de marca en sección Prompts)
-  const runsByPrompt = new Map<string, string[]>();
-  for (const run of completedRuns) {
-    const existing = runsByPrompt.get(run.prompt_id);
-    if (existing) existing.push(run.id);
-    else runsByPrompt.set(run.prompt_id, [run.id]);
-  }
-  const totalPrompts = runsByPrompt.size;
-  const passingPrompts = Array.from(runsByPrompt.values()).filter((runIds) => {
-    const withMention = runIds.filter((id) => ownRunIdsWithMention.has(id)).length;
-    return (withMention / runIds.length) * 100 >= 70;
-  }).length;
-  const ownVisibility = totalPrompts > 0 ? Math.round((passingPrompts / totalPrompts) * 100) : 0;
+  const ownRunsWithMention = new Set(ownMentionRows.map((m) => m.prompt_run_id)).size;
+  // Brand Visibility = runs con mención de marca / total runs × 100 (igual que Dashboard)
+  const ownVisibility = totalRuns > 0 ? round1((ownRunsWithMention / totalRuns) * 100) : 0;
   const ownPositions = ownMentionRows
     .map((m) => m.position)
     .filter((p): p is number => typeof p === "number" && Number.isFinite(p));
