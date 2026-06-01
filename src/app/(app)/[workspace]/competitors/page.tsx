@@ -215,8 +215,6 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
   const sovPool = ownMentions + competitorMentionsAll;
   const totalRuns = completedRuns.length;
 
-  // Para VISIBILITY: % de prompts únicos cubiertos en este período/LLM
-  const totalUniquePrompts = new Set(completedRuns.map((r) => r.prompt_id)).size;
   // Para THREAT: SOV de la marca propia (sin normalizar)
   const ownSovPct = sovPool > 0 ? (ownMentions / sovPool) * 100 : 0;
 
@@ -240,9 +238,8 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
           ? round1(positions.reduce((a, b) => a + b, 0) / positions.length)
           : null;
 
-      // VISIBILITY: % de prompts únicos donde aparece el competidor
-      const visibility =
-        totalUniquePrompts > 0 ? round1((promptIdsSet.size / totalUniquePrompts) * 100) : 0;
+      // VISIBILITY: % de queries (runs) donde aparece el competidor
+      const visibility = totalRuns > 0 ? round1((runIdsSet.size / totalRuns) * 100) : 0;
 
       const sov = sovPool > 0 ? round1((cMentions.length / sovPool) * 100) : null;
       const sentiment = getDominantSentiment(cMentions.map((m) => m.sentiment));
