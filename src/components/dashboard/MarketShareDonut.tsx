@@ -1,10 +1,10 @@
 "use client";
 
 import { X } from "lucide-react";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
+import { toast } from "sonner";
 import { deleteCompetitorAction } from "@/actions/competitors";
 import type { MarketShareEntry } from "@/types";
 
@@ -16,7 +16,6 @@ interface Props {
 }
 
 const OWN_COLOR = "#1237e8";
-const REST_COLOR = "#cbd5e1";
 const PALETTE = [
   "#f97316",
   "#14b8a6",
@@ -39,7 +38,7 @@ function colorForBrand(name: string, isOwn: boolean): string {
     hash = (hash * 31 + name.charCodeAt(i)) | 0;
   }
 
-  return PALETTE[Math.abs(hash) % PALETTE.length]!;
+  return PALETTE[Math.abs(hash) % PALETTE.length] ?? PALETTE[0] ?? "#64748b";
 }
 
 export function MarketShareDonut({ data, ownBrandName, badgeLabel, workspaceId }: Props) {
@@ -48,8 +47,6 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel, workspaceId }
 
   const sortedData = [...data].sort((a, b) => b.mentionsCount - a.mentionsCount);
   const visible = sortedData.slice(0, 10);
-  const rest = sortedData.slice(10);
-  const restShare = Math.round(rest.reduce((acc, r) => acc + r.sharePct, 0) * 10) / 10;
   const maxVisibleShare = Math.max(...visible.map((d) => d.sharePct), 1);
   const chartData = visible.map((d) => ({
     name: d.brandName,
@@ -59,17 +56,6 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel, workspaceId }
     color: colorForBrand(d.brandName, d.brandType === "own"),
     brandId: d.brandId,
   }));
-
-  if (restShare > 0) {
-    chartData.push({
-      name: `+${rest.length} more competitors`,
-      value: restShare,
-      mentionsCount: rest.reduce((acc, r) => acc + r.mentionsCount, 0),
-      isOwn: false,
-      color: REST_COLOR,
-      brandId: "",
-    });
-  }
 
   async function handleDelete(brandId: string, index: number) {
     setDeletingIndex(index);
@@ -88,7 +74,9 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel, workspaceId }
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="mb-3">
           <h3 className="text-sm font-semibold text-slate-900">Market Share</h3>
-          <p className="text-xs text-slate-500 mt-0.5">SOV normalizado sobre marcas detectadas</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Top 10 por SOV normalizado sobre marcas detectadas
+          </p>
         </div>
         <p className="text-center text-xs text-slate-400 py-12">Sin menciones en este rango.</p>
       </div>
@@ -100,7 +88,9 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel, workspaceId }
       <div className="flex items-center justify-between mb-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">Market Share</h3>
-          <p className="text-xs text-slate-500 mt-0.5">SOV normalizado sobre marcas detectadas</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Top 10 por SOV normalizado sobre marcas detectadas
+          </p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
           {badgeLabel ?? "Ultimos 7D"}
@@ -129,11 +119,11 @@ export function MarketShareDonut({ data, ownBrandName, badgeLabel, workspaceId }
       </div>
 
       <p className="text-[11px] leading-relaxed text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
-        Suma 100%. Incluye {ownBrandName} y competidores detectados. La tabla de competidores puede
-        usar otro denominador operativo.
+        Muestra solo las 10 marcas con mas menciones, incluyendo {ownBrandName} si entra en el
+        ranking. Los porcentajes mantienen el SOV normalizado del periodo.
       </p>
 
-      <div className="mt-3 space-y-2 max-h-56 overflow-y-auto pr-1">
+      <div className="mt-3 space-y-2 pr-1">
         {chartData.map((entry, index) => (
           <div key={entry.name} className="group flex items-center gap-2 text-sm">
             <span

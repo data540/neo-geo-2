@@ -57,6 +57,12 @@ export interface BrandProfile {
   audience: string | null;
   products_services: string | null;
   differentiators: string | null;
+  profile_data: CompanyBioProfile | null;
+  analysis_source_url: string | null;
+  analysis_model: string | null;
+  analysis_input_digest: string | null;
+  analyzed_at: string | null;
+  analysis_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -339,6 +345,21 @@ export interface SourceRankingRow {
   extraPromptCount: number;
 }
 
+export interface SourceCitationRow {
+  id: string;
+  domain: string | null;
+  url: string | null;
+  title: string | null;
+  citedByLlm: boolean;
+  sourceCreatedAt: string;
+  runCreatedAt: string | null;
+  runStatus: RunStatus | null;
+  llmKey: LlmProviderKey | null;
+  llmName: string | null;
+  promptText: string | null;
+  promptCountry: string | null;
+}
+
 export interface SourceDetailCitedUrl {
   url: string;
   title: string | null;
@@ -480,6 +501,53 @@ export interface ExtractedBrandProfile {
   audience: string | null;
   productsServices: string | null;
   differentiators: string | null;
+}
+
+export type CompanyBioConfidence = "high" | "medium" | "low";
+
+export interface CompanyBioProfile {
+  company: {
+    name: string;
+    website: string;
+    category: string | null;
+    industry: string | null;
+    geography: string | null;
+    logoHint: string | null;
+  };
+  businessOverview: {
+    summary: string;
+    valueProposition: string | null;
+  };
+  targetAudience: string;
+  businessModelRevenue: {
+    pricingStrategy: string | null;
+    revenueStreams: string[];
+  };
+  productsServices: string[];
+  technologyPartnerships: {
+    technologyStack: string[];
+    keyPartnerships: string[];
+  };
+  userExperienceContent: {
+    userExperience: string | null;
+    contentStrategy: string | null;
+  };
+  socialProof: string[];
+  keyFeatures: string[];
+  analysisInfo: {
+    analyzedAt: string;
+    sourceUrl: string;
+    pagesAnalyzed: string[];
+    confidence: CompanyBioConfidence;
+  };
+}
+
+export interface CompanyBioAnalysisResult {
+  profile: CompanyBioProfile;
+  legacy: ExtractedBrandProfile;
+  sourceUrl: string;
+  model: string;
+  inputDigest: string;
 }
 
 // ── Knowledge Base Management ──────────────────────────────────────────────────
