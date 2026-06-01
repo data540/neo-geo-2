@@ -32,6 +32,16 @@ const GENERIC_EXCLUSIONS = new Set([
   "soluciones",
   "plataforma",
   "herramienta",
+  // geographic abbreviations — not brand names
+  "latam",
+  "emea",
+  "apac",
+  "mena",
+  "dach",
+  "amer",
+  "cee",
+  "ue",
+  "eeuu",
 ]);
 
 // Verbos y frases genéricas que no son marcas
