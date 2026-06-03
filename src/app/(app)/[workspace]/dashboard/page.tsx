@@ -141,6 +141,42 @@ function calcAvgSentiment(
   return Math.round((sum / mentions.length) * 100) / 100;
 }
 
+// Colapsa filas de daily_workspace_metrics (una por proveedor y fecha) en una
+// sola fila por fecha, promediando los campos numéricos. Se usa en "All LLMs".
+type DailyMetricRow = {
+  date: string;
+  active_prompts_count: number | null;
+  brand_mentions_count: number | null;
+  avg_position: number | null;
+  brand_consistency: number | null;
+  avg_sov: number | null;
+};
+
+function avgOf(values: (number | null)[]): number | null {
+  const nums = values.filter((v): v is number => typeof v === "number");
+  if (nums.length === 0) return null;
+  return Math.round((nums.reduce((s, v) => s + v, 0) / nums.length) * 10) / 10;
+}
+
+function aggregateMetricsByDate(rows: DailyMetricRow[]): DailyMetricRow[] {
+  const byDate = new Map<string, DailyMetricRow[]>();
+  for (const row of rows) {
+    const bucket = byDate.get(row.date);
+    if (bucket) bucket.push(row);
+    else byDate.set(row.date, [row]);
+  }
+  return Array.from(byDate.entries())
+    .map(([date, group]) => ({
+      date,
+      active_prompts_count: avgOf(group.map((g) => g.active_prompts_count)),
+      brand_mentions_count: group.reduce((s, g) => s + (g.brand_mentions_count ?? 0), 0),
+      avg_position: avgOf(group.map((g) => g.avg_position)),
+      brand_consistency: avgOf(group.map((g) => g.brand_consistency)),
+      avg_sov: avgOf(group.map((g) => g.avg_sov)),
+    }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
 // ── Range config ───────────────────────────────────────────────────────────────
 const RANGE_OPTIONS = [
   { value: 1, label: "Ayer" },
@@ -156,7 +192,8 @@ const VALID_RANGES = RANGE_OPTIONS.map((r) => String(r.value));
 
 export default async function DashboardPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", range = "7", country } = await searchParams;
+  const { llm, range = "7", country } = await searchParams;
+  const llmKey = llm ?? null;
 
   const supabase = await createClient();
   const days = VALID_RANGES.includes(range) ? Number(range) : 7;
@@ -178,39 +215,53 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   if (!workspace) notFound();
 
-  const { data: provider } = await supabase
-    .from("llm_providers")
-    .select("id")
-    .eq("key", llm)
-    .single();
+  // Resolver provider solo si hay un LLM concreto. "All LLMs" (llmKey === null)
+  // agrega métricas de todos los proveedores.
+  let providerId: string | null = null;
+  if (llmKey) {
+    const { data: provider } = await supabase
+      .from("llm_providers")
+      .select("id")
+      .eq("key", llmKey)
+      .single();
 
-  if (!provider) notFound();
+    if (!provider) notFound();
+    providerId = provider.id;
+  }
 
   // ── Load 2× period for delta calculation ──────────────────────────────────
-  const { data: allMetricRows } = await supabase
+  let metricsQuery = supabase
     .from("daily_workspace_metrics")
     .select(
       "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
     )
     .eq("workspace_id", workspace.id)
-    .eq("llm_provider_id", provider.id)
     .order("date", { ascending: false })
-    .limit(days * 2);
+    // En "All LLMs" hay una fila por proveedor y fecha: ampliamos el límite.
+    .limit(providerId ? days * 2 : days * 2 * 4);
+  if (providerId) metricsQuery = metricsQuery.eq("llm_provider_id", providerId);
+  const { data: allMetricRowsRaw } = await metricsQuery;
 
-  const rows = (allMetricRows ?? []).slice(0, days);
+  // En "All LLMs" colapsamos a una fila por fecha promediando brand_consistency
+  // (único campo de esta tabla que se usa aguas abajo, en el chart).
+  const allMetricRows = providerId
+    ? (allMetricRowsRaw ?? [])
+    : aggregateMetricsByDate(allMetricRowsRaw ?? []);
+
+  const rows = allMetricRows.slice(0, days);
 
   // ── Current period KPIs ────────────────────────────────────────────────────
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
     country: country ?? null,
     days,
-    llmProviderId: provider.id,
+    llmProviderId: providerId,
   });
   const brandVisibilityTrendMetrics = await getWorkspaceBrandVisibilityTrendMetrics({
     workspaceId: workspace.id,
     country: country ?? null,
     days,
-    llmProviderId: provider.id,
+    llmProviderId: providerId,
     ownBrandName: workspace.brand_name,
   });
 
@@ -348,20 +399,20 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   };
 
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
-    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
-    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: country ?? null }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: slug,
       days,
       limit_n: 5,
-      llm_key: llm,
+      llm_key: llmKey,
       p_country_filter: country ?? null,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: slug,
       days,
       limit_n: 5,
-      llm_key: null,
+      llm_key: llmKey,
       p_country_filter: country ?? null,
     }),
     supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: country ?? null }),
@@ -428,7 +479,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 return (
                   <Link
                     key={value}
-                    href={`/${slug}/dashboard?llm=${llm}&range=${value}`}
+                    href={`/${slug}/dashboard?${llm ? `llm=${llm}&` : ""}range=${value}`}
                     className={[
                       "px-3 py-1 rounded-full text-xs font-medium transition-colors",
                       active
@@ -441,14 +492,18 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 );
               })}
             </div>
-            <ExportDashboardButton workspaceSlug={slug} days={days} llmKey={llm} />
+            <ExportDashboardButton workspaceSlug={slug} days={days} llmKey={llmKey} />
             {/* Live data badge */}
             <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
               Live data
             </span>
             <RunAllPromptsButton workspaceId={workspace.id} />
-            <DashboardRefreshButton workspaceId={workspace.id} slug={workspace.slug} llmKey={llm} />
+            <DashboardRefreshButton
+              workspaceId={workspace.id}
+              slug={workspace.slug}
+              llmKey={llm ?? "chatgpt"}
+            />
           </div>
         </div>
 
@@ -570,7 +625,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           rows={llmComparison}
           workspaceSlug={slug}
           range={days}
-          activeLlmKey={llm}
+          activeLlmKey={llm ?? ""}
         />
 
         <CompetitorShareTrendsChart data={brandVisibilityTrendMetrics} badgeLabel={badgeLabel} />
