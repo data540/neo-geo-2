@@ -148,6 +148,7 @@ OPENROUTER_APP_NAME          # Opcional — X-Title para OpenRouter analytics
 OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4o-mini
 OPENROUTER_MODEL_GEMINI      # Opcional — override del default google/gemini-2.0-flash-001
 OPENROUTER_MODEL_PERPLEXITY  # Opcional — override del default perplexity/sonar
+OPENROUTER_MODEL_SENTIMENT   # Opcional — default openai/gpt-4o-mini (análisis LLM de sentiment)
 OPENROUTER_EMBEDDING_MODEL   # Opcional — default openai/text-embedding-3-small
 OPENAI_API_KEY_EMBEDDINGS    # Fallback final para embeddings si falla/no está OpenRouter
 OPENAI_API_KEY               # Fallback de OPENAI_API_KEY_EMBEDDINGS si no está configurada

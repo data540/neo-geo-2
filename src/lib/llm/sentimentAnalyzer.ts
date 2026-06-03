@@ -8,7 +8,7 @@ export interface SentimentResult {
   reason: string;
 }
 
-const SENTIMENT_MODEL = process.env.OPENROUTER_MODEL_SENTIMENT?.trim() || "openai/gpt-5.4-nano";
+const SENTIMENT_MODEL = process.env.OPENROUTER_MODEL_SENTIMENT?.trim() || "openai/gpt-4o-mini";
 
 const SentimentItemSchema = z.object({
   brand: z.string().min(1),
