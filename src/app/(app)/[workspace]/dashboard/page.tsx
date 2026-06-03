@@ -1,6 +1,7 @@
 import { Eye, Smile, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AiOverviewDashboard } from "@/components/dashboard/AiOverviewDashboard";
 import { BrandVisibilityTrendChart } from "@/components/dashboard/BrandVisibilityTrendChart";
 import { CompetitorShareTrendsChart } from "@/components/dashboard/CompetitorShareTrendsChart";
 import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
@@ -12,7 +13,9 @@ import { RunAllPromptsButton } from "@/components/dashboard/RunAllPromptsButton"
 import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
+import { Delta, fmtScore, sentimentLabel, Sparkline } from "@/components/dashboard/kpi-helpers";
 import { Card, CardContent } from "@/components/ui/card";
+import { parseAioContent } from "@/lib/aio/parseAioContent";
 import {
   getWorkspaceBrandPerformanceMetrics,
   getWorkspaceBrandVisibilityTrendMetrics,
@@ -31,101 +34,6 @@ import type {
 interface Props {
   params: Promise<{ workspace: string }>;
   searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
-}
-
-// ── Sparkline with filled area ─────────────────────────────────────────────────
-function buildSparklinePath(values: number[], width: number, height: number): string {
-  if (values.length === 0) return "";
-  if (values.length === 1) return `M 0 ${height / 2} L ${width} ${height / 2}`;
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-
-  return values
-    .map((value, idx) => {
-      const x = (idx / (values.length - 1)) * width;
-      const y = height - ((value - min) / range) * (height * 0.85);
-      return `${idx === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
-
-function Sparkline({
-  values,
-  strokeColor,
-  fillColor,
-}: {
-  values: number[];
-  strokeColor: string;
-  fillColor: string;
-}) {
-  const width = 220;
-  const height = 42;
-  const linePath = buildSparklinePath(values, width, height);
-  const areaPath = linePath ? `${linePath} L ${width} ${height} L 0 ${height} Z` : "";
-
-  return (
-    <div className="mt-3">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full h-10"
-        aria-hidden="true"
-        preserveAspectRatio="none"
-      >
-        {areaPath && <path d={areaPath} fill={fillColor} fillOpacity="0.15" stroke="none" />}
-        {linePath ? (
-          <path d={linePath} fill="none" stroke={strokeColor} strokeWidth="2" />
-        ) : (
-          <line
-            x1="0"
-            y1={height / 2}
-            x2={width}
-            y2={height / 2}
-            stroke={strokeColor}
-            strokeWidth="2"
-          />
-        )}
-      </svg>
-    </div>
-  );
-}
-
-// ── Delta badge ────────────────────────────────────────────────────────────────
-function Delta({
-  value,
-  invertColors = false,
-  suffix = "",
-}: {
-  value: number | null;
-  invertColors?: boolean;
-  suffix?: string;
-}) {
-  if (value === null || value === 0) return <span className="text-xs text-slate-400">—</span>;
-  const isUp = value > 0;
-  const isGood = invertColors ? !isUp : isUp;
-  const abs = Math.abs(value);
-  const formatted = abs % 1 === 0 ? `${abs}` : `${abs.toFixed(1)}`;
-  return (
-    <span className={`text-sm font-medium ${isGood ? "text-emerald-600" : "text-red-500"}`}>
-      {isUp ? "↑" : "↓"}
-      {formatted}
-      {suffix}
-    </span>
-  );
-}
-
-// ── Sentiment helpers ──────────────────────────────────────────────────────────
-function sentimentLabel(score: number | null): { text: string; color: string } {
-  if (score === null) return { text: "—", color: "text-slate-400" };
-  if (score >= 0.2) return { text: "Positive", color: "text-emerald-600" };
-  if (score <= -0.2) return { text: "Negative", color: "text-red-500" };
-  return { text: "Mixed", color: "text-amber-500" };
-}
-
-function fmtScore(score: number | null): string {
-  if (score === null) return "";
-  return `${score >= 0 ? "+" : ""}${score.toFixed(2)}`;
 }
 
 function calcAvgSentiment(
@@ -305,14 +213,26 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const { data: sentimentMentionsRaw } = await sentimentQuery;
 
-  // Filtrar client-side por país si aplica (via prompt_run → prompt_id lookup)
+  // Filtrar client-side por país y/o LLM (via prompt_run lookup). El sentiment
+  // así respeta el filtro de proveedor igual que el resto de KPIs.
   let sentimentRunIds: Set<string> | null = null;
-  if (sentimentPromptIds !== null) {
-    const { data: filteredRuns } = await supabase
+  if (sentimentPromptIds !== null || providerId) {
+    let runsFilterQuery = supabase
       .from("prompt_runs")
       .select("id")
       .eq("workspace_id", workspace.id)
-      .in("prompt_id", sentimentPromptIds.length > 0 ? sentimentPromptIds : ["__none__"]);
+      .gte("created_at", prevPeriodStart.toISOString())
+      .limit(20000);
+    if (sentimentPromptIds !== null) {
+      runsFilterQuery = runsFilterQuery.in(
+        "prompt_id",
+        sentimentPromptIds.length > 0 ? sentimentPromptIds : ["__none__"]
+      );
+    }
+    if (providerId) {
+      runsFilterQuery = runsFilterQuery.eq("llm_provider_id", providerId);
+    }
+    const { data: filteredRuns } = await runsFilterQuery;
     sentimentRunIds = new Set((filteredRuns ?? []).map((r) => r.id as string));
   }
 
@@ -462,6 +382,96 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     totalRuns: Number(r.total_runs),
   }));
 
+  // SOV de la marca propia para la vista AI Overview (marketShare ya filtra por llm_key)
+  const ownSov = marketShare.find((m) => m.brandType === "own")?.sharePct ?? 0;
+
+  // ── AI Overview content derivation (solo cuando se filtra por "AI Overviews") ──
+  const isAiOverview = llm === "gemini";
+
+  // Métricas derivadas del texto del modelo (Topic Sections, Content Structure)
+  let aio = {
+    topicSections: [] as ReturnType<typeof parseAioContent>["topicSections"],
+    contentStructure: [] as ReturnType<typeof parseAioContent>["contentStructure"],
+    blocksAnalyzed: 0,
+    responsesAnalyzed: 0,
+  };
+  // Métricas SERP reales de la caché semanal (Presence Rate, SERP Position)
+  let serpMetrics = {
+    presenceRate: null as number | null,
+    avgSerpPosition: null as number | null,
+    distribution: null as { pos1: number; pos2: number; pos3plus: number; noAio: number } | null,
+    serpTopicSections: [] as Array<{ name: string; count: number }>,
+    totalSnapshots: 0,
+  };
+
+  if (isAiOverview && providerId) {
+    // Datos del texto del modelo (sin coste SERP)
+    const { data: aioRuns } = await supabase
+      .from("prompt_runs")
+      .select("raw_response")
+      .eq("workspace_id", workspace.id)
+      .eq("llm_provider_id", providerId)
+      .eq("status", "completed")
+      .gte("created_at", periodStart.toISOString())
+      .limit(5000);
+    const rawResponses = (aioRuns ?? [])
+      .map((r) => (r as { raw_response: string | null }).raw_response)
+      .filter((r): r is string => typeof r === "string" && r.length > 0);
+    aio = parseAioContent(rawResponses);
+
+    // Datos SERP reales de la caché semanal (se generan por el CRON de Inngest)
+    const { data: serpRows } = await supabase
+      .from("prompt_serp_cache")
+      .select("ai_overview_present, ai_overview_serp_position, ai_overview_sections")
+      .eq("workspace_id", workspace.id)
+      // Tomamos el snapshot más reciente de cada prompt dentro del período
+      .gte("fetched_at", periodStart.toISOString())
+      .order("fetched_at", { ascending: false })
+      .limit(2000);
+
+    if (serpRows && serpRows.length > 0) {
+      type SerpRow = {
+        ai_overview_present: boolean;
+        ai_overview_serp_position: number | null;
+        ai_overview_sections: Array<{ name: string; position: number }>;
+      };
+      const rows = serpRows as SerpRow[];
+      const total = rows.length;
+      const present = rows.filter((r) => r.ai_overview_present);
+      const presenceRate = Math.round((present.length / total) * 1000) / 10;
+
+      const positions = present
+        .map((r) => r.ai_overview_serp_position)
+        .filter((p): p is number => typeof p === "number");
+      const avgSerpPosition =
+        positions.length > 0
+          ? Math.round((positions.reduce((s, v) => s + v, 0) / positions.length) * 10) / 10
+          : null;
+
+      const dist = { pos1: 0, pos2: 0, pos3plus: 0, noAio: 0 };
+      for (const r of rows) {
+        if (!r.ai_overview_present) dist.noAio++;
+        else if (r.ai_overview_serp_position === 1) dist.pos1++;
+        else if (r.ai_overview_serp_position === 2) dist.pos2++;
+        else dist.pos3plus++;
+      }
+
+      // Secciones SERP reales: contar apariciones por nombre de sección
+      const sectionCounts = new Map<string, number>();
+      for (const r of present) {
+        for (const s of r.ai_overview_sections ?? []) {
+          if (s.name) sectionCounts.set(s.name, (sectionCounts.get(s.name) ?? 0) + 1);
+        }
+      }
+      const serpTopicSections = Array.from(sectionCounts.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8);
+
+      serpMetrics = { presenceRate, avgSerpPosition, distribution: dist, serpTopicSections, totalSnapshots: total };
+    }
+  }
+
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
@@ -507,6 +517,27 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           </div>
         </div>
 
+        {isAiOverview ? (
+          <AiOverviewDashboard
+            visibility={visibility}
+            visibilitySeries={visibilitySeries}
+            visibilityDelta={visibilityDelta}
+            ownSov={ownSov}
+            avgSentiment={avgSentiment}
+            sentimentDelta={sentimentDelta}
+            topicSections={aio.topicSections}
+            contentStructure={aio.contentStructure}
+            blocksAnalyzed={aio.blocksAnalyzed}
+            responsesAnalyzed={aio.responsesAnalyzed}
+            rangeLabel={rangeLabel}
+            presenceRate={serpMetrics.presenceRate}
+            avgSerpPosition={serpMetrics.avgSerpPosition}
+            serpDistribution={serpMetrics.distribution}
+            serpTopicSections={serpMetrics.serpTopicSections}
+            totalSnapshots={serpMetrics.totalSnapshots}
+          />
+        ) : (
+          <>
         {/* ── KPI Cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Visibility */}
@@ -776,6 +807,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

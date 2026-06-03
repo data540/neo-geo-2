@@ -152,6 +152,7 @@ OPENROUTER_MODEL_SENTIMENT   # Opcional — default openai/gpt-4o-mini (análisi
 OPENROUTER_EMBEDDING_MODEL   # Opcional — default openai/text-embedding-3-small
 OPENAI_API_KEY_EMBEDDINGS    # Fallback final para embeddings si falla/no está OpenRouter
 OPENAI_API_KEY               # Fallback de OPENAI_API_KEY_EMBEDDINGS si no está configurada
+SERPAPI_KEY                  # Para el refresco semanal de datos SERP de Google AI Overview (src/inngest/functions/refreshAioSerpData.ts). Sin esta key el CRON no hace llamadas (falla con error explícito). Coste ~1 call/prompt/semana.
 ```
 
 > Las claves `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY`, `OPENROUTER_MODEL_CLAUDE` y `OPENROUTER_MODEL_DEEPSEEK` ya **no se usan**. Toda la inferencia de LLM va por OpenRouter con los 3 proveedores activos.
