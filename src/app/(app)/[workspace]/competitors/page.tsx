@@ -307,7 +307,8 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
       if (b.avgPosition === null) return -1;
       if (a.avgPosition !== b.avgPosition) return a.avgPosition - b.avgPosition;
       return b.visibility - a.visibility;
-    });
+    })
+    .filter((c) => c.visibility > 0 || c.avgPosition !== null || c.sov !== null);
 
   // KPIs de la marca propia
   const ownMentionRows = mentions.filter((m) => m.brand_type === "own");

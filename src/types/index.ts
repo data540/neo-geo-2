@@ -336,6 +336,13 @@ export interface SourceRankingEntry {
   pctOfRuns: number;
 }
 
+export interface SourceKpis {
+  brandCitingUrls: number;
+  mostInfluentialDomain: string | null;
+  mostInfluentialCount: number;
+  sourceTypeCount: number;
+}
+
 export interface SourceRankingRow {
   domain: string;
   citationsCount: number;

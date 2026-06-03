@@ -566,19 +566,19 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           <MentionBreakdownPanel data={breakdown} badgeLabel={badgeLabel} />
         </div>
 
-        <CompetitorShareTrendsChart data={brandVisibilityTrendMetrics} badgeLabel={badgeLabel} />
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TopCompetitorsPanel data={topCompetitors} />
-          <SourcePowerRanking data={topSources} badgeLabel={badgeLabel} />
-        </div>
-
         <LlmComparisonTable
           rows={llmComparison}
           workspaceSlug={slug}
           range={days}
           activeLlmKey={llm}
         />
+
+        <CompetitorShareTrendsChart data={brandVisibilityTrendMetrics} badgeLabel={badgeLabel} />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TopCompetitorsPanel data={topCompetitors} />
+          <SourcePowerRanking data={topSources} badgeLabel={badgeLabel} />
+        </div>
 
         {/* ── Visibility Trends ── */}
         <div>

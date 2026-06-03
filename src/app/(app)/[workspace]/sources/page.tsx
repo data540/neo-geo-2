@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { SourceCitationsTable } from "@/components/sources/SourceCitationsTable";
+import { SourceKpiCards } from "@/components/sources/SourceKpiCards";
 import { SourceRankingsTable } from "@/components/sources/SourceRankingsTable";
+import { getSourceType } from "@/lib/sources/classify";
 import { createClient } from "@/lib/supabase/server";
-import type { LlmProviderKey, RunStatus, SourceCitationRow, SourceRankingRow } from "@/types";
+import type { LlmProviderKey, RunStatus, SourceCitationRow, SourceKpis, SourceRankingRow } from "@/types";
 
 interface Props {
   params: Promise<{ workspace: string }>;
@@ -80,13 +82,21 @@ export default async function SourcesPage({ params, searchParams }: Props) {
 
   if (!workspace) notFound();
 
-  const { data: rawRows } = await supabase.rpc("get_workspace_source_rankings", {
-    workspace_slug: slug,
-    days,
-    llm_key: llm ?? null,
-    p_country_filter: country ?? null,
-    limit_n: 100,
-  });
+  const [{ data: rawRows }, { data: rawKpis }] = await Promise.all([
+    supabase.rpc("get_workspace_source_rankings", {
+      workspace_slug: slug,
+      days,
+      llm_key: llm ?? null,
+      p_country_filter: country ?? null,
+      limit_n: 100,
+    }),
+    supabase.rpc("get_workspace_source_kpis", {
+      workspace_slug: slug,
+      days,
+      llm_key: llm ?? null,
+      p_country_filter: country ?? null,
+    }),
+  ]);
 
   const rankingRows: SourceRankingRow[] = (rawRows ?? []).map(
     (row: {
@@ -141,6 +151,21 @@ export default async function SourcesPage({ params, searchParams }: Props) {
     promptCountry: prompt?.country ?? null,
   }));
 
+  const kpisRaw = rawKpis as {
+    brand_citing_urls?: number;
+    most_influential_domain?: string | null;
+    most_influential_count?: number;
+  } | null;
+
+  const sourceTypeCount = new Set(rankingRows.map((r) => getSourceType(r.domain))).size;
+
+  const sourceKpis: SourceKpis = {
+    brandCitingUrls: kpisRaw?.brand_citing_urls ?? 0,
+    mostInfluentialDomain: kpisRaw?.most_influential_domain ?? null,
+    mostInfluentialCount: kpisRaw?.most_influential_count ?? 0,
+    sourceTypeCount,
+  };
+
   const domainsCount = new Set(citationRows.map((row) => row.domain).filter(Boolean)).size;
   const urlsCount = new Set(citationRows.map((row) => row.url).filter(Boolean)).size;
   const promptsCount = new Set(citationRows.map((row) => row.promptText).filter(Boolean)).size;
@@ -178,6 +203,8 @@ export default async function SourcesPage({ params, searchParams }: Props) {
             hint={`${llmsCount} motor(es) IA`}
           />
         </div>
+
+        <SourceKpiCards kpis={sourceKpis} />
 
         {rankingRows.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
