@@ -4,6 +4,7 @@ import { aggregateDailyMetrics } from "@/inngest/functions/aggregateDailyMetrics
 import { extractCompetitorsFromPromptRunsDaily } from "@/inngest/functions/extractCompetitorsFromPromptRunsDaily";
 import { geoResearchPipeline } from "@/inngest/functions/geoResearchPipeline";
 import { pipelineCacheCleanup } from "@/inngest/functions/pipelineCacheCleanup";
+import { refreshAioSerpData } from "@/inngest/functions/refreshAioSerpData";
 import { runPromptManual } from "@/inngest/functions/runPromptManual";
 import { runPromptManualMulti } from "@/inngest/functions/runPromptManualMulti";
 import { runPromptScheduled } from "@/inngest/functions/runPromptScheduled";
@@ -18,5 +19,6 @@ export const { GET, POST, PUT } = serve({
     extractCompetitorsFromPromptRunsDaily,
     geoResearchPipeline,
     pipelineCacheCleanup,
+    refreshAioSerpData,
   ],
 });

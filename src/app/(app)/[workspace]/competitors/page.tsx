@@ -95,15 +95,10 @@ function getDominantSentiment(
   return best;
 }
 
-const LLM_OPTIONS = [
-  { key: "chatgpt", label: "ChatGPT" },
-  { key: "gemini", label: "AI Overviews" },
-  { key: "perplexity", label: "Perplexity" },
-] as const;
-
 export default async function CompetitorsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", range = "30", country } = await searchParams;
+  const { llm, range = "30", country } = await searchParams;
+  const llmKey = llm ?? null;
 
   // ── Cálculo de ventana temporal ────────────────────────────────────────────
   const isYesterday = range === "yesterday";
@@ -157,11 +152,18 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     .order("created_at", { ascending: false })
     .limit(30);
 
-  const { data: provider } = await supabase
-    .from("llm_providers")
-    .select("id, key")
-    .eq("key", llm)
-    .single();
+  // Resolver provider solo si hay un LLM concreto seleccionado.
+  // "All LLMs" (llmKey === null) agrega todos los proveedores.
+  let providerId: string | null = null;
+  if (llmKey) {
+    const { data: provider } = await supabase
+      .from("llm_providers")
+      .select("id")
+      .eq("key", llmKey)
+      .single();
+    // Si la key no existe, forzamos un filtro vacío en vez de mostrar todo.
+    providerId = provider?.id ?? "__none__";
+  }
 
   // Filtro de país: obtener prompt_ids del país seleccionado
   let countryPromptIds: string[] | null = null;
@@ -178,11 +180,11 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     .from("prompt_runs")
     .select("id, prompt_id, created_at")
     .eq("workspace_id", workspace.id)
-    .eq("llm_provider_id", provider?.id ?? "")
     .eq("status", "completed")
     .gte("created_at", lookbackIso)
     .order("created_at", { ascending: false })
     .limit(queryLimit);
+  if (providerId) runsQuery = runsQuery.eq("llm_provider_id", providerId);
   if (ceilingIso) runsQuery = runsQuery.lt("created_at", ceilingIso);
   if (countryPromptIds !== null) {
     runsQuery = runsQuery.in("prompt_id", countryPromptIds.length > 0 ? countryPromptIds : ["__none__"]);
@@ -307,7 +309,8 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
       if (b.avgPosition === null) return -1;
       if (a.avgPosition !== b.avgPosition) return a.avgPosition - b.avgPosition;
       return b.visibility - a.visibility;
-    });
+    })
+    .filter((c) => c.visibility > 0 || c.avgPosition !== null || c.sov !== null);
 
   // KPIs de la marca propia
   const ownMentionRows = mentions.filter((m) => m.brand_type === "own");
@@ -536,34 +539,10 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Filtros LLM */}
-          <div className="flex items-center gap-2">
-            {LLM_OPTIONS.map((option) => {
-              const isActive = llm === option.key;
-              const href = `/${slug}/competitors?llm=${option.key}&range=${range}`;
-              return (
-                <a
-                  key={option.key}
-                  href={href}
-                  className={[
-                    "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                    isActive
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
-                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-                  ].join(" ")}
-                >
-                  {option.label}
-                </a>
-              );
-            })}
-          </div>
-
-          <div className="w-px h-5 bg-slate-200" />
-
           {/* Selector de rango de fechas */}
           <div className="flex items-center gap-1.5">
             <a
-              href={`/${slug}/competitors?llm=${llm}&range=yesterday`}
+              href={`/${slug}/competitors?${llm ? `llm=${llm}&` : ""}range=yesterday`}
               className={[
                 "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                 isYesterday
@@ -578,7 +557,7 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
               return (
                 <a
                   key={d}
-                  href={`/${slug}/competitors?llm=${llm}&range=${d}`}
+                  href={`/${slug}/competitors?${llm ? `llm=${llm}&` : ""}range=${d}`}
                   className={[
                     "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                     active
@@ -614,7 +593,7 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
         <CompetitorTableSortable
           rows={competitorPerformance}
           totalRuns={totalRuns}
-          llm={llm}
+          llm={llm ?? "All LLMs"}
           rangeLabel={isYesterday ? "Yesterday" : `últimos ${PERIOD_DAYS} días`}
         />
 

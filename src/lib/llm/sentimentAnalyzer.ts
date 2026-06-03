@@ -8,7 +8,7 @@ export interface SentimentResult {
   reason: string;
 }
 
-const SENTIMENT_MODEL = process.env.OPENROUTER_MODEL_SENTIMENT?.trim() || "openai/gpt-5.4-nano";
+const SENTIMENT_MODEL = process.env.OPENROUTER_MODEL_SENTIMENT?.trim() || "openai/gpt-4o-mini";
 
 const SentimentItemSchema = z.object({
   brand: z.string().min(1),
@@ -85,7 +85,7 @@ export async function analyzeSentimentBatch(
         },
         { role: "user", content: buildPrompt(rawResponse, brandNames) },
       ],
-      max_tokens: 800,
+      max_tokens: 2000,
       temperature: 0.0,
       response_format: { type: "json_object" },
     }),

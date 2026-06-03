@@ -1,7 +1,9 @@
 import { Eye, Smile, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AiOverviewDashboard } from "@/components/dashboard/AiOverviewDashboard";
 import { BrandVisibilityTrendChart } from "@/components/dashboard/BrandVisibilityTrendChart";
+import { CompetitorShareTrendsChart } from "@/components/dashboard/CompetitorShareTrendsChart";
 import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
 import { ExportDashboardButton } from "@/components/dashboard/ExportDashboardButton";
 import { LlmComparisonTable } from "@/components/dashboard/LlmComparisonTable";
@@ -11,7 +13,9 @@ import { RunAllPromptsButton } from "@/components/dashboard/RunAllPromptsButton"
 import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
+import { Delta, fmtScore, sentimentLabel, Sparkline } from "@/components/dashboard/kpi-helpers";
 import { Card, CardContent } from "@/components/ui/card";
+import { parseAioContent } from "@/lib/aio/parseAioContent";
 import {
   getWorkspaceBrandPerformanceMetrics,
   getWorkspaceBrandVisibilityTrendMetrics,
@@ -32,101 +36,6 @@ interface Props {
   searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
 }
 
-// ── Sparkline with filled area ─────────────────────────────────────────────────
-function buildSparklinePath(values: number[], width: number, height: number): string {
-  if (values.length === 0) return "";
-  if (values.length === 1) return `M 0 ${height / 2} L ${width} ${height / 2}`;
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-
-  return values
-    .map((value, idx) => {
-      const x = (idx / (values.length - 1)) * width;
-      const y = height - ((value - min) / range) * (height * 0.85);
-      return `${idx === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(" ");
-}
-
-function Sparkline({
-  values,
-  strokeColor,
-  fillColor,
-}: {
-  values: number[];
-  strokeColor: string;
-  fillColor: string;
-}) {
-  const width = 220;
-  const height = 42;
-  const linePath = buildSparklinePath(values, width, height);
-  const areaPath = linePath ? `${linePath} L ${width} ${height} L 0 ${height} Z` : "";
-
-  return (
-    <div className="mt-3">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full h-10"
-        aria-hidden="true"
-        preserveAspectRatio="none"
-      >
-        {areaPath && <path d={areaPath} fill={fillColor} fillOpacity="0.15" stroke="none" />}
-        {linePath ? (
-          <path d={linePath} fill="none" stroke={strokeColor} strokeWidth="2" />
-        ) : (
-          <line
-            x1="0"
-            y1={height / 2}
-            x2={width}
-            y2={height / 2}
-            stroke={strokeColor}
-            strokeWidth="2"
-          />
-        )}
-      </svg>
-    </div>
-  );
-}
-
-// ── Delta badge ────────────────────────────────────────────────────────────────
-function Delta({
-  value,
-  invertColors = false,
-  suffix = "",
-}: {
-  value: number | null;
-  invertColors?: boolean;
-  suffix?: string;
-}) {
-  if (value === null || value === 0) return <span className="text-xs text-slate-400">—</span>;
-  const isUp = value > 0;
-  const isGood = invertColors ? !isUp : isUp;
-  const abs = Math.abs(value);
-  const formatted = abs % 1 === 0 ? `${abs}` : `${abs.toFixed(1)}`;
-  return (
-    <span className={`text-sm font-medium ${isGood ? "text-emerald-600" : "text-red-500"}`}>
-      {isUp ? "↑" : "↓"}
-      {formatted}
-      {suffix}
-    </span>
-  );
-}
-
-// ── Sentiment helpers ──────────────────────────────────────────────────────────
-function sentimentLabel(score: number | null): { text: string; color: string } {
-  if (score === null) return { text: "—", color: "text-slate-400" };
-  if (score >= 0.2) return { text: "Positive", color: "text-emerald-600" };
-  if (score <= -0.2) return { text: "Negative", color: "text-red-500" };
-  return { text: "Mixed", color: "text-amber-500" };
-}
-
-function fmtScore(score: number | null): string {
-  if (score === null) return "";
-  return `${score >= 0 ? "+" : ""}${score.toFixed(2)}`;
-}
-
 function calcAvgSentiment(
   mentions: Array<{ sentiment: string | null; sentiment_score: number | null }>
 ): number | null {
@@ -138,6 +47,42 @@ function calcAvgSentiment(
     return acc;
   }, 0);
   return Math.round((sum / mentions.length) * 100) / 100;
+}
+
+// Colapsa filas de daily_workspace_metrics (una por proveedor y fecha) en una
+// sola fila por fecha, promediando los campos numéricos. Se usa en "All LLMs".
+type DailyMetricRow = {
+  date: string;
+  active_prompts_count: number | null;
+  brand_mentions_count: number | null;
+  avg_position: number | null;
+  brand_consistency: number | null;
+  avg_sov: number | null;
+};
+
+function avgOf(values: (number | null)[]): number | null {
+  const nums = values.filter((v): v is number => typeof v === "number");
+  if (nums.length === 0) return null;
+  return Math.round((nums.reduce((s, v) => s + v, 0) / nums.length) * 10) / 10;
+}
+
+function aggregateMetricsByDate(rows: DailyMetricRow[]): DailyMetricRow[] {
+  const byDate = new Map<string, DailyMetricRow[]>();
+  for (const row of rows) {
+    const bucket = byDate.get(row.date);
+    if (bucket) bucket.push(row);
+    else byDate.set(row.date, [row]);
+  }
+  return Array.from(byDate.entries())
+    .map(([date, group]) => ({
+      date,
+      active_prompts_count: avgOf(group.map((g) => g.active_prompts_count)),
+      brand_mentions_count: group.reduce((s, g) => s + (g.brand_mentions_count ?? 0), 0),
+      avg_position: avgOf(group.map((g) => g.avg_position)),
+      brand_consistency: avgOf(group.map((g) => g.brand_consistency)),
+      avg_sov: avgOf(group.map((g) => g.avg_sov)),
+    }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 // ── Range config ───────────────────────────────────────────────────────────────
@@ -155,7 +100,8 @@ const VALID_RANGES = RANGE_OPTIONS.map((r) => String(r.value));
 
 export default async function DashboardPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm = "chatgpt", range = "7", country } = await searchParams;
+  const { llm, range = "7", country } = await searchParams;
+  const llmKey = llm ?? null;
 
   const supabase = await createClient();
   const days = VALID_RANGES.includes(range) ? Number(range) : 7;
@@ -177,39 +123,53 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   if (!workspace) notFound();
 
-  const { data: provider } = await supabase
-    .from("llm_providers")
-    .select("id")
-    .eq("key", llm)
-    .single();
+  // Resolver provider solo si hay un LLM concreto. "All LLMs" (llmKey === null)
+  // agrega métricas de todos los proveedores.
+  let providerId: string | null = null;
+  if (llmKey) {
+    const { data: provider } = await supabase
+      .from("llm_providers")
+      .select("id")
+      .eq("key", llmKey)
+      .single();
 
-  if (!provider) notFound();
+    if (!provider) notFound();
+    providerId = provider.id;
+  }
 
   // ── Load 2× period for delta calculation ──────────────────────────────────
-  const { data: allMetricRows } = await supabase
+  let metricsQuery = supabase
     .from("daily_workspace_metrics")
     .select(
       "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
     )
     .eq("workspace_id", workspace.id)
-    .eq("llm_provider_id", provider.id)
     .order("date", { ascending: false })
-    .limit(days * 2);
+    // En "All LLMs" hay una fila por proveedor y fecha: ampliamos el límite.
+    .limit(providerId ? days * 2 : days * 2 * 4);
+  if (providerId) metricsQuery = metricsQuery.eq("llm_provider_id", providerId);
+  const { data: allMetricRowsRaw } = await metricsQuery;
 
-  const rows = (allMetricRows ?? []).slice(0, days);
+  // En "All LLMs" colapsamos a una fila por fecha promediando brand_consistency
+  // (único campo de esta tabla que se usa aguas abajo, en el chart).
+  const allMetricRows = providerId
+    ? (allMetricRowsRaw ?? [])
+    : aggregateMetricsByDate(allMetricRowsRaw ?? []);
+
+  const rows = allMetricRows.slice(0, days);
 
   // ── Current period KPIs ────────────────────────────────────────────────────
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
     country: country ?? null,
     days,
-    llmProviderId: provider.id,
+    llmProviderId: providerId,
   });
   const brandVisibilityTrendMetrics = await getWorkspaceBrandVisibilityTrendMetrics({
     workspaceId: workspace.id,
     country: country ?? null,
     days,
-    llmProviderId: provider.id,
+    llmProviderId: providerId,
     ownBrandName: workspace.brand_name,
   });
 
@@ -253,14 +213,26 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const { data: sentimentMentionsRaw } = await sentimentQuery;
 
-  // Filtrar client-side por país si aplica (via prompt_run → prompt_id lookup)
+  // Filtrar client-side por país y/o LLM (via prompt_run lookup). El sentiment
+  // así respeta el filtro de proveedor igual que el resto de KPIs.
   let sentimentRunIds: Set<string> | null = null;
-  if (sentimentPromptIds !== null) {
-    const { data: filteredRuns } = await supabase
+  if (sentimentPromptIds !== null || providerId) {
+    let runsFilterQuery = supabase
       .from("prompt_runs")
       .select("id")
       .eq("workspace_id", workspace.id)
-      .in("prompt_id", sentimentPromptIds.length > 0 ? sentimentPromptIds : ["__none__"]);
+      .gte("created_at", prevPeriodStart.toISOString())
+      .limit(20000);
+    if (sentimentPromptIds !== null) {
+      runsFilterQuery = runsFilterQuery.in(
+        "prompt_id",
+        sentimentPromptIds.length > 0 ? sentimentPromptIds : ["__none__"]
+      );
+    }
+    if (providerId) {
+      runsFilterQuery = runsFilterQuery.eq("llm_provider_id", providerId);
+    }
+    const { data: filteredRuns } = await runsFilterQuery;
     sentimentRunIds = new Set((filteredRuns ?? []).map((r) => r.id as string));
   }
 
@@ -347,20 +319,20 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   };
 
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
-    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
-    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llm, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: country ?? null }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: slug,
       days,
       limit_n: 5,
-      llm_key: llm,
+      llm_key: llmKey,
       p_country_filter: country ?? null,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: slug,
       days,
       limit_n: 5,
-      llm_key: null,
+      llm_key: llmKey,
       p_country_filter: country ?? null,
     }),
     supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: country ?? null }),
@@ -410,6 +382,96 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     totalRuns: Number(r.total_runs),
   }));
 
+  // SOV de la marca propia para la vista AI Overview (marketShare ya filtra por llm_key)
+  const ownSov = marketShare.find((m) => m.brandType === "own")?.sharePct ?? 0;
+
+  // ── AI Overview content derivation (solo cuando se filtra por "AI Overviews") ──
+  const isAiOverview = llm === "gemini";
+
+  // Métricas derivadas del texto del modelo (Topic Sections, Content Structure)
+  let aio = {
+    topicSections: [] as ReturnType<typeof parseAioContent>["topicSections"],
+    contentStructure: [] as ReturnType<typeof parseAioContent>["contentStructure"],
+    blocksAnalyzed: 0,
+    responsesAnalyzed: 0,
+  };
+  // Métricas SERP reales de la caché semanal (Presence Rate, SERP Position)
+  let serpMetrics = {
+    presenceRate: null as number | null,
+    avgSerpPosition: null as number | null,
+    distribution: null as { pos1: number; pos2: number; pos3plus: number; noAio: number } | null,
+    serpTopicSections: [] as Array<{ name: string; count: number }>,
+    totalSnapshots: 0,
+  };
+
+  if (isAiOverview && providerId) {
+    // Datos del texto del modelo (sin coste SERP)
+    const { data: aioRuns } = await supabase
+      .from("prompt_runs")
+      .select("raw_response")
+      .eq("workspace_id", workspace.id)
+      .eq("llm_provider_id", providerId)
+      .eq("status", "completed")
+      .gte("created_at", periodStart.toISOString())
+      .limit(5000);
+    const rawResponses = (aioRuns ?? [])
+      .map((r) => (r as { raw_response: string | null }).raw_response)
+      .filter((r): r is string => typeof r === "string" && r.length > 0);
+    aio = parseAioContent(rawResponses);
+
+    // Datos SERP reales de la caché semanal (se generan por el CRON de Inngest)
+    const { data: serpRows } = await supabase
+      .from("prompt_serp_cache")
+      .select("ai_overview_present, ai_overview_serp_position, ai_overview_sections")
+      .eq("workspace_id", workspace.id)
+      // Tomamos el snapshot más reciente de cada prompt dentro del período
+      .gte("fetched_at", periodStart.toISOString())
+      .order("fetched_at", { ascending: false })
+      .limit(2000);
+
+    if (serpRows && serpRows.length > 0) {
+      type SerpRow = {
+        ai_overview_present: boolean;
+        ai_overview_serp_position: number | null;
+        ai_overview_sections: Array<{ name: string; position: number }>;
+      };
+      const rows = serpRows as SerpRow[];
+      const total = rows.length;
+      const present = rows.filter((r) => r.ai_overview_present);
+      const presenceRate = Math.round((present.length / total) * 1000) / 10;
+
+      const positions = present
+        .map((r) => r.ai_overview_serp_position)
+        .filter((p): p is number => typeof p === "number");
+      const avgSerpPosition =
+        positions.length > 0
+          ? Math.round((positions.reduce((s, v) => s + v, 0) / positions.length) * 10) / 10
+          : null;
+
+      const dist = { pos1: 0, pos2: 0, pos3plus: 0, noAio: 0 };
+      for (const r of rows) {
+        if (!r.ai_overview_present) dist.noAio++;
+        else if (r.ai_overview_serp_position === 1) dist.pos1++;
+        else if (r.ai_overview_serp_position === 2) dist.pos2++;
+        else dist.pos3plus++;
+      }
+
+      // Secciones SERP reales: contar apariciones por nombre de sección
+      const sectionCounts = new Map<string, number>();
+      for (const r of present) {
+        for (const s of r.ai_overview_sections ?? []) {
+          if (s.name) sectionCounts.set(s.name, (sectionCounts.get(s.name) ?? 0) + 1);
+        }
+      }
+      const serpTopicSections = Array.from(sectionCounts.entries())
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8);
+
+      serpMetrics = { presenceRate, avgSerpPosition, distribution: dist, serpTopicSections, totalSnapshots: total };
+    }
+  }
+
   return (
     <div className="flex-1 overflow-auto min-h-0">
       <div className="p-6 space-y-6 max-w-screen-xl mx-auto">
@@ -427,7 +489,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 return (
                   <Link
                     key={value}
-                    href={`/${slug}/dashboard?llm=${llm}&range=${value}`}
+                    href={`/${slug}/dashboard?${llm ? `llm=${llm}&` : ""}range=${value}`}
                     className={[
                       "px-3 py-1 rounded-full text-xs font-medium transition-colors",
                       active
@@ -440,17 +502,42 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 );
               })}
             </div>
-            <ExportDashboardButton workspaceSlug={slug} days={days} llmKey={llm} />
+            <ExportDashboardButton workspaceSlug={slug} days={days} llmKey={llmKey} />
             {/* Live data badge */}
             <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
               Live data
             </span>
             <RunAllPromptsButton workspaceId={workspace.id} />
-            <DashboardRefreshButton workspaceId={workspace.id} slug={workspace.slug} llmKey={llm} />
+            <DashboardRefreshButton
+              workspaceId={workspace.id}
+              slug={workspace.slug}
+              llmKey={llm ?? "chatgpt"}
+            />
           </div>
         </div>
 
+        {isAiOverview ? (
+          <AiOverviewDashboard
+            visibility={visibility}
+            visibilitySeries={visibilitySeries}
+            visibilityDelta={visibilityDelta}
+            ownSov={ownSov}
+            avgSentiment={avgSentiment}
+            sentimentDelta={sentimentDelta}
+            topicSections={aio.topicSections}
+            contentStructure={aio.contentStructure}
+            blocksAnalyzed={aio.blocksAnalyzed}
+            responsesAnalyzed={aio.responsesAnalyzed}
+            rangeLabel={rangeLabel}
+            presenceRate={serpMetrics.presenceRate}
+            avgSerpPosition={serpMetrics.avgSerpPosition}
+            serpDistribution={serpMetrics.distribution}
+            serpTopicSections={serpMetrics.serpTopicSections}
+            totalSnapshots={serpMetrics.totalSnapshots}
+          />
+        ) : (
+          <>
         {/* ── KPI Cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Visibility */}
@@ -551,6 +638,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           </Card>
         </div>
 
+        {/* ── Brand Visibility Evolution ── */}
+        <BrandVisibilityTrendChart data={brandVisibilityTrendMetrics} />
+
         {/* ── Analytics panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <MarketShareDonut
@@ -562,24 +652,25 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           <MentionBreakdownPanel data={breakdown} badgeLabel={badgeLabel} />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TopCompetitorsPanel data={topCompetitors} />
-          <SourcePowerRanking data={topSources} badgeLabel={badgeLabel} />
-        </div>
-
         <LlmComparisonTable
           rows={llmComparison}
           workspaceSlug={slug}
           range={days}
-          activeLlmKey={llm}
+          activeLlmKey={llm ?? ""}
         />
+
+        <CompetitorShareTrendsChart data={brandVisibilityTrendMetrics} badgeLabel={badgeLabel} />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <TopCompetitorsPanel data={topCompetitors} />
+          <SourcePowerRanking data={topSources} badgeLabel={badgeLabel} />
+        </div>
 
         {/* ── Visibility Trends ── */}
         <div>
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
             Visibility Trends
           </p>
-          <BrandVisibilityTrendChart data={brandVisibilityTrendMetrics} />
           <TrendChart data={chartData} />
         </div>
 
@@ -716,6 +807,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );

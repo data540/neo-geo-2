@@ -13,12 +13,12 @@ interface EnabledLlm {
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ focusLlm?: string; country?: string }>;
+  searchParams: Promise<{ llm?: string; country?: string }>;
 }
 
 export default async function PromptsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { focusLlm, country } = await searchParams;
+  const { llm, country } = await searchParams;
 
   const supabase = await createClient();
 
@@ -44,17 +44,20 @@ export default async function PromptsPage({ params, searchParams }: Props) {
 
   const usagePct = enabledLlms.length > 0 ? Math.round(100 / enabledLlms.length) : 100;
 
-  // Proveedor LLM activo (para filtrar POSICIÓN MEDIA igual que el resto de KPIs)
-  const focusLlmConfig = (llmConfigs ?? []).find((c) => {
-    const provider = c.llm_providers as unknown as { key: string };
-    return provider.key === (focusLlm ?? "chatgpt");
-  });
+  // Proveedor LLM activo (para filtrar POSICIÓN MEDIA igual que el resto de KPIs).
+  // "All LLMs" (llm undefined) => null => métricas agregadas de todos los proveedores.
+  const focusLlmConfig = llm
+    ? (llmConfigs ?? []).find((c) => {
+        const provider = c.llm_providers as unknown as { key: string };
+        return provider.key === llm;
+      })
+    : undefined;
   const focusLlmProviderId = (focusLlmConfig?.llm_provider_id as string) ?? null;
 
-  // Métricas cross-LLM (sin filtro de LLM, o filtradas por focusLlm si se especifica)
+  // Métricas cross-LLM (sin filtro de LLM, o filtradas por el LLM seleccionado)
   const { data: rows } = await supabase.rpc("get_workspace_prompt_performance", {
     p_workspace_slug: slug,
-    p_llm_key: focusLlm ?? null,
+    p_llm_key: llm ?? null,
     p_country_filter: country ?? null,
   });
 
@@ -62,7 +65,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
   const [{ data: kpis }, brandMetrics] = await Promise.all([
     supabase.rpc("get_workspace_kpis", {
       p_workspace_slug: slug,
-      p_llm_key: focusLlm ?? "chatgpt",
+      p_llm_key: llm ?? null,
       p_country_filter: country ?? null,
     }),
     getWorkspaceBrandPerformanceMetrics({
@@ -84,7 +87,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
   const promptIds = promptRows.map((r) => r.prompt_id);
 
   const promptTags: Record<string, { id: string; name: string; color: string }[]> = {};
-  // latestStatusByPrompt: status del último run por prompt (cross-LLM o por focusLlm)
+  // latestStatusByPrompt: status del último run por prompt (cross-LLM o por el LLM seleccionado)
   const latestStatusByPrompt: Record<string, RunStatus> = {};
 
   if (promptIds.length > 0) {
@@ -101,18 +104,18 @@ export default async function PromptsPage({ params, searchParams }: Props) {
       }
     }
 
-    // Último run por prompt (cross-LLM o filtrado por focusLlm)
+    // Último run por prompt (cross-LLM o filtrado por el LLM seleccionado)
     let runsQuery = supabase
       .from("prompt_runs")
       .select("prompt_id, status, llm_provider_id, created_at")
       .in("prompt_id", promptIds)
       .order("created_at", { ascending: false });
 
-    if (focusLlm) {
+    if (llm) {
       const { data: focusProvider } = await supabase
         .from("llm_providers")
         .select("id")
-        .eq("key", focusLlm)
+        .eq("key", llm)
         .single();
       if (focusProvider) {
         runsQuery = runsQuery.eq("llm_provider_id", focusProvider.id);
