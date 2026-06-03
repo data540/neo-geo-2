@@ -2,6 +2,7 @@ import { Eye, Smile, Target, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BrandVisibilityTrendChart } from "@/components/dashboard/BrandVisibilityTrendChart";
+import { CompetitorShareTrendsChart } from "@/components/dashboard/CompetitorShareTrendsChart";
 import { DashboardRefreshButton } from "@/components/dashboard/DashboardRefreshButton";
 import { ExportDashboardButton } from "@/components/dashboard/ExportDashboardButton";
 import { LlmComparisonTable } from "@/components/dashboard/LlmComparisonTable";
@@ -551,6 +552,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           </Card>
         </div>
 
+        {/* ── Brand Visibility Evolution ── */}
+        <BrandVisibilityTrendChart data={brandVisibilityTrendMetrics} />
+
         {/* ── Analytics panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <MarketShareDonut
@@ -561,6 +565,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           />
           <MentionBreakdownPanel data={breakdown} badgeLabel={badgeLabel} />
         </div>
+
+        <CompetitorShareTrendsChart data={brandVisibilityTrendMetrics} badgeLabel={badgeLabel} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <TopCompetitorsPanel data={topCompetitors} />
@@ -579,7 +585,6 @@ export default async function DashboardPage({ params, searchParams }: Props) {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
             Visibility Trends
           </p>
-          <BrandVisibilityTrendChart data={brandVisibilityTrendMetrics} />
           <TrendChart data={chartData} />
         </div>
 

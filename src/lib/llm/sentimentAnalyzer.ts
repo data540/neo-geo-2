@@ -85,7 +85,7 @@ export async function analyzeSentimentBatch(
         },
         { role: "user", content: buildPrompt(rawResponse, brandNames) },
       ],
-      max_tokens: 800,
+      max_tokens: 2000,
       temperature: 0.0,
       response_format: { type: "json_object" },
     }),

@@ -41,14 +41,6 @@ const TYPE_META: Record<
   },
 };
 
-const ORDER: MentionType[] = [
-  "list_option",
-  "primary_recommendation",
-  "general_mention",
-  "comparison",
-  "warning",
-];
-
 export function MentionBreakdownPanel({ data, badgeLabel }: Props) {
   if (data.length === 0) {
     return (
@@ -62,12 +54,10 @@ export function MentionBreakdownPanel({ data, badgeLabel }: Props) {
     );
   }
 
-  // Indexar y ordenar según ORDER
-  const byType = new Map(data.map((d) => [d.mentionType, d]));
-  const ordered = ORDER.map((t) => ({
-    type: t,
-    entry: byType.get(t),
-  })).filter((row) => row.entry !== undefined);
+  const ordered = [...data]
+    .sort((a, b) => b.pct - a.pct)
+    .map((entry) => ({ type: entry.mentionType as MentionType, entry }))
+    .filter(({ type }) => TYPE_META[type] !== undefined);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-5">

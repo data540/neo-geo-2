@@ -133,6 +133,11 @@ async function main() {
       } catch (err) {
         console.error(`  LLM fallo run=${runId}:`, err instanceof Error ? err.message : err);
         failedRuns += 1;
+        // Marcar como llm_failed para no reintentar en el mismo backfill
+        await supabase
+          .from("mentions")
+          .update({ sentiment_source: "llm_failed" })
+          .in("id", mentionsForRun.map((m) => m.id));
       }
     }
 
