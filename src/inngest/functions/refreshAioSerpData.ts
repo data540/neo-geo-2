@@ -31,8 +31,8 @@ export const refreshAioSerpData = inngest.createFunction(
     id: "refresh-aio-serp-data",
     name: "Refresh AI Overview SERP Data (weekly)",
     triggers: [
-      // Cron semanal: cada lunes a las 03:00 UTC
-      { cron: "0 3 * * 1" },
+      // Cron mensual: día 1 de cada mes a las 03:00 UTC
+      { cron: "0 3 1 * *" },
       // Disparo manual desde la UI o CLI
       { event: "aio/serp.refresh" },
     ],
