@@ -5,6 +5,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Clock,
   FileText,
   Loader2,
   RefreshCw,
@@ -42,6 +43,8 @@ interface Props {
   initialRecommendations: GeoRecommendation[];
   retrievedChunks: RetrievedChunk[];
   hasApiKey: boolean;
+  generatedAt: string | null;
+  canRegenerate: boolean;
 }
 
 function sourceTitleByFile(chunks: RetrievedChunk[]): Map<string, string> {
@@ -135,9 +138,13 @@ export function RecommendationsPanel({
   initialRecommendations,
   retrievedChunks,
   hasApiKey,
+  generatedAt,
+  canRegenerate: initialCanRegenerate,
 }: Props) {
   const [recommendations, setRecommendations] =
     useState<GeoRecommendation[]>(initialRecommendations);
+  const [canRegenerate, setCanRegenerate] = useState(initialCanRegenerate);
+  const [rateLimited, setRateLimited] = useState(false);
   const [pending, startTransition] = useTransition();
   const sourceTitles = sourceTitleByFile(retrievedChunks);
 
@@ -145,12 +152,31 @@ export function RecommendationsPanel({
   const mediumCount = recommendations.filter((r) => r.priority === "medium").length;
   const lowCount = recommendations.filter((r) => r.priority === "low").length;
 
+  const formattedDate = generatedAt
+    ? new Intl.DateTimeFormat("es-ES", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(generatedAt))
+    : null;
+
   function handleRegenerate() {
+    if (!canRegenerate) {
+      setRateLimited(true);
+      return;
+    }
+    setRateLimited(false);
     startTransition(async () => {
       const result = await generateRecommendationsAction(workspaceId);
       if (result.success && result.data) {
         setRecommendations(result.data);
+        setCanRegenerate(false);
         toast.success("Recomendaciones actualizadas");
+      } else if (result.error === "rate_limited") {
+        setCanRegenerate(false);
+        setRateLimited(true);
       } else {
         toast.error(result.error ?? "No se pudieron generar las recomendaciones");
       }
@@ -178,6 +204,18 @@ export function RecommendationsPanel({
         </div>
       )}
 
+      {rateLimited && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <Clock className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">Límite diario alcanzado</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Ya regeneraste las recomendaciones hoy. Vuelve mañana para actualizarlas de nuevo.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -196,20 +234,29 @@ export function RecommendationsPanel({
                 <span className="text-slate-300 mx-1">·</span>
               )}
               {lowCount > 0 && <span className="text-green-500 font-medium">{lowCount} baja</span>}
+              {formattedDate && (
+                <>
+                  {(highCount > 0 || mediumCount > 0 || lowCount > 0) && (
+                    <span className="text-slate-300 mx-1">·</span>
+                  )}
+                  <span className="text-slate-400">Generadas el {formattedDate}</span>
+                </>
+              )}
             </p>
           </div>
           <Button
             type="button"
             onClick={handleRegenerate}
-            disabled={pending}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white"
+            disabled={pending || !canRegenerate}
+            title={!canRegenerate ? "Ya regeneraste hoy. Disponible mañana." : undefined}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {pending ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <RefreshCw className="w-4 h-4" />
             )}
-            Regenerar
+            {canRegenerate ? "Regenerar" : "Regenerar (mañana)"}
           </Button>
         </div>
       </div>
