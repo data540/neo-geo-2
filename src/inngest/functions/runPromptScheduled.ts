@@ -50,6 +50,22 @@ export const runPromptScheduled = inngest.createFunction(
       return data ?? [];
     });
 
+    // Runs ya completados hoy por workspace+LLM (evita reejecutar si el CRON se dispara dos veces)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const runsToday = await step.run("fetch-runs-today", async () => {
+      const { data } = await supabase
+        .from("prompt_runs")
+        .select("workspace_id, llm_provider_id")
+        .gte("created_at", todayStart.toISOString());
+      const counts = new Map<string, number>();
+      for (const r of data ?? []) {
+        const key = `${r.workspace_id}:${r.llm_provider_id}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return Object.fromEntries(counts);
+    });
+
     const promptsByWorkspace = new Map<string, string[]>();
     for (const p of allPrompts) {
       const wid = p.workspace_id as string;
@@ -75,7 +91,14 @@ export const runPromptScheduled = inngest.createFunction(
       const available = promptsByWorkspace.get(workspaceId) ?? [];
       if (available.length === 0) continue;
 
-      const count = Math.min(config.prompts_per_day, available.length);
+      // Guard: no superar prompts_per_day descontando los ya ejecutados hoy
+      const providerData = (config.llm_providers as unknown as { key: string; id?: string } | null);
+      const providerId = providerData?.id ?? "";
+      const alreadyToday = (runsToday as Record<string, number>)[`${workspaceId}:${providerId}`] ?? 0;
+      const remaining = Math.max(0, config.prompts_per_day - alreadyToday);
+      if (remaining === 0) continue;
+
+      const count = Math.min(remaining, available.length);
       const selected = shuffle(available).slice(0, count);
 
       for (const promptId of selected) {

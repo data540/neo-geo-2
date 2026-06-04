@@ -85,7 +85,7 @@ export async function analyzeSentimentBatch(
         },
         { role: "user", content: buildPrompt(rawResponse, brandNames) },
       ],
-      max_tokens: 2000,
+      max_tokens: 400,
       temperature: 0.0,
       response_format: { type: "json_object" },
     }),
@@ -102,7 +102,7 @@ export async function analyzeSentimentBatch(
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
-  } catch (err) {
+  } catch {
     throw new Error(`Sentiment LLM returned non-JSON: ${content.slice(0, 200)}`);
   }
 
