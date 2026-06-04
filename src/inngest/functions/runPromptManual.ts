@@ -36,6 +36,34 @@ export const runPromptManual = inngest.createFunction(
 
     const supabase = getServiceClient();
 
+    // 0. Guard: límite diario de runs por workspace+LLM
+    const dailyGuard = await step.run("check-daily-limit", async () => {
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+      const { count } = await supabase
+        .from("prompt_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId)
+        .gte("created_at", todayStart.toISOString());
+      const { data: cfg } = await supabase
+        .from("workspace_llm_config")
+        .select("prompts_per_day, llm_providers!inner(key)")
+        .eq("workspace_id", workspaceId)
+        .eq("llm_providers.key", llmKey)
+        .single();
+      const dailyLimit = (cfg as { prompts_per_day: number } | null)?.prompts_per_day ?? 100;
+      // Margen del 20% sobre el límite configurado para absorber runs manuales
+      const hardCap = Math.ceil(dailyLimit * 1.2);
+      return { runsToday: count ?? 0, hardCap };
+    });
+
+    if (dailyGuard.runsToday >= dailyGuard.hardCap) {
+      return {
+        skipped: true,
+        reason: `Daily cap reached: ${dailyGuard.runsToday}/${dailyGuard.hardCap} runs for workspace ${workspaceId} (${llmKey})`,
+      };
+    }
+
     // 1. Obtener datos de contexto
     const context = await step.run("fetch-context", async () => {
       const [p, w, b, c, l] = await Promise.all([
