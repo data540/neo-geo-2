@@ -5,6 +5,7 @@ import { extractCompetitorsFromPromptRunsDaily } from "@/inngest/functions/extra
 import { geoResearchPipeline } from "@/inngest/functions/geoResearchPipeline";
 import { pipelineCacheCleanup } from "@/inngest/functions/pipelineCacheCleanup";
 import { refreshAioSerpData } from "@/inngest/functions/refreshAioSerpData";
+import { refreshGoogleAnalytics } from "@/inngest/functions/refreshGoogleAnalytics";
 import { runPromptManual } from "@/inngest/functions/runPromptManual";
 import { runPromptManualMulti } from "@/inngest/functions/runPromptManualMulti";
 import { runPromptScheduled } from "@/inngest/functions/runPromptScheduled";
@@ -20,5 +21,6 @@ export const { GET, POST, PUT } = serve({
     geoResearchPipeline,
     pipelineCacheCleanup,
     refreshAioSerpData,
+    refreshGoogleAnalytics,
   ],
 });

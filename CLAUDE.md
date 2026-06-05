@@ -114,6 +114,14 @@ La feature `/[workspace]/recommendations` usa RAG sobre la knowledge base expert
 
 Variables: `OPENROUTER_API_KEY` para indexar y embeber queries vía OpenRouter. Fallback final: `OPENAI_API_KEY_EMBEDDINGS` o `OPENAI_API_KEY`.
 
+### Analytics: Search Console + GA4 (CPA por LLM)
+La sección `/[workspace]/analytics` cruza datos reales de Google con la monitorización GEO:
+- **Conexión:** Service Account global de Google (`GOOGLE_SA_CLIENT_EMAIL` / `GOOGLE_SA_PRIVATE_KEY`). El dueño de cada propiedad GSC/GA4 da acceso de lectura a ese `client_email`. El `gsc_site_url` y `ga4_property_id` se configuran por workspace en Settings (`GoogleIntegrationPanel` → `updateGoogleConfigAction`, columnas en `workspaces`).
+- **Cliente:** `src/lib/google/` — `auth.ts` (JWT service account), `searchConsole.ts`, `analytics.ts`, `llmReferralMap.ts` (mapea `sessionSource` de GA4 a `LlmProviderKey`: chatgpt.com→chatgpt, perplexity.ai→perplexity, gemini.google.com→gemini).
+- **Ingesta:** CRON diario `refreshGoogleAnalytics` (Inngest, `0 4 * * *` + evento manual `google/analytics.refresh`). GSC reprocesa ventana de 30 días (UPSERT idempotente por latencia de ~2-3 días). Cachea en `workspace_gsc_cache` (fila por workspace+día+query) y `workspace_ga4_llm_cache` (fila por workspace+día+llm). Migración `0035`.
+- **CPA por LLM:** `CPA = SUM(prompt_runs.cost_usd) del proveedor ÷ conversiones GA4 atribuidas a ese LLM`. AI Overviews/Gemini tiene atribución limitada en GA4 (su tráfico se mezcla con google/organic) — se indica en la UI.
+- **Cruce GEO↔SEO:** la página compara los `prompts` activos con las queries reales de `workspace_gsc_cache` por normalización (lowercase, sin acentos, substring) para marcar prompts con tráfico real vs oportunidades.
+
 ### Server Actions
 Todas en `src/actions/`. Patrón obligatorio:
 1. `createClient()` de `@/lib/supabase/server`
@@ -153,6 +161,8 @@ OPENROUTER_EMBEDDING_MODEL   # Opcional — default openai/text-embedding-3-smal
 OPENAI_API_KEY_EMBEDDINGS    # Fallback final para embeddings si falla/no está OpenRouter
 OPENAI_API_KEY               # Fallback de OPENAI_API_KEY_EMBEDDINGS si no está configurada
 SERPAPI_KEY                  # Para el refresco semanal de datos SERP de Google AI Overview (src/inngest/functions/refreshAioSerpData.ts). Sin esta key el CRON no hace llamadas (falla con error explícito). Coste ~1 call/prompt/semana.
+GOOGLE_SA_CLIENT_EMAIL       # Service Account de Google (sección Analytics: Search Console + GA4). client_email del JSON de la cuenta de servicio.
+GOOGLE_SA_PRIVATE_KEY        # Service Account de Google. private_key del JSON, con \n literales escapados. Solo servidor — nunca al cliente.
 ```
 
 > Las claves `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `PERPLEXITY_API_KEY`, `OPENROUTER_MODEL_CLAUDE` y `OPENROUTER_MODEL_DEEPSEEK` ya **no se usan**. Toda la inferencia de LLM va por OpenRouter con los 3 proveedores activos.

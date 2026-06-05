@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getLlmConfigAction } from "@/actions/llm-config";
+import { GoogleIntegrationPanel } from "@/components/workspace/GoogleIntegrationPanel";
 import { LlmConfigPanel } from "@/components/workspace/LlmConfigPanel";
 import { createClient } from "@/lib/supabase/server";
 import type { LlmProvider, WorkspaceLlmConfigWithProvider, WorkspaceMemberRole } from "@/types";
@@ -20,7 +21,7 @@ export default async function SettingsPage({ params }: Props) {
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, slug, name")
+    .select("id, slug, name, gsc_site_url, ga4_property_id")
     .eq("slug", slug)
     .single();
 
@@ -69,6 +70,14 @@ export default async function SettingsPage({ params }: Props) {
           workspaceSlug={workspace.slug}
           currentRole={currentMembership.role as WorkspaceMemberRole}
           configs={mergedConfigs}
+        />
+
+        <GoogleIntegrationPanel
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+          currentRole={currentMembership.role as WorkspaceMemberRole}
+          gscSiteUrl={workspace.gsc_site_url ?? null}
+          ga4PropertyId={workspace.ga4_property_id ?? null}
         />
       </div>
     </div>
