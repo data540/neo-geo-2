@@ -81,7 +81,7 @@ Todas las tablas tienen RLS activo. Las funciones helper `is_workspace_member(uu
 
 | `LlmProviderKey` | Label en UI   | Modelo default OpenRouter   |
 |------------------|---------------|-----------------------------|
-| `chatgpt`        | ChatGPT       | `openai/gpt-4o-mini`        |
+| `chatgpt`        | ChatGPT       | `openai/gpt-4o`             |
 | `gemini`         | AI Overviews  | `google/gemini-2.0-flash-001` |
 | `perplexity`     | Perplexity    | `perplexity/sonar`          |
 
@@ -145,7 +145,7 @@ INNGEST_SIGNING_KEY          # "local" en desarrollo
 OPENROUTER_API_KEY           # OBLIGATORIA — todos los LLMs (ejecución de prompts + pipeline GEO) van por OpenRouter. Sin esta key el código lanza error explícito; no hay mocks.
 OPENROUTER_HTTP_REFERER      # Opcional — header para OpenRouter analytics
 OPENROUTER_APP_NAME          # Opcional — X-Title para OpenRouter analytics
-OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4o-mini
+OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4o
 OPENROUTER_MODEL_GEMINI      # Opcional — override del default google/gemini-2.0-flash-001
 OPENROUTER_MODEL_PERPLEXITY  # Opcional — override del default perplexity/sonar
 OPENROUTER_MODEL_SENTIMENT   # Opcional — default openai/gpt-4o-mini (análisis LLM de sentiment)
