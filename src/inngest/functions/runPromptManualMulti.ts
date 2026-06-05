@@ -5,8 +5,7 @@ import { detectBrands } from "@/lib/detection/detectBrands";
 import { persistSourcesForRun } from "@/lib/llm/persistSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
-import { analyzePositionBatch } from "@/lib/llm/positionAnalyzer";
-import { analyzeSentimentBatch } from "@/lib/llm/sentimentAnalyzer";
+import { analyzeMentionsBatch } from "@/lib/llm/mentionAnalyzer";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -193,21 +192,19 @@ export const runPromptManualMulti = inngest.createFunction(
             await supabase.from("mentions").insert(mentions);
           }
 
-          // Análisis de sentimiento con LLM (refina los scores heurísticos)
+          // Análisis combinado (sentiment + ranking) en UNA sola llamada LLM.
+          // Sustituye a las dos llamadas separadas para reducir coste (3→2 por run).
           {
-            const brandsForSentiment: string[] = [];
-            if (detection.ownBrandMentioned && detection.detectedBrandName) {
-              brandsForSentiment.push(detection.detectedBrandName);
-            }
-            for (const comp of detection.competitors) {
-              brandsForSentiment.push(comp.name);
-            }
-            if (brandsForSentiment.length > 0) {
+            const brandNames = mentions
+              .map((m) => m.brand_name_detected as string | null)
+              .filter((n): n is string => Boolean(n));
+            if (brandNames.length > 0) {
+              // Solo aplicar rank si la heurística regex no detectó lista
+              const applyRank = mentions.every(
+                (m) => m.position_source === "appearance_order" || m.position_source == null
+              );
               try {
-                const results = await analyzeSentimentBatch(
-                  llmResult.rawResponse,
-                  brandsForSentiment
-                );
+                const results = await analyzeMentionsBatch(llmResult.rawResponse, brandNames);
                 for (const r of results) {
                   await supabase
                     .from("mentions")
@@ -218,37 +215,17 @@ export const runPromptManualMulti = inngest.createFunction(
                     })
                     .eq("prompt_run_id", runId)
                     .eq("brand_name_detected", r.brandName);
-                }
-              } catch (err) {
-                console.error("[sentiment-llm multi] failed, keeping heuristic fallback:", err);
-              }
-            }
-          }
 
-          // Refinar posición con LLM cuando no hay lista regex-detectable
-          {
-            const allAppearanceOrder = mentions.every(
-              (m) =>
-                m.position_source === "appearance_order" || m.position_source == null
-            );
-            if (allAppearanceOrder && mentions.length > 0) {
-              const brandNames = mentions
-                .map((m) => m.brand_name_detected as string | null)
-                .filter((n): n is string => Boolean(n));
-              if (brandNames.length > 0) {
-                try {
-                  const results = await analyzePositionBatch(llmResult.rawResponse, brandNames);
-                  for (const r of results) {
-                    if (r.rank === null) continue;
+                  if (applyRank && r.rank !== null) {
                     await supabase
                       .from("mentions")
                       .update({ position: r.rank, position_source: "llm" })
                       .eq("prompt_run_id", runId)
                       .eq("brand_name_detected", r.brandName);
                   }
-                } catch (err) {
-                  console.error("[position-llm multi] failed, keeping appearance_order fallback:", err);
                 }
+              } catch (err) {
+                console.error("[analyze-mentions-llm multi] failed, keeping heuristic fallback:", err);
               }
             }
           }

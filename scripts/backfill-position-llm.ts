@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import { extractRankingFromList } from "../src/lib/detection/extractRanking";
 import { analyzePositionBatch } from "../src/lib/llm/positionAnalyzer";
+import { assertBackfillAllowed } from "./_backfillGuard";
 
 dotenv.config({ path: ".env.local" });
 dotenv.config({ path: ".env" });
@@ -22,6 +23,8 @@ interface RunRow {
 }
 
 async function main() {
+  const maxRows = assertBackfillAllowed("backfill-position-llm");
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceRoleKey) {
@@ -81,7 +84,13 @@ async function main() {
       list.push(m);
       byRun.set(m.prompt_run_id, list);
     }
-    const runIds = [...byRun.keys()].slice(0, BATCH_RUNS);
+    // Respetar el tope duro de runs por ejecución
+    const remainingRuns = maxRows - processedRuns;
+    if (remainingRuns <= 0) {
+      console.log(`Alcanzado el tope BACKFILL_MAX_ROWS (${maxRows}). Parando.`);
+      break;
+    }
+    const runIds = [...byRun.keys()].slice(0, Math.min(BATCH_RUNS, remainingRuns));
 
     // Obtener raw_response de cada run
     const { data: runRows } = await supabase

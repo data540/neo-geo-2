@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { estimateCostForModel } from "../src/lib/llm/pricing";
+import { assertBackfillAllowed } from "./_backfillGuard";
 
 interface PromptRow {
   id: string;
@@ -69,6 +70,8 @@ async function main() {
   loadEnvFile(path.join(process.cwd(), ".env"));
   loadEnvFile(path.join(process.cwd(), ".env.local"));
 
+  const maxRows = assertBackfillAllowed("relaunch-all-prompts-openrouter");
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const openRouterApiKey = process.env.OPENROUTER_API_KEY;
@@ -106,13 +109,19 @@ async function main() {
     throw new Error(`Prompts query error: ${promptsError.message}`);
   }
 
-  const activePrompts = (prompts ?? []) as PromptRow[];
-  if (activePrompts.length === 0) {
+  const allActive = (prompts ?? []) as PromptRow[];
+  if (allActive.length === 0) {
     console.log("No active prompts found");
     return;
   }
 
-  console.log(`Re-launching prompts: ${activePrompts.length}`);
+  // Tope duro de filas por ejecución
+  const activePrompts = allActive.slice(0, maxRows);
+  console.log(
+    `Re-launching prompts: ${activePrompts.length}${
+      allActive.length > activePrompts.length ? ` (de ${allActive.length}, recortado a ${maxRows})` : ""
+    }`
+  );
 
   let completed = 0;
   let failed = 0;
