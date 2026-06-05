@@ -4,6 +4,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
+import { remainingRunsToday } from "@/lib/llm/dailyCap";
 import { splitPromptLines } from "@/lib/prompts/parsePromptLines";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -195,11 +196,17 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
     return { success: false, error: "No hay LLMs habilitados en este workspace" };
   }
 
-  // Crear N runs (uno por LLM habilitado)
+  // Cap duro diario: no superar el remanente del día
+  const remaining = await remainingRunsToday(supabase, workspaceId);
+  if (remaining <= 0) {
+    return { success: false, error: "Límite diario de ejecuciones alcanzado. Inténtalo mañana." };
+  }
+
+  // Crear N runs (uno por LLM habilitado), recortado al remanente diario
   const { data: runs, error: runError } = await supabase
     .from("prompt_runs")
     .insert(
-      providerIds.map((llmProviderId) => ({
+      providerIds.slice(0, remaining).map((llmProviderId) => ({
         workspace_id: workspaceId,
         prompt_id: promptId,
         llm_provider_id: llmProviderId,
@@ -287,15 +294,22 @@ export async function createPromptsBulkAction(
 
     const providerIds = (llmConfigs ?? []).map((c) => c.llm_provider_id as string);
 
-    if (providerIds.length > 0) {
-      const runRows = insertedPrompts.flatMap((p) =>
-        providerIds.map((llmProviderId) => ({
-          workspace_id: workspaceId,
-          prompt_id: p.id as string,
-          llm_provider_id: llmProviderId,
-          status: "queued",
-        }))
-      );
+    const remaining = providerIds.length > 0 ? await remainingRunsToday(service, workspaceId) : 0;
+
+    if (providerIds.length > 0 && remaining <= 0) {
+      warning =
+        "Los prompts se importaron, pero se alcanzó el límite diario de ejecuciones. Se ejecutarán mañana.";
+    } else if (providerIds.length > 0) {
+      const runRows = insertedPrompts
+        .flatMap((p) =>
+          providerIds.map((llmProviderId) => ({
+            workspace_id: workspaceId,
+            prompt_id: p.id as string,
+            llm_provider_id: llmProviderId,
+            status: "queued",
+          }))
+        )
+        .slice(0, remaining);
 
       const { data: createdRuns, error: runsError } = await service
         .from("prompt_runs")
@@ -385,15 +399,23 @@ export async function runAllPromptsNowAction(
     return { success: false, error: "No hay LLMs habilitados en este workspace" };
   }
 
-  // Crear runs: N prompts × M providers
-  const runRows = activePrompts.flatMap((p) =>
-    providerIds.map((llmProviderId) => ({
-      workspace_id: workspaceId,
-      prompt_id: p.id as string,
-      llm_provider_id: llmProviderId,
-      status: "queued",
-    }))
-  );
+  // Cap duro diario: no crear más runs de los que permita el remanente del día
+  const remaining = await remainingRunsToday(service, workspaceId);
+  if (remaining <= 0) {
+    return { success: false, error: "Límite diario de ejecuciones alcanzado. Inténtalo mañana." };
+  }
+
+  // Crear runs: N prompts × M providers, recortado al remanente diario
+  const runRows = activePrompts
+    .flatMap((p) =>
+      providerIds.map((llmProviderId) => ({
+        workspace_id: workspaceId,
+        prompt_id: p.id as string,
+        llm_provider_id: llmProviderId,
+        status: "queued",
+      }))
+    )
+    .slice(0, remaining);
 
   const { data: createdRuns, error: runError } = await service
     .from("prompt_runs")
@@ -404,16 +426,20 @@ export async function runAllPromptsNowAction(
     return { success: false, error: "No se pudieron crear los runs" };
   }
 
-  // Disparar un evento prompt/run.multi por cada prompt
-  const events = activePrompts.map((p) => {
-    const promptRunIds = createdRuns.filter((r) => r.prompt_id === p.id).map((r) => r.id as string);
-    return {
-      name: "prompt/run.multi" as const,
-      data: { promptId: p.id as string, workspaceId, runIds: promptRunIds },
-    };
-  });
+  // Disparar un evento prompt/run.multi por cada prompt con runs creados
+  const events = activePrompts
+    .map((p) => {
+      const promptRunIds = createdRuns
+        .filter((r) => r.prompt_id === p.id)
+        .map((r) => r.id as string);
+      return {
+        name: "prompt/run.multi" as const,
+        data: { promptId: p.id as string, workspaceId, runIds: promptRunIds },
+      };
+    })
+    .filter((event) => event.data.runIds.length > 0);
 
-  await inngest.send(events);
+  if (events.length > 0) await inngest.send(events);
 
   const workspaceSlug = await getWorkspaceSlug(workspaceId);
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
@@ -461,14 +487,22 @@ export async function runPromptsBulkNowAction(
     return { success: false, error: "No hay LLMs habilitados en este workspace" };
   }
 
-  const runRows = prompts.flatMap((prompt) =>
-    providerIds.map((llmProviderId) => ({
-      workspace_id: workspaceId,
-      prompt_id: prompt.id as string,
-      llm_provider_id: llmProviderId,
-      status: "queued",
-    }))
-  );
+  // Cap duro diario: recortar los runs al remanente del día
+  const remaining = await remainingRunsToday(service, workspaceId);
+  if (remaining <= 0) {
+    return { success: false, error: "Límite diario de ejecuciones alcanzado. Inténtalo mañana." };
+  }
+
+  const runRows = prompts
+    .flatMap((prompt) =>
+      providerIds.map((llmProviderId) => ({
+        workspace_id: workspaceId,
+        prompt_id: prompt.id as string,
+        llm_provider_id: llmProviderId,
+        status: "queued",
+      }))
+    )
+    .slice(0, remaining);
 
   const { data: createdRuns, error: runError } = await service
     .from("prompt_runs")

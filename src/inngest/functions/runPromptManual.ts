@@ -5,8 +5,8 @@ import { detectBrands } from "@/lib/detection/detectBrands";
 import { persistSourcesForRun } from "@/lib/llm/persistSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
-import { analyzePositionBatch } from "@/lib/llm/positionAnalyzer";
-import { analyzeSentimentBatch } from "@/lib/llm/sentimentAnalyzer";
+import { countRunsToday, getWorkspaceDailyCap } from "@/lib/llm/dailyCap";
+import { analyzeMentionsBatch } from "@/lib/llm/mentionAnalyzer";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -36,25 +36,14 @@ export const runPromptManual = inngest.createFunction(
 
     const supabase = getServiceClient();
 
-    // 0. Guard: límite diario de runs por workspace+LLM
+    // 0. Guard: cap duro GLOBAL de runs por workspace (suma de todos los proveedores).
+    // Evita picos accidentales desde cron o acciones manuales.
     const dailyGuard = await step.run("check-daily-limit", async () => {
-      const todayStart = new Date();
-      todayStart.setUTCHours(0, 0, 0, 0);
-      const { count } = await supabase
-        .from("prompt_runs")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspaceId)
-        .gte("created_at", todayStart.toISOString());
-      const { data: cfg } = await supabase
-        .from("workspace_llm_config")
-        .select("prompts_per_day, llm_providers!inner(key)")
-        .eq("workspace_id", workspaceId)
-        .eq("llm_providers.key", llmKey)
-        .single();
-      const dailyLimit = (cfg as { prompts_per_day: number } | null)?.prompts_per_day ?? 100;
-      // Margen del 20% sobre el límite configurado para absorber runs manuales
-      const hardCap = Math.ceil(dailyLimit * 1.2);
-      return { runsToday: count ?? 0, hardCap };
+      const [hardCap, runsToday] = await Promise.all([
+        getWorkspaceDailyCap(supabase, workspaceId),
+        countRunsToday(supabase, workspaceId),
+      ]);
+      return { runsToday, hardCap };
     });
 
     if (dailyGuard.runsToday >= dailyGuard.hardCap) {
@@ -229,19 +218,28 @@ export const runPromptManual = inngest.createFunction(
       }
     });
 
-    // 6.5. Análisis de sentimiento con LLM (refina los scores heurísticos)
-    await step.run("analyze-sentiment-llm", async () => {
-      const brandsForSentiment: string[] = [];
-      if (detection.ownBrandMentioned && detection.detectedBrandName) {
-        brandsForSentiment.push(detection.detectedBrandName);
-      }
-      for (const comp of detection.competitors) {
-        brandsForSentiment.push(comp.name);
-      }
-      if (brandsForSentiment.length === 0) return;
+    // 6.5. Análisis combinado (sentiment + ranking) en UNA sola llamada LLM.
+    // Sustituye a las dos llamadas separadas para reducir coste (3→2 por run).
+    // - El sentiment se aplica siempre.
+    // - El rank solo se aplica cuando la heurística regex no detectó lista
+    //   (todas las mentions son appearance_order/null), para no pisar posiciones fiables.
+    await step.run("analyze-mentions-llm", async () => {
+      const { data: mentionsRun } = await supabase
+        .from("mentions")
+        .select("brand_name_detected, position_source")
+        .eq("prompt_run_id", runId);
+
+      const brandNames = (mentionsRun ?? [])
+        .map((m) => m.brand_name_detected)
+        .filter((n): n is string => Boolean(n));
+      if (brandNames.length === 0) return;
+
+      const applyRank = (mentionsRun ?? []).every(
+        (m) => m.position_source === "appearance_order" || m.position_source === null
+      );
 
       try {
-        const results = await analyzeSentimentBatch(llmResult.rawResponse, brandsForSentiment);
+        const results = await analyzeMentionsBatch(llmResult.rawResponse, brandNames);
         for (const r of results) {
           await supabase
             .from("mentions")
@@ -252,41 +250,17 @@ export const runPromptManual = inngest.createFunction(
             })
             .eq("prompt_run_id", runId)
             .eq("brand_name_detected", r.brandName);
+
+          if (applyRank && r.rank !== null) {
+            await supabase
+              .from("mentions")
+              .update({ position: r.rank, position_source: "llm" })
+              .eq("prompt_run_id", runId)
+              .eq("brand_name_detected", r.brandName);
+          }
         }
       } catch (err) {
-        console.error("[sentiment-llm] failed, keeping heuristic fallback:", err);
-      }
-    });
-
-    // 6.6. Refinar posición con LLM cuando no hay lista regex-detectable
-    await step.run("refine-position-llm", async () => {
-      const { data: mentionsRun } = await supabase
-        .from("mentions")
-        .select("brand_name_detected, position_source")
-        .eq("prompt_run_id", runId);
-
-      const allAppearanceOrder = (mentionsRun ?? []).every(
-        (m) => m.position_source === "appearance_order" || m.position_source === null
-      );
-      if (!allAppearanceOrder) return; // lista regex ya disponible — skip
-
-      const brandNames = (mentionsRun ?? [])
-        .map((m) => m.brand_name_detected)
-        .filter((n): n is string => Boolean(n));
-      if (brandNames.length === 0) return;
-
-      try {
-        const results = await analyzePositionBatch(llmResult.rawResponse, brandNames);
-        for (const r of results) {
-          if (r.rank === null) continue;
-          await supabase
-            .from("mentions")
-            .update({ position: r.rank, position_source: "llm" })
-            .eq("prompt_run_id", runId)
-            .eq("brand_name_detected", r.brandName);
-        }
-      } catch (err) {
-        console.error("[position-llm] failed, keeping appearance_order fallback:", err);
+        console.error("[analyze-mentions-llm] failed, keeping heuristic fallback:", err);
       }
     });
 

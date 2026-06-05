@@ -13,6 +13,7 @@ import { detectBrands } from "../src/lib/detection/detectBrands";
 import { estimateCostForModel } from "../src/lib/llm/pricing";
 import { runPrompt } from "../src/lib/llm/runner";
 import { calculateConsistency, calculateSOV } from "../src/lib/metrics/calculate";
+import { assertBackfillAllowed } from "./_backfillGuard";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -66,6 +67,7 @@ async function upsertWorkspaceMetrics(workspaceId: string, llmProviderId: string
 }
 
 async function main() {
+  const maxRows = assertBackfillAllowed("run-all-prompts");
   console.log(`\n🚀 Ejecutando prompts de [${WORKSPACE_SLUG}] con [${LLM_KEY}] — ${TODAY}\n`);
 
   // 1. Obtener workspace
@@ -118,15 +120,22 @@ async function main() {
     .eq("status", "active");
 
   if (!prompts || prompts.length === 0) throw new Error("No hay prompts activos");
-  console.log(`✅ Prompts activos: ${prompts.length}\n`);
+
+  // Tope duro de filas por ejecución
+  const promptsToRun = prompts.slice(0, maxRows);
+  console.log(
+    `✅ Prompts activos: ${prompts.length}${
+      prompts.length > promptsToRun.length ? ` (recortado a ${maxRows})` : ""
+    }\n`
+  );
 
   // 5. Ejecutar cada prompt
   let ok = 0,
     failed = 0;
 
-  for (let i = 0; i < prompts.length; i++) {
-    const prompt = prompts[i]!;
-    process.stdout.write(`[${i + 1}/${prompts.length}] ${prompt.text.slice(0, 60)}… `);
+  for (let i = 0; i < promptsToRun.length; i++) {
+    const prompt = promptsToRun[i]!;
+    process.stdout.write(`[${i + 1}/${promptsToRun.length}] ${prompt.text.slice(0, 60)}… `);
 
     try {
       // 5a. Crear prompt_run

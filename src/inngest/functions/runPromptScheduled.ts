@@ -24,6 +24,10 @@ export const runPromptScheduled = inngest.createFunction(
     id: "prompt-run-scheduled",
     name: "Run Prompts Scheduled",
     // 06:00 UTC = 08:00 Madrid en verano (CEST). En invierno (CET) cae a 07:00 Madrid.
+    // 1 disparo/día. Encola hasta `prompts_per_day` runs por (workspace, proveedor),
+    // descontando los ya ejecutados hoy. Cada run hace 2 llamadas LLM (respuesta +
+    // análisis combinado sentiment/posición). El cap global de dailyCap.ts protege
+    // contra picos. Coste esperado: céntimos/día con la config actual.
     triggers: [{ cron: "0 6 * * *" }],
   },
   async ({ step }) => {
