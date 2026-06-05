@@ -400,6 +400,36 @@ export interface LlmComparisonRow {
   totalRuns: number;
 }
 
+// ── Analytics (Search Console + GA4) ──────────────────────────────────────────
+
+export interface GscQueryRow {
+  query: string;
+  clicks: number;
+  impressions: number;
+  ctr: number; // 0..1
+  position: number;
+}
+
+// Cruce entre prompts GEO monitorizados y queries reales de Search Console.
+export interface GeoSeoCrossRow {
+  promptText: string;
+  matchedQuery: string | null; // query real de GSC que coincide, o null
+  clicks: number;
+  impressions: number;
+  position: number | null;
+  status: "tracked" | "opportunity"; // tiene tráfico real | prompt sin tráfico
+}
+
+export interface LlmCpaRow {
+  llmKey: LlmProviderKey;
+  llmName: string;
+  conversions: number;
+  sessions: number;
+  geoCostUsd: number; // SUM(prompt_runs.cost_usd) del proveedor en el período
+  cpaUsd: number | null; // geoCostUsd / conversions; null si conversions = 0
+  conversionRatePct: number | null; // conversions / sessions
+}
+
 // ── GEO Research ──────────────────────────────────────────────────────────────
 
 export type RiskIfBrandAbsent = "low" | "medium" | "high";

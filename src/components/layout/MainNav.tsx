@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BarChart3,
   Building2,
   Globe,
   LayoutDashboard,
@@ -29,6 +30,7 @@ const getNavItems = (slug: string) => [
   { href: `/${slug}/recommendations`, label: "Recomendaciones", icon: Lightbulb },
   { href: `/${slug}/sources`, label: "Sources", icon: Globe },
   { href: `/${slug}/competitors`, label: "Competitors", icon: Swords },
+  { href: `/${slug}/analytics`, label: "Analytics", icon: BarChart3 },
   { href: `/${slug}/team`, label: "Team", icon: Users },
   { href: `/${slug}/settings`, label: "Settings", icon: Settings },
   { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck },
