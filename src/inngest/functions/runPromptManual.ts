@@ -2,11 +2,11 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { detectBrands } from "@/lib/detection/detectBrands";
+import { countRunsToday, getWorkspaceDailyCap } from "@/lib/llm/dailyCap";
+import { analyzeMentionsBatch } from "@/lib/llm/mentionAnalyzer";
 import { persistSourcesForRun } from "@/lib/llm/persistSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
-import { countRunsToday, getWorkspaceDailyCap } from "@/lib/llm/dailyCap";
-import { analyzeMentionsBatch } from "@/lib/llm/mentionAnalyzer";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -114,20 +114,39 @@ export const runPromptManual = inngest.createFunction(
       return data.id as string;
     });
 
-    // 3. Llamar al LLM
-    const llmResult = await step.run("call-llm", () =>
-      runPrompt({
-        provider: llmKey,
-        prompt: context.prompt!.text as string,
-        workspace: { id: context.workspace!.id as string, slug: context.workspace!.slug as string },
-        brand: { name: ownBrand.name, aliases: ownBrand.aliases },
-        competitors: (context.competitorBrands as Brand[]).map((c) => ({
-          name: c.name,
-          aliases: c.aliases,
-        })),
-        modelOverride: context.modelOverride ?? undefined,
-      })
-    );
+    // 3. Llamar al LLM. Si falla tras los reintentos, marcar el run como
+    // 'failed' para no dejarlo colgado en 'running' indefinidamente.
+    let llmResult: Awaited<ReturnType<typeof runPrompt>>;
+    try {
+      llmResult = await step.run("call-llm", () =>
+        runPrompt({
+          provider: llmKey,
+          prompt: context.prompt!.text as string,
+          workspace: {
+            id: context.workspace!.id as string,
+            slug: context.workspace!.slug as string,
+          },
+          brand: { name: ownBrand.name, aliases: ownBrand.aliases },
+          competitors: (context.competitorBrands as Brand[]).map((c) => ({
+            name: c.name,
+            aliases: c.aliases,
+          })),
+          modelOverride: context.modelOverride ?? undefined,
+        })
+      );
+    } catch (err) {
+      await step.run("mark-failed", async () => {
+        await supabase
+          .from("prompt_runs")
+          .update({
+            status: "failed",
+            error_message: err instanceof Error ? err.message : String(err),
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", runId);
+      });
+      throw err;
+    }
 
     // 4. Guardar raw_response y marcar como completed
     await step.run("save-response", async () => {

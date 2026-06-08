@@ -2,10 +2,10 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { detectBrands } from "@/lib/detection/detectBrands";
+import { analyzeMentionsBatch } from "@/lib/llm/mentionAnalyzer";
 import { persistSourcesForRun } from "@/lib/llm/persistSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
-import { analyzeMentionsBatch } from "@/lib/llm/mentionAnalyzer";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
 import type { Brand, LlmProviderKey } from "@/types";
@@ -100,21 +100,35 @@ export const runPromptManualMulti = inngest.createFunction(
             .update({ status: "running", started_at: new Date().toISOString() })
             .eq("id", runId);
 
-          // Llamar al LLM
-          const llmResult = await runPrompt({
-            provider: llmKey,
-            prompt: context.prompt!.text as string,
-            workspace: {
-              id: context.workspace!.id as string,
-              slug: context.workspace!.slug as string,
-            },
-            brand: { name: ownBrand.name, aliases: ownBrand.aliases },
-            competitors: (context.competitorBrands as Brand[]).map((comp) => ({
-              name: comp.name,
-              aliases: comp.aliases,
-            })),
-            modelOverride: modelOverride ?? undefined,
-          });
+          // Llamar al LLM. Si falla, marcar el run como 'failed' para no
+          // dejarlo colgado en 'running' indefinidamente.
+          let llmResult: Awaited<ReturnType<typeof runPrompt>>;
+          try {
+            llmResult = await runPrompt({
+              provider: llmKey,
+              prompt: context.prompt!.text as string,
+              workspace: {
+                id: context.workspace!.id as string,
+                slug: context.workspace!.slug as string,
+              },
+              brand: { name: ownBrand.name, aliases: ownBrand.aliases },
+              competitors: (context.competitorBrands as Brand[]).map((comp) => ({
+                name: comp.name,
+                aliases: comp.aliases,
+              })),
+              modelOverride: modelOverride ?? undefined,
+            });
+          } catch (err) {
+            await supabase
+              .from("prompt_runs")
+              .update({
+                status: "failed",
+                error_message: err instanceof Error ? err.message : String(err),
+                completed_at: new Date().toISOString(),
+              })
+              .eq("id", runId);
+            throw err;
+          }
 
           // Guardar respuesta y marcar completed
           const estimatedCost =
@@ -225,7 +239,10 @@ export const runPromptManualMulti = inngest.createFunction(
                   }
                 }
               } catch (err) {
-                console.error("[analyze-mentions-llm multi] failed, keeping heuristic fallback:", err);
+                console.error(
+                  "[analyze-mentions-llm multi] failed, keeping heuristic fallback:",
+                  err
+                );
               }
             }
           }
