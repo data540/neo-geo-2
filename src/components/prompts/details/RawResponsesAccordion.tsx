@@ -33,9 +33,7 @@ export function RawResponsesAccordion({ runs }: Props) {
           className="group rounded-md border border-slate-200 bg-white overflow-hidden"
         >
           <summary className="flex items-center justify-between gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-slate-50 select-none">
-            <span className="font-medium text-slate-700">
-              Ver respuesta de {run.llm_label}
-            </span>
+            <span className="font-medium text-slate-700">{run.llm_label}</span>
             <span className="text-slate-400 font-normal">{formatDate(run.completed_at)}</span>
           </summary>
           <pre className="px-3 py-2 text-xs whitespace-pre-wrap break-words text-slate-700 bg-slate-50 border-t border-slate-200 max-h-96 overflow-y-auto">
