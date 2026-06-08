@@ -20,6 +20,7 @@ import {
   getWorkspaceBrandPerformanceMetrics,
   getWorkspaceBrandVisibilityTrendMetrics,
 } from "@/lib/metrics/visibility";
+import { SPAIN_SEARCH_WEIGHTS } from "@/lib/llm/marketWeights";
 import { createClient } from "@/lib/supabase/server";
 import type {
   LlmComparisonRow,
@@ -53,6 +54,7 @@ function calcAvgSentiment(
 // sola fila por fecha, promediando los campos numéricos. Se usa en "All LLMs".
 type DailyMetricRow = {
   date: string;
+  llm_provider_id?: string | null;
   active_prompts_count: number | null;
   brand_mentions_count: number | null;
   avg_position: number | null;
@@ -66,7 +68,21 @@ function avgOf(values: (number | null)[]): number | null {
   return Math.round((nums.reduce((s, v) => s + v, 0) / nums.length) * 10) / 10;
 }
 
-function aggregateMetricsByDate(rows: DailyMetricRow[]): DailyMetricRow[] {
+function weightedAvgOf(pairs: Array<{ value: number | null; weight: number }>): number | null {
+  const valid = pairs.filter((p): p is { value: number; weight: number } =>
+    typeof p.value === "number"
+  );
+  if (valid.length === 0) return null;
+  const totalW = valid.reduce((s, p) => s + p.weight, 0);
+  if (totalW === 0) return null;
+  return Math.round((valid.reduce((s, p) => s + p.value * p.weight, 0) / totalW) * 10) / 10;
+}
+
+function aggregateMetricsByDate(
+  rows: DailyMetricRow[],
+  weightByProviderId: Record<string, number> = {}
+): DailyMetricRow[] {
+  const hasWeights = Object.keys(weightByProviderId).length > 0;
   const byDate = new Map<string, DailyMetricRow[]>();
   for (const row of rows) {
     const bucket = byDate.get(row.date);
@@ -74,14 +90,21 @@ function aggregateMetricsByDate(rows: DailyMetricRow[]): DailyMetricRow[] {
     else byDate.set(row.date, [row]);
   }
   return Array.from(byDate.entries())
-    .map(([date, group]) => ({
-      date,
-      active_prompts_count: avgOf(group.map((g) => g.active_prompts_count)),
-      brand_mentions_count: group.reduce((s, g) => s + (g.brand_mentions_count ?? 0), 0),
-      avg_position: avgOf(group.map((g) => g.avg_position)),
-      brand_consistency: avgOf(group.map((g) => g.brand_consistency)),
-      avg_sov: avgOf(group.map((g) => g.avg_sov)),
-    }))
+    .map(([date, group]) => {
+      const pairs = (field: "avg_position" | "brand_consistency" | "avg_sov") =>
+        group.map((g) => ({
+          value: g[field],
+          weight: (g.llm_provider_id ? weightByProviderId[g.llm_provider_id] : null) ?? 1,
+        }));
+      return {
+        date,
+        active_prompts_count: avgOf(group.map((g) => g.active_prompts_count)),
+        brand_mentions_count: group.reduce((s, g) => s + (g.brand_mentions_count ?? 0), 0),
+        avg_position:      hasWeights ? weightedAvgOf(pairs("avg_position"))      : avgOf(group.map((g) => g.avg_position)),
+        brand_consistency: hasWeights ? weightedAvgOf(pairs("brand_consistency")) : avgOf(group.map((g) => g.brand_consistency)),
+        avg_sov:           hasWeights ? weightedAvgOf(pairs("avg_sov"))           : avgOf(group.map((g) => g.avg_sov)),
+      };
+    })
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
@@ -141,7 +164,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   let metricsQuery = supabase
     .from("daily_workspace_metrics")
     .select(
-      "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
+      "date, llm_provider_id, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
     )
     .eq("workspace_id", workspace.id)
     .order("date", { ascending: false })
@@ -150,11 +173,24 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   if (providerId) metricsQuery = metricsQuery.eq("llm_provider_id", providerId);
   const { data: allMetricRowsRaw } = await metricsQuery;
 
-  // En "All LLMs" colapsamos a una fila por fecha promediando brand_consistency
-  // (único campo de esta tabla que se usa aguas abajo, en el chart).
+  // En "All LLMs" colapsamos a una fila por fecha usando promedios ponderados
+  // por cuota de mercado española (chatgpt ~68%, gemini ~26%, perplexity ~6%).
+  let weightByProviderId: Record<string, number> = {};
+  if (!providerId) {
+    const { data: activeProviders } = await supabase
+      .from("llm_providers")
+      .select("id, key")
+      .eq("enabled", true);
+    const providers = activeProviders ?? [];
+    const totalRaw = providers.reduce((s, p) => s + (SPAIN_SEARCH_WEIGHTS[p.key] ?? 1), 0);
+    weightByProviderId = Object.fromEntries(
+      providers.map((p) => [p.id, (SPAIN_SEARCH_WEIGHTS[p.key] ?? 1) / totalRaw])
+    );
+  }
+
   const allMetricRows = providerId
     ? (allMetricRowsRaw ?? [])
-    : aggregateMetricsByDate(allMetricRowsRaw ?? []);
+    : aggregateMetricsByDate(allMetricRowsRaw ?? [], weightByProviderId);
 
   const rows = allMetricRows.slice(0, days);
 
