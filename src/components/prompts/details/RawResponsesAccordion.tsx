@@ -35,9 +35,6 @@ export function RawResponsesAccordion({ runs }: Props) {
           <summary className="flex items-center justify-between gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-slate-50 select-none">
             <span className="font-medium text-slate-700">
               Ver respuesta de {run.llm_label}
-              {run.model ? (
-                <span className="text-slate-400 font-normal"> ({run.model})</span>
-              ) : null}
             </span>
             <span className="text-slate-400 font-normal">{formatDate(run.completed_at)}</span>
           </summary>
