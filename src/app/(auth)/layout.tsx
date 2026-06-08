@@ -5,9 +5,9 @@ export default function AuthLayout({ children }: { readonly children: React.Reac
         <div className="mb-8 text-center">
           <div className="inline-flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-              <span className="text-white font-bold text-sm">n</span>
+              <span className="text-white font-bold text-sm">M</span>
             </div>
-            <span className="text-xl font-bold text-slate-900">neo-geo</span>
+            <span className="text-xl font-bold text-slate-900">Mentio</span>
           </div>
         </div>
         {children}

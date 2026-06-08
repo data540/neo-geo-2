@@ -38,7 +38,7 @@ export default function LoginPage() {
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Iniciar sesión</h1>
-        <p className="text-slate-500 text-sm mt-1">Accede a tu cuenta de neo-geo</p>
+        <p className="text-slate-500 text-sm mt-1">Accede a tu cuenta de Mentio</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
