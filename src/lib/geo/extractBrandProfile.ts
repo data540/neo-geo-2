@@ -7,64 +7,28 @@ import type {
   ExtractedBrandProfile,
 } from "@/types";
 
-const SYSTEM_PROMPT = `Eres un analista senior de inteligencia de negocio para una unica aerolinea cliente.
-Tu objetivo es entregar un informe completo y usable para inteligencia GEO de una aerolinea, a partir de contenido web y de inferencias prudentes basadas en ese contenido.
+const SYSTEM_PROMPT = `Eres un analista senior de inteligencia de negocio.
+Tu objetivo es entregar un perfil completo y usable para inteligencia GEO de una marca, a partir de contenido web e inferencias prudentes basadas en ese contenido.
 
-Contexto obligatorio:
-- El cliente opera en el vertical aerolineas, soporte al pasajero y operaciones.
-- Prioriza Espana primero y Colombia segundo.
-- Enfoca el analisis en vuelos, rutas, check-in, equipaje, cambios, reembolsos, cancelaciones, demoras, rebooking, compensaciones, asistencia especial, fidelizacion, aeropuertos y experiencia del pasajero.
-- No escribas analisis generico multi-sector.
+Reglas:
+- Analiza cualquier tipo de negocio o sector; infiere la industria desde el contenido real del sitio.
 - Rellena todas las secciones con informacion explicita o inferencia prudente basada en el sitio.
-- No inventes premios, partners, certificaciones ni tecnologias concretas. Si algo concreto no aparece, no lo nombres como hecho.
-- Si una seccion puede inferirse por el modelo operativo de una aerolinea y los servicios publicados, rellenala de forma util.
+- No inventes premios, partners, certificaciones ni tecnologias concretas que no aparezcan explicitamente.
+- Si una seccion puede inferirse del modelo de negocio y los servicios publicados, rellenala de forma util.
 - Responde unicamente JSON valido, sin markdown ni comentarios.`;
 
 const RELEVANT_LINK_PATTERNS = [
-  "about",
-  "company",
-  "empresa",
-  "quienes",
-  "sobre",
-  "help",
-  "support",
-  "ayuda",
-  "atencion",
-  "baggage",
-  "equipaje",
-  "check-in",
-  "checkin",
-  "refund",
-  "reembolso",
-  "change",
-  "cambio",
-  "assistance",
-  "asistencia",
-  "special",
-  "routes",
-  "destinations",
-  "rutas",
-  "destinos",
-  "flying-blue",
-  "skyteam",
-  "suma",
-  "business",
-  "economy",
-  "mascotas",
-  "menores",
-  "movilidad",
-  "embarazada",
-  "wifi",
-  "wi-fi",
-  "entretenimiento",
-  "comida",
-  "gestion-reserva",
-  "gestionar",
-  "reserva",
-  "servicios",
-  "a-bordo",
-  "familias",
-  "asiento",
+  // Empresa / nosotros
+  "about", "company", "empresa", "quienes", "sobre", "historia", "mision",
+  // Productos / servicios
+  "products", "services", "productos", "servicios", "soluciones", "solutions",
+  "features", "pricing", "precios", "planes", "plans",
+  // Soporte / ayuda
+  "help", "support", "ayuda", "faq", "contact", "contacto",
+  // Legal / confianza
+  "terms", "privacy", "legal",
+  // Casos / clientes
+  "blog", "cases", "clientes", "customers",
 ];
 
 const MAX_ANALYZED_PAGES = 10;
@@ -178,125 +142,10 @@ function dedupeContent(pages: Array<{ url: string; content: string }>): string {
   return sections.join("\n\n").slice(0, 28_000);
 }
 
-function includesAny(content: string, terms: string[]): boolean {
-  const lower = content.toLowerCase();
-  return terms.some((term) => lower.includes(term));
-}
-
-function detectedPartnerships(content: string): string[] {
-  const items: string[] = [];
-  if (includesAny(content, ["skyteam"])) items.push("Miembro de SkyTeam");
-  if (includesAny(content, ["globalia"])) items.push("Parte del grupo Globalia");
-  if (includesAny(content, ["flying blue", "flying-blue"])) items.push("Programa Flying Blue");
-  if (includesAny(content, ["suma"])) items.push("Programa de fidelizacion Air Europa SUMA");
-  if (includesAny(content, ["martin berasategui", "berasategui"])) {
-    items.push("Colaboracion gastronomica con Martin Berasategui");
-  }
-  return items;
-}
-
-function defaultRevenueStreams(): string[] {
-  return [
-    "Venta de billetes en rutas nacionales e internacionales",
-    "Tarifas diferenciadas por cabina, ruta y condiciones de flexibilidad",
-    "Servicios auxiliares como equipaje, seleccion de asiento y cambios de reserva",
-    "Ingresos asociados a servicios premium, fidelizacion y acuerdos comerciales",
-  ];
-}
-
-function defaultProductsServices(): string[] {
-  return [
-    "Vuelos regulares de pasajeros",
-    "Cabina Economy",
-    "Cabina Business",
-    "Check-in online y gestion de reserva",
-    "Equipaje de mano y equipaje facturado",
-    "Cambios, reembolsos y gestion de incidencias",
-    "Asistencia para pasajeros con movilidad reducida",
-    "Servicios para menores, familias y pasajeros con necesidades especiales",
-    "Transporte de mascotas segun condiciones operativas",
-    "Informacion de vuelos, rutas y aeropuertos",
-  ];
-}
-
-function defaultKeyFeatures(): string[] {
-  return [
-    "Operacion orientada a pasajeros en Espana y mercados internacionales",
-    "Gestion digital de reserva, check-in e informacion de vuelo",
-    "Soporte para cambios, reembolsos, cancelaciones y demoras",
-    "Servicios de asistencia especial durante la experiencia aeroportuaria",
-    "Opciones de cabina y servicios a bordo para distintos perfiles de viaje",
-    "Informacion operativa para equipaje, embarque y documentacion",
-  ];
-}
-
-function defaultTargetAudience(): string {
-  return "Pasajeros individuales, familias y viajeros frecuentes que necesitan reservar vuelos, gestionar check-in, equipaje, cambios, reembolsos e incidencias. Incluye viajeros de ocio y negocio en Espana, pasajeros con conexiones internacionales y usuarios con necesidades operativas especificas como movilidad reducida, menores, familias, mascotas o asistencia durante disrupciones.";
-}
-
-function defaultPricingStrategy(companyName: string): string {
-  return `${companyName} opera con una estrategia de precios propia del transporte aereo de pasajeros: tarifas variables por ruta, cabina, antelacion, disponibilidad y condiciones de flexibilidad, complementadas por servicios auxiliares relacionados con equipaje, asientos, cambios, servicios premium y gestion de viaje.`;
-}
-
-function defaultValueProposition(companyName: string): string {
-  return `${companyName} ofrece conectividad aerea para pasajeros con servicios de gestion de viaje, atencion operativa y soporte en momentos clave como check-in, equipaje, cambios, reembolsos e incidencias.`;
-}
-
-function defaultUserExperience(): string {
-  return "La experiencia de usuario se apoya en procesos digitales de consulta, reserva, check-in, gestion de viaje e informacion operativa, con contenidos de soporte para reducir friccion antes, durante y despues del vuelo.";
-}
-
-function defaultContentStrategy(): string {
-  return "La estrategia de contenido debe priorizar informacion accionable para pasajeros: politicas de equipaje, cambios, reembolsos, asistencia especial, documentacion, rutas, aeropuertos y comunicacion clara ante disrupciones.";
-}
-
-function defaultSocialProof(content: string): string[] {
-  const partnerships = detectedPartnerships(content);
-  if (partnerships.length > 0) return partnerships;
-  return ["Red de rutas y servicios publicados en su web oficial"];
-}
-
 function mergeFallbacks(profile: CompanyBioProfile, content: string): CompanyBioProfile {
-  const companyName = profile.company.name || "La aerolinea";
-  const partnerships = detectedPartnerships(content);
   const hasSparseContent = content.length < 1500;
-
   return {
     ...profile,
-    businessOverview: {
-      summary: profile.businessOverview.summary,
-      valueProposition:
-        profile.businessOverview.valueProposition || defaultValueProposition(companyName),
-    },
-    targetAudience:
-      profile.targetAudience && !profile.targetAudience.startsWith("No se detecto")
-        ? profile.targetAudience
-        : defaultTargetAudience(),
-    businessModelRevenue: {
-      pricingStrategy:
-        profile.businessModelRevenue.pricingStrategy || defaultPricingStrategy(companyName),
-      revenueStreams:
-        profile.businessModelRevenue.revenueStreams.length > 0
-          ? profile.businessModelRevenue.revenueStreams
-          : defaultRevenueStreams(),
-    },
-    productsServices:
-      profile.productsServices.length >= 5 ? profile.productsServices : defaultProductsServices(),
-    technologyPartnerships: {
-      technologyStack: profile.technologyPartnerships.technologyStack,
-      keyPartnerships:
-        profile.technologyPartnerships.keyPartnerships.length > 0
-          ? profile.technologyPartnerships.keyPartnerships
-          : partnerships.length > 0
-            ? partnerships
-            : ["No detectado publicamente en las paginas analizadas"],
-    },
-    userExperienceContent: {
-      userExperience: profile.userExperienceContent.userExperience || defaultUserExperience(),
-      contentStrategy: profile.userExperienceContent.contentStrategy || defaultContentStrategy(),
-    },
-    socialProof: profile.socialProof.length > 0 ? profile.socialProof : defaultSocialProof(content),
-    keyFeatures: profile.keyFeatures.length >= 4 ? profile.keyFeatures : defaultKeyFeatures(),
     analysisInfo: {
       ...profile.analysisInfo,
       confidence: hasSparseContent
@@ -417,21 +266,18 @@ Devuelve un JSON con exactamente esta estructura:
 Reglas de redaccion:
 - Escribe en espanol claro.
 - Resume Business Overview en 80-120 palabras.
-- Tu objetivo es entregar un informe completo y usable para inteligencia GEO de una aerolinea.
+- Infiere el sector, industria y modelo de negocio desde el contenido del sitio.
 - Rellena todas las secciones con informacion explicita o inferencia prudente basada en el sitio.
 - No dejes arrays vacios salvo que sea realmente imposible tras analizar home y paginas secundarias.
 - No inventes premios, partners, certificaciones ni tecnologias concretas. Si no aparecen, no los nombres como hechos.
-- Si no hay partner concreto, usa "No detectado publicamente en las paginas analizadas" solo como ultimo recurso.
 - valueProposition debe ser 1 frase obligatoria.
 - pricingStrategy debe ser 1 parrafo breve obligatorio.
 - revenueStreams debe tener 3-6 items.
-- Target Audience debe describir tipos reales de pasajeros y necesidades operativas.
+- Target Audience debe describir los tipos reales de clientes y sus necesidades.
 - Products & Services debe tener 8-12 items.
-- Key Features debe tener 6-10 items orientados a operaciones y experiencia del pasajero.
-- User Experience y Content Strategy deben rellenarse desde navegacion, procesos de pasajero, ayuda, check-in, gestion de reserva, informacion operativa y soporte.
-- Social Proof debe incluir alianzas, premios, partners, chefs, programas, certificaciones o senales publicas solo si aparecen en el contenido.
-- Technology & Partnerships no debe listar tecnologia si solo se infiere por ser una web moderna.
-- Valida internamente que no haya claims inventados, lenguaje generico de otros sectores, ni datos fuera del vertical aerolinea.`;
+- Key Features debe tener 6-10 items orientados a los diferenciadores reales de la marca.
+- Social Proof debe incluir alianzas, premios, partners, programas o certificaciones solo si aparecen en el contenido.
+- Technology & Partnerships no debe listar tecnologia si solo se infiere por ser una web moderna.`;
 }
 
 export async function extractBrandProfile(domain: string): Promise<CompanyBioAnalysisResult> {
@@ -469,7 +315,7 @@ export async function extractBrandProfile(domain: string): Promise<CompanyBioAna
       Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
       "Content-Type": "application/json",
       "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
-      "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+      "X-Title": process.env.OPENROUTER_APP_NAME ?? "Mentio",
     },
     body: JSON.stringify({
       model,
