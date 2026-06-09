@@ -131,15 +131,31 @@ export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>;
 export const geoResearchInputSchema = z.object({
   workspaceId: z.string().uuid(),
   brandName: z.string().min(2).max(100),
-  domain: z.string().max(200).default(""),
-  brandStatement: z.string().max(500).default(""),
+  domain: z.string().max(200, "El dominio no puede superar 200 caracteres").default(""),
+  brandStatement: z
+    .string()
+    .max(2000, "La descripcion de la marca no puede superar 2000 caracteres")
+    .default(""),
   country: z.string().length(2, "Código de país de 2 letras").default("ES"),
-  location: z.string().max(100).default(""),
-  category: z.string().min(2).max(100).default("Vuelos comerciales de pasajeros"),
-  productsServices: z.string().max(300).default(""),
-  targetAudience: z.string().max(300).default(""),
+  location: z.string().max(100, "La ubicacion no puede superar 100 caracteres").default(""),
+  category: z
+    .string()
+    .min(2)
+    .max(300, "El segmento de operaciones no puede superar 300 caracteres")
+    .default(""),
+  productsServices: z
+    .string()
+    .max(2000, "Los servicios principales no pueden superar 2000 caracteres")
+    .default(""),
+  targetAudience: z
+    .string()
+    .max(2000, "La audiencia objetivo no puede superar 2000 caracteres")
+    .default(""),
   competitors: z.array(z.string()).default([]),
-  differentiators: z.string().max(300).default(""),
+  differentiators: z
+    .string()
+    .max(2000, "Los diferenciadores no pueden superar 2000 caracteres")
+    .default(""),
   numberOfPrompts: z.number().int().min(5).max(100).default(10),
 });
 

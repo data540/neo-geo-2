@@ -151,49 +151,49 @@ export function ResearchContextForm({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="category">Segmento de operaciones de aerolinea</Label>
+        <Label htmlFor="category">Segmento de operaciones</Label>
         <Input
           id="category"
           name="category"
-          defaultValue={defaultValues.category ?? "Vuelos comerciales de pasajeros"}
+          defaultValue={defaultValues.category ?? ""}
           maxLength={100}
-          placeholder="ej. Vuelos nacionales, vuelos internacionales, soporte posventa"
+          placeholder="ej. Software B2B, e-commerce, servicios profesionales, retail"
           required
           disabled={anyLoading}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="productsServices">Servicios principales de la aerolinea</Label>
+        <Label htmlFor="productsServices">Productos y servicios principales</Label>
         <Textarea
           id="productsServices"
           name="productsServices"
           defaultValue={defaultValues.productsServices ?? ""}
           rows={2}
-          placeholder="ej. Check-in online, equipaje facturado, cambios y reembolsos, asistencia en aeropuerto"
+          placeholder="ej. Suscripción mensual, soporte premium, integración API, formación"
           disabled={anyLoading}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="targetAudience">Audiencia objetivo de pasajeros</Label>
+        <Label htmlFor="targetAudience">Audiencia objetivo</Label>
         <Input
           id="targetAudience"
           name="targetAudience"
           defaultValue={defaultValues.targetAudience ?? ""}
-          placeholder="ej. Viajeros frecuentes, familias, pasajeros de negocios, rutas Espana-Colombia"
+          placeholder="ej. PYMEs, directores de marketing, usuarios técnicos, consumidores finales"
           disabled={anyLoading}
         />
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="differentiators">Diferenciadores operativos de la marca</Label>
+        <Label htmlFor="differentiators">Diferenciadores de la marca</Label>
         <Textarea
           id="differentiators"
           name="differentiators"
           defaultValue={defaultValues.differentiators ?? ""}
           rows={2}
-          placeholder="ej. Mejor puntualidad, politicas flexibles de cambio, soporte rapido en incidencias"
+          placeholder="ej. Precio competitivo, atención al cliente 24/7, tecnología propia, certificaciones"
           disabled={anyLoading}
         />
       </div>

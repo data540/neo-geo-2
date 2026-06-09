@@ -198,7 +198,7 @@ export async function prioritizePromptsAction(
     brandStatement: "",
     country: workspace?.country ?? "ES",
     location: "",
-    category: "Vuelos comerciales de pasajeros",
+    category: "",
     productsServices: "",
     targetAudience: "",
     competitors: [],
