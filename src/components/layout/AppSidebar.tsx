@@ -26,14 +26,17 @@ export function AppSidebar({ workspaces, currentWorkspace, userRole }: AppSideba
     >
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-slate-200 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+        {collapsed ? (
           <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center shrink-0">
             <span className="text-white font-bold text-xs">M</span>
           </div>
-          {!collapsed && (
-            <span className="text-base font-bold text-slate-900 truncate">Mentio</span>
-          )}
-        </div>
+        ) : (
+          <img
+            src="/mentio-logo.jpg"
+            alt="Mentio — AI-Powered Brand Visibility Ranking"
+            className="h-9 w-auto max-w-full object-contain"
+          />
+        )}
       </div>
 
       {/* Workspace switcher */}
