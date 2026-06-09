@@ -82,7 +82,7 @@ Todas las tablas tienen RLS activo. Las funciones helper `is_workspace_member(uu
 | `LlmProviderKey` | Label en UI   | Modelo default OpenRouter   |
 |------------------|---------------|-----------------------------|
 | `chatgpt`        | ChatGPT       | `openai/gpt-4o`             |
-| `gemini`         | AI Overviews  | `google/gemini-2.0-flash-001` |
+| `gemini`         | AI Overviews  | `google/gemini-2.5-flash-lite` |
 | `perplexity`     | Perplexity    | `perplexity/sonar`          |
 
 > La key `"gemini"` se mantiene en la BD para no romper datos históricos (prompt_runs, mentions). El `name` en `llm_providers` es "AI Overviews". Los proveedores `claude` y `deepseek` están desactivados (`enabled = false`) desde la migración `0022`.
@@ -154,7 +154,7 @@ OPENROUTER_API_KEY           # OBLIGATORIA — todos los LLMs (ejecución de pro
 OPENROUTER_HTTP_REFERER      # Opcional — header para OpenRouter analytics
 OPENROUTER_APP_NAME          # Opcional — X-Title para OpenRouter analytics
 OPENROUTER_MODEL_CHATGPT     # Opcional — override del default openai/gpt-4o
-OPENROUTER_MODEL_GEMINI      # Opcional — override del default google/gemini-2.0-flash-001
+OPENROUTER_MODEL_GEMINI      # Opcional — override del default google/gemini-2.5-flash-lite
 OPENROUTER_MODEL_PERPLEXITY  # Opcional — override del default perplexity/sonar
 OPENROUTER_MODEL_SENTIMENT   # Opcional — default openai/gpt-4o-mini (análisis LLM de sentiment)
 OPENROUTER_EMBEDDING_MODEL   # Opcional — default openai/text-embedding-3-small
