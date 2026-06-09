@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AdminLogsTable } from "./AdminLogsTable";
+import { DeleteWorkspacePanel } from "./DeleteWorkspacePanel";
 import { KnowledgeBasePanel } from "./KnowledgeBasePanel";
 
 interface AdminLogsRow {
@@ -22,18 +23,29 @@ interface AdminLogsRow {
 
 interface Props {
   workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  userRole: string;
   logsRows: AdminLogsRow[];
   initialTab?: string;
 }
 
-export function AdminTabsWrapper({ workspaceId, logsRows, initialTab = "logs" }: Props) {
-  const [activeTab, setActiveTab] = useState<"logs" | "knowledge-base">(
-    (initialTab as "logs" | "knowledge-base") || "logs"
+export function AdminTabsWrapper({
+  workspaceId,
+  workspaceSlug,
+  workspaceName,
+  userRole,
+  logsRows,
+  initialTab = "logs",
+}: Props) {
+  const [activeTab, setActiveTab] = useState<"logs" | "knowledge-base" | "danger-zone">(
+    (initialTab as "logs" | "knowledge-base" | "danger-zone") || "logs"
   );
 
   const tabs = [
     { id: "logs", label: "Logs de ejecución", icon: "📊" },
     { id: "knowledge-base", label: "Knowledge Base", icon: "📚" },
+    { id: "danger-zone", label: "Zona peligrosa", icon: "⚠️" },
   ] as const;
 
   return (
@@ -45,7 +57,9 @@ export function AdminTabsWrapper({ workspaceId, logsRows, initialTab = "logs" }:
           <p className="text-sm text-slate-500 mt-1">
             {activeTab === "logs"
               ? "Últimas 200 ejecuciones de prompts con consumo de tokens y coste estimado."
-              : "Gestión de la base de conocimiento experta para GEO Research y Recomendaciones."}
+              : activeTab === "knowledge-base"
+                ? "Gestión de la base de conocimiento experta para GEO Research y Recomendaciones."
+                : "Acciones destructivas e irreversibles sobre el workspace."}
           </p>
         </div>
 
@@ -71,6 +85,19 @@ export function AdminTabsWrapper({ workspaceId, logsRows, initialTab = "logs" }:
         {/* Content */}
         {activeTab === "logs" && <AdminLogsTable rows={logsRows} />}
         {activeTab === "knowledge-base" && <KnowledgeBasePanel workspaceId={workspaceId} />}
+        {activeTab === "danger-zone" && (
+          userRole === "owner" ? (
+            <DeleteWorkspacePanel
+              workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
+              workspaceName={workspaceName}
+            />
+          ) : (
+            <p className="text-sm text-slate-500">
+              Solo el owner del workspace puede eliminar el workspace.
+            </p>
+          )
+        )}
       </div>
     </div>
   );
