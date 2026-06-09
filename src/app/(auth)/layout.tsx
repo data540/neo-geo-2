@@ -6,7 +6,7 @@ export default function AuthLayout({ children }: { readonly children: React.Reac
           <img
             src="/mentio-logo.jpg"
             alt="Mentio — AI-Powered Brand Visibility Ranking"
-            className="w-[280px] max-w-full h-auto object-contain"
+            className="w-[520px] max-w-full h-auto object-contain"
           />
         </div>
         {children}
