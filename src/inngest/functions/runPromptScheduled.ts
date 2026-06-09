@@ -36,7 +36,7 @@ export const runPromptScheduled = inngest.createFunction(
     const configs = await step.run("fetch-llm-configs", async () => {
       const { data } = await supabase
         .from("workspace_llm_config")
-        .select("workspace_id, prompts_per_day, llm_providers!inner(key, enabled)")
+        .select("workspace_id, prompts_per_day, llm_providers!inner(id, key, enabled)")
         .eq("enabled", true)
         .eq("llm_providers.enabled", true)
         .gt("prompts_per_day", 0);
@@ -97,9 +97,10 @@ export const runPromptScheduled = inngest.createFunction(
       if (available.length === 0) continue;
 
       // Guard: no superar prompts_per_day descontando los ya ejecutados hoy
-      const providerData = (config.llm_providers as unknown as { key: string; id?: string } | null);
+      const providerData = config.llm_providers as unknown as { key: string; id?: string } | null;
       const providerId = providerData?.id ?? "";
-      const alreadyToday = (runsToday as Record<string, number>)[`${workspaceId}:${providerId}`] ?? 0;
+      const alreadyToday =
+        (runsToday as Record<string, number>)[`${workspaceId}:${providerId}`] ?? 0;
       const remaining = Math.max(0, config.prompts_per_day - alreadyToday);
       if (remaining === 0) continue;
 
