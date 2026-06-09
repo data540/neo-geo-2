@@ -316,8 +316,25 @@ export function CompanyBioForm({
     });
   }
 
+  const profileIsEmpty =
+    !profile.businessOverview.summary &&
+    profile.productsServices.length === 0 &&
+    profile.keyFeatures.length === 0;
+
   return (
     <div className="space-y-6">
+      {profileIsEmpty && !isGenerating && (
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-5 flex items-start gap-4">
+          <Sparkles className="w-5 h-5 text-indigo-500 mt-0.5 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="text-sm font-medium text-indigo-800">Perfil pendiente de generar</p>
+            <p className="text-sm text-indigo-600 mt-0.5">
+              Pulsa <strong>Generate from URL</strong> para analizar el sitio web y rellenar
+              automáticamente todos los campos.
+            </p>
+          </div>
+        </div>
+      )}
       <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
         <CardContent className="p-6">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
