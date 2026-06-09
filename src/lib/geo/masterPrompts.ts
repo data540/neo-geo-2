@@ -1,9 +1,7 @@
 export const PROMPT_GENERATOR_TEMPLATE = `
 Actúa como especialista en GEO, SEO conversacional e investigación de intención de búsqueda para motores de IA.
 
-Contexto obligatorio: este sistema trabaja para un unico cliente del sector aerolineas.
-
-Tu tarea es generar un set de prompts realistas que un usuario escribiría en ChatGPT, Gemini, Claude o Perplexity cuando busca, compara o evalúa opciones de vuelos y servicios de aerolinea.
+Tu tarea es generar un set de prompts realistas que un usuario escribiría en ChatGPT, Gemini, Claude o Perplexity cuando busca, compara o evalúa productos y servicios de la marca.
 
 IMPORTANTE: No generes keywords ni frases cortas. Genera preguntas conversacionales completas, en primera persona cuando sea natural, con el nivel de detalle que un usuario real incluiría.
 
@@ -14,7 +12,7 @@ Datos del workspace:
 - País: {{country}}
 - Ciudad o mercado principal: {{location}}
 - Segmento: {{category}}
-- Servicios de aerolinea: {{products_services}}
+- Productos y servicios: {{products_services}}
 - Audiencia objetivo: {{target_audience}}
 - Competidores conocidos: {{competitors}}
 - Diferenciadores de la marca: {{differentiators}}
@@ -26,24 +24,21 @@ Tipos de prompts que DEBES cubrir (al menos 1 de cada tipo):
 4. REPUTACIÓN/OPINIONES — "Opiniones reales sobre [marca/servicio] en {{country}}"
 5. CON MARCA — "¿Vale la pena [servicio específico] de {{brand_name}}?"
 6. ESPECIALIDAD/SERVICIO — Pregunta sobre una característica concreta del servicio o producto
-7. LOCAL con geolocalización específica — Ciudad, aeropuerto, barrio o ruta concreta dentro de {{location}}
+7. LOCAL con geolocalización específica — Ciudad, barrio o mercado concreto dentro de {{location}}
 8. PRECIO/VALOR — "¿Qué opción ofrece mejor relación calidad-precio para [caso de uso]?"
 9. ACCIÓN PRÁCTICA — "¿Cómo solicito/gestiono/contacto con...?" o "¿Qué necesito para...?"
-10. CONFIANZA/FIABILIDAD — "¿Es fiable X para [situación crítica]?", "¿Cuál no me dejará tirado si...?"
+10. CONFIANZA/FIABILIDAD — "¿Es fiable X para [situación crítica]?", "¿Cuál no me fallará si...?"
 11. URGENCIA/TIEMPO REAL — Situación con límite de tiempo o necesidad inmediata
-12. NECESIDADES ESPECIALES — Personas con movilidad reducida, familias, mascotas, dietas, idiomas
+12. NECESIDADES ESPECIALES — Perfiles concretos: familias, autónomos, empresas, usuarios técnicos
 
 Reglas ESTRICTAS:
-- Todo prompt debe estar en contexto aerolinea: vuelos, aeropuertos, rutas, check-in, equipaje, embarque, incidencias, reembolsos, cambios o compensaciones.
-- Mercado objetivo prioritario: Espana. Mercado secundario: Colombia.
-- Al menos 70% de prompts deben incluir contexto de Espana (ciudades/aeropuertos/rutas). El resto puede cubrir Colombia.
+- Los prompts deben encajar en el contexto del sector y productos de {{brand_name}}.
 - Al menos 60% de prompts NO deben incluir el nombre de {{brand_name}}.
 - Debes distribuir el set por etapa del funnel y etiquetar cada prompt con funnel_stage correcto (top, middle, bottom).
-- Distribucion objetivo del funnel: 30-40% top, 30-40% middle, 20-30% bottom.
-- SIEMPRE incluye contexto situacional en primera persona cuando el perfil lo permite: "Estoy embarazada de 7 meses...", "Tengo un perro de asistencia...", "Mi hijo viaja solo por primera vez...", "Tengo una lesión en la rodilla...".
-- Varia la geografia: usa aeropuertos concretos, ciudades de origen/destino y rutas especificas en Espana y Colombia.
-- Incluye referencias temporales cuando sean relevantes: "en 2026", "de última hora", "a tiempo real".
-- Algunos prompts deben mencionar aerolineas competidoras, alianzas aereas o tipos de tarifa para medir visibilidad relativa.
+- Distribución objetivo del funnel: 30-40% top, 30-40% middle, 20-30% bottom.
+- Adapta los prompts al mercado y país indicado ({{country}}, {{location}}).
+- Incluye referencias temporales cuando sean relevantes: "en 2026", "actualmente", "en este momento".
+- Algunos prompts deben mencionar competidores o alternativas para medir visibilidad relativa.
 - Varía el estilo: preguntas directas, con contexto personal, comparativas, prácticas ("Cómo..."), valorativas ("¿Vale la pena...?").
 - No generes preguntas duplicadas semánticamente.
 - No uses frases genéricas de marketing; los prompts deben reflejar dudas reales, no comunicados de prensa.
@@ -73,7 +68,7 @@ Devuelve ÚNICAMENTE un JSON array válido con exactamente {{number_of_prompts}}
 export const COVERAGE_AUDITOR_TEMPLATE = `
 Actúa como auditor de cobertura de prompts GEO para una plataforma de AI Visibility.
 
-Tu tarea es revisar si un set de prompts representa correctamente las preguntas que un usuario real haría a ChatGPT, Gemini, Claude o Perplexity antes de elegir una aerolinea o resolver una incidencia de vuelo.
+Tu tarea es revisar si un set de prompts representa correctamente las preguntas que un usuario real haría a ChatGPT, Gemini, Claude o Perplexity antes de elegir un producto o servicio, o resolver una duda sobre la marca.
 
 Datos:
 - Marca: {{brand_name}}
@@ -88,14 +83,14 @@ Evalúa estos 12 aspectos:
 2. Si faltan prompts genéricos sin marca (descubrimiento puro).
 3. Si faltan prompts comparativos entre competidores.
 4. Si faltan prompts de intención comercial alta (decision, bottom funnel).
-5. Si faltan prompts con geolocalización específica (aeropuerto, ciudad, ruta concreta) en Espana y Colombia.
-6. Si faltan prompts por criterio de decisión concreto (precio, comodidad, fiabilidad).
+5. Si faltan prompts con geolocalización específica (ciudad, mercado o región concreta).
+6. Si faltan prompts por criterio de decisión concreto (precio, calidad, fiabilidad).
 7. Si faltan prompts reputacionales (opiniones, experiencias reales).
 8. Si faltan prompts de acción práctica ("Cómo solicitar...", "Qué necesito para...").
-9. Si faltan prompts de confianza/fiabilidad ("¿Es seguro?", "¿Qué aerolínea no me deja tirado?").
-10. Si faltan prompts para perfiles con necesidades especiales (movilidad reducida, familias, mascotas, embarazadas, menores no acompañados).
+9. Si faltan prompts de confianza/fiabilidad ("¿Es fiable X?", "¿Cuál no me fallará si...?").
+10. Si faltan prompts para perfiles con necesidades específicas según la audiencia objetivo.
 11. Si hay duplicados semánticos o prompts que suenan artificiales o a copy de marketing.
-12. Si el set en conjunto permite medir visibilidad real frente a competidores en el mercado de aerolineas, no visibilidad inducida por la marca.
+12. Si el set en conjunto permite medir visibilidad real frente a competidores en el mercado, no visibilidad inducida por la marca.
 
 Devuelve ÚNICAMENTE un JSON válido sin texto adicional:
 
@@ -112,7 +107,7 @@ Devuelve ÚNICAMENTE un JSON válido sin texto adicional:
 export const PROMPT_PRIORITIZER_TEMPLATE = `
 Actúa como priorizador de prompts para una plataforma de AI Visibility.
 
-Tienes una lista de prompts candidatos. Debes seleccionar los mejores {{limit}} para monitorizar visibilidad de marca en LLMs en el sector aerolineas.
+Tienes una lista de prompts candidatos. Debes seleccionar los mejores {{limit}} para monitorizar visibilidad de marca en LLMs.
 
 Criterios de priorización:
 - Alta probabilidad de que un usuario real haga esa pregunta (ai_search_likelihood).
@@ -122,9 +117,9 @@ Criterios de priorización:
 - Cobertura equilibrada del funnel (top/middle/bottom).
 - Baja duplicidad semántica entre seleccionados.
 - Neutralidad: el prompt no debe forzar artificialmente la marca.
-- Cobertura de incidentes clave de vuelo: cancelaciones, demoras, equipaje, check-in, reembolsos, cambios y compensaciones.
-- Cobertura geografica equilibrada con prioridad Espana y segundo foco Colombia.
-- Prioriza prompts de bottom funnel cuando expresen intencion clara de compra, cambio, reembolso o resolucion urgente.
+- Cobertura de los principales casos de uso y puntos de dolor del sector.
+- Cobertura geográfica equilibrada según el mercado principal.
+- Prioriza prompts de bottom funnel cuando expresen intención clara de compra o resolución urgente.
 
 Prompts candidatos: {{candidates_json}}
 

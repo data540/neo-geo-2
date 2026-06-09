@@ -17,9 +17,9 @@ function buildSystemMessage(args: GenerateArgs): string {
   const { brandName, domain, brandStatement, country, count } = args;
   const countryLabel = country === "ES" ? "España" : country === "CO" ? "Colombia" : country;
 
-  return `Eres un experto en GEO (Generative Engine Optimization) y análisis competitivo en LLMs para el sector aerolíneas.
+  return `Eres un experto en GEO (Generative Engine Optimization) y análisis competitivo en LLMs.
 
-Tu tarea: generar exactamente ${count} prompts en español que un usuario realista escribiría en ChatGPT, Claude, Gemini o Perplexity al investigar vuelos o aerolíneas, donde la marca "${brandName}" debería poder aparecer como respuesta.
+Tu tarea: generar exactamente ${count} prompts en español que un usuario realista escribiría en ChatGPT, Claude, Gemini o Perplexity al investigar o comparar opciones, donde la marca "${brandName}" debería poder aparecer como respuesta.
 
 ## Contexto de la marca
 - Nombre: ${brandName}
@@ -29,14 +29,14 @@ Tu tarea: generar exactamente ${count} prompts en español que un usuario realis
 
 ## Reglas de los prompts
 1. Distribución por intent (aproximada):
-   - 30% discovery (sin nombrar la marca) — el usuario explora opciones: "¿Cuáles son las mejores aerolíneas para...?"
-   - 25% comparison — comparar marcas, rutas, precios, servicios
+   - 30% discovery (sin nombrar la marca) — el usuario explora opciones
+   - 25% comparison — comparar marcas, precios, servicios
    - 20% branded — preguntas directas sobre ${brandName}
-   - 15% decision/conversion — el usuario está cerca de decidir: equipaje, cambios, check-in, tarifas
-   - 10% reputation/post-venta — opiniones, quejas, reclamaciones, retrasos
+   - 15% decision/conversion — el usuario está cerca de decidir
+   - 10% reputation/post-venta — opiniones, quejas, reclamaciones
 2. Cubrir funnel: top (descubrimiento), middle (comparación), bottom (decisión).
-3. Rutas y mercados relevantes para ${countryLabel} (ej. Madrid-Bogotá, Barcelona-Buenos Aires, etc.) cuando aplique.
-4. Tono natural, como si los escribiera un viajero real. Sin jerga corporativa.
+3. Adapta los prompts al mercado y contexto de la marca en ${countryLabel}.
+4. Tono natural, como si los escribiera un usuario real. Sin jerga corporativa.
 5. Mezcla prompts cortos (10-20 palabras) y otros más específicos (30-50 palabras).
 6. No repitas frases. Cada prompt debe explorar un ángulo distinto.
 

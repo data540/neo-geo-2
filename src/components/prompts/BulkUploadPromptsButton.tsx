@@ -203,7 +203,7 @@ export function BulkUploadPromptsButton({ workspaceId, workspaceCountry }: Props
               rows={8}
               value={plainText}
               onChange={(e) => setPlainText(e.target.value)}
-              placeholder="Ejemplo:\nQue aerolinea conviene para volar Madrid-Bogota con equipaje facturado?\nComo comparar opciones Madrid-Miami sin escalas largas?"
+              placeholder="Ejemplo:\n¿Cuál es la mejor opción para [caso de uso] en [mercado]?\n¿Cómo comparo las principales alternativas de [categoría] en [país]?"
             />
           </div>
 

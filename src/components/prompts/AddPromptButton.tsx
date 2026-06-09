@@ -71,14 +71,13 @@ export function AddPromptButton({ workspaceId, workspaceCountry }: Props) {
             <Textarea
               id="text"
               name="text"
-              placeholder="ej. ¿Que aerolinea conviene mas para volar Madrid-Bogota con equipaje facturado?"
+              placeholder="ej. ¿Qué opción conviene más para [caso de uso] con [necesidad específica]?"
               rows={4}
               required
               disabled={loading}
             />
             <p className="text-xs text-slate-400">
-              Solo prompts de aerolinea: vuelos, equipaje, check-in, cancelaciones, reembolsos o
-              compensaciones.
+              Escribe prompts conversacionales como los que un usuario real escribiría en un LLM.
             </p>
           </div>
 
