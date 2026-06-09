@@ -67,5 +67,14 @@ export default async function AdminPage({ params, searchParams }: AdminPageProps
     provider_name: (r.llm_providers as unknown as { name: string } | null)?.name ?? "—",
   }));
 
-  return <AdminTabsWrapper workspaceId={workspace.id} logsRows={rows} initialTab={tab} />;
+  return (
+    <AdminTabsWrapper
+      workspaceId={workspace.id}
+      workspaceSlug={slug}
+      workspaceName={workspace.name}
+      userRole={membership.role}
+      logsRows={rows}
+      initialTab={tab}
+    />
+  );
 }
