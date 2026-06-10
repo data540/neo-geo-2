@@ -27,10 +27,15 @@ export async function getCostBreakdownAction(
 ): Promise<{ success: true; data: CostBreakdown } | { success: false; error: string }> {
   const supabase = await createClient();
 
-  const { data: isMember } = await supabase.rpc("is_workspace_member", {
-    workspace_id: workspaceId,
-  });
-  if (!isMember) return { success: false, error: "Sin permisos" };
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "Sin permisos" };
+  const { data: membership } = await supabase
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", user.id)
+    .single();
+  if (!membership) return { success: false, error: "Sin permisos" };
 
   const since =
     days > 0
