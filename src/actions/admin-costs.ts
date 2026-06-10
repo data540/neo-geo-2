@@ -27,10 +27,10 @@ export async function getCostBreakdownAction(
 ): Promise<{ success: true; data: CostBreakdown } | { success: false; error: string }> {
   const supabase = await createClient();
 
-  const { data: canManage } = await supabase.rpc("can_manage_workspace", {
+  const { data: isMember } = await supabase.rpc("is_workspace_member", {
     workspace_id: workspaceId,
   });
-  if (!canManage) return { success: false, error: "Sin permisos" };
+  if (!isMember) return { success: false, error: "Sin permisos" };
 
   const since =
     days > 0
