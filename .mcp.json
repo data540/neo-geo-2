@@ -3,6 +3,15 @@
     "supabase": {
       "type": "http",
       "url": "https://mcp.supabase.com/mcp?project_ref=ydfzkueudfutjpeqozdi"
+    },
+    "openrouter": {
+      "type": "http",
+      "url": "https://openrouter.ai/api/v1/mcp",
+      "headers": {
+        "Authorization": "Bearer ${OPENROUTER_API_KEY}",
+        "HTTP-Referer": "${OPENROUTER_HTTP_REFERER}",
+        "X-Title": "${OPENROUTER_APP_NAME}"
+      }
     }
   }
 }
