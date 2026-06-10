@@ -35,7 +35,7 @@ export default async function AdminPage({ params, searchParams }: AdminPageProps
     .eq("user_id", user.id)
     .single();
 
-  if (!membership || !["owner", "admin"].includes(membership.role)) {
+  if (!membership) {
     notFound();
   }
 
