@@ -37,8 +37,8 @@ export const candidateSchema = z.object({
 export type CandidateSchemaType = z.infer<typeof candidateSchema>;
 
 // Modelos del pipeline propietario (vía OpenRouter)
-const MODEL_VARIANT_A = "anthropic/claude-sonnet-4-5";
-const MODEL_VARIANT_B = "openai/gpt-4.1-mini";
+const MODEL_VARIANT_A = "openai/gpt-4o";
+const MODEL_VARIANT_B = "google/gemini-2.5-flash-lite";
 // Threshold cosine similarity para dedup
 const DEDUP_SIMILARITY_THRESHOLD = 0.88;
 
