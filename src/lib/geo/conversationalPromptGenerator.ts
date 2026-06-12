@@ -19,17 +19,22 @@ export const candidateSchema = z.object({
       "product_specific",
     ])
     .nullable()
-    .optional(),
-  funnel_stage: z.enum(["top", "middle", "bottom"]).nullable().optional(),
+    .optional()
+    .catch(null),
+  funnel_stage: z
+    .enum(["top", "middle", "bottom"])
+    .nullable()
+    .optional()
+    .catch(null),
   persona: z.string().nullable().optional(),
   country: z.string().default("ES"),
   includes_brand: z.boolean().default(false),
   includes_competitor: z.boolean().default(false),
-  strategic_value: z.number().nullable().optional(),
-  conversion_intent: z.number().nullable().optional(),
-  ai_search_likelihood: z.number().nullable().optional(),
-  priority_score: z.number().nullable().optional(),
-  tags: z.array(z.string()).default([]),
+  strategic_value: z.number().nullable().optional().catch(null),
+  conversion_intent: z.number().nullable().optional().catch(null),
+  ai_search_likelihood: z.number().nullable().optional().catch(null),
+  priority_score: z.number().nullable().optional().catch(null),
+  tags: z.array(z.string()).default([]).catch([]),
   reason: z.string().nullable().optional(),
   coverage_area: z.string().nullable().optional(),
 });
@@ -119,12 +124,16 @@ async function callOpenRouter(
 
 function parseCandidatesFromText(raw: string, prefix: string): PromptCandidate[] {
   const jsonMatch = raw.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return [];
+  if (!jsonMatch) {
+    console.warn(`[parseCandidates:${prefix}] No JSON array found in response`);
+    return [];
+  }
 
   let parsed: unknown[];
   try {
     parsed = JSON.parse(jsonMatch[0]) as unknown[];
-  } catch {
+  } catch (e) {
+    console.warn(`[parseCandidates:${prefix}] JSON.parse failed:`, e);
     return [];
   }
 
@@ -156,6 +165,11 @@ function parseCandidatesFromText(raw: string, prefix: string): PromptCandidate[]
         activated: false,
         created_at: new Date().toISOString(),
       });
+    } else {
+      console.warn(
+        `[parseCandidates:${prefix}] item ${i} validation failed:`,
+        result.error.issues
+      );
     }
   }
   return candidates;
