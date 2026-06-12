@@ -62,35 +62,56 @@ async function callOpenRouter(
   temperature = 0.9,
   maxRetries = 2
 ): Promise<string> {
+  if (!process.env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error("OPENROUTER_API_KEY no configurada");
+  }
+
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
-        "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: promptText }],
-        max_tokens: 4096,
-        temperature,
-      }),
-    });
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": process.env.OPENROUTER_HTTP_REFERER ?? "http://localhost:3000",
+          "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: promptText }],
+          max_tokens: 4096,
+          temperature,
+        }),
+      });
 
-    if (!response.ok) {
-      const body = await response.text();
-      lastError = new Error(`OpenRouter error (${response.status}): ${body}`);
-      continue;
+      if (!response.ok) {
+        const body = await response.text();
+        lastError = new Error(
+          `OpenRouter (${response.status}) with model ${model}: ${body.slice(0, 500)}`
+        );
+        if (attempt < maxRetries) continue;
+        break;
+      }
+
+      const data = (await response.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        error?: { message: string };
+      };
+
+      if (data.error) {
+        lastError = new Error(`OpenRouter API error: ${data.error.message}`);
+        if (attempt < maxRetries) continue;
+        break;
+      }
+
+      return data.choices?.[0]?.message?.content ?? "[]";
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) continue;
+      break;
     }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    return data.choices?.[0]?.message?.content ?? "[]";
   }
 
   throw lastError ?? new Error("OpenRouter: max retries exceeded");
@@ -215,10 +236,15 @@ export async function generatePromptCandidates(
   const combined = [...candidatesA, ...candidatesB];
 
   if (combined.length === 0) {
-    const errorA = rawA.status === "rejected" ? String(rawA.reason) : "";
-    const errorB = rawB.status === "rejected" ? String(rawB.reason) : "";
+    const errorA = rawA.status === "rejected"
+      ? (rawA.reason instanceof Error ? rawA.reason.message : String(rawA.reason))
+      : "";
+    const errorB = rawB.status === "rejected"
+      ? (rawB.reason instanceof Error ? rawB.reason.message : String(rawB.reason))
+      : "";
+    console.error(`[generatePromptCandidates] Error details:`, { errorA, errorB, rawA, rawB });
     throw new Error(
-      `OpenRouter no devolvió candidatos en ninguna variante (${MODEL_VARIANT_A}, ${MODEL_VARIANT_B}). ${errorA} ${errorB}`.trim()
+      `OpenRouter no devolvió candidatos en ninguna variante (${MODEL_VARIANT_A}, ${MODEL_VARIANT_B}). A: ${errorA} B: ${errorB}`.trim()
     );
   }
 
