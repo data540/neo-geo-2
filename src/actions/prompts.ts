@@ -221,10 +221,17 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
 
   const runIds = runs.map((r) => r.id as string);
 
-  await inngest.send({
-    name: "prompt/run.multi",
-    data: { promptId, workspaceId, runIds },
-  });
+  try {
+    await inngest.send({
+      name: "prompt/run.multi",
+      data: { promptId, workspaceId, runIds },
+    });
+  } catch (err) {
+    console.warn(
+      "[runPromptNowAction] Inngest no disponible, runs queued en BD:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 
   const { data: ws } = await supabase
     .from("workspaces")
@@ -439,7 +446,16 @@ export async function runAllPromptsNowAction(
     })
     .filter((event) => event.data.runIds.length > 0);
 
-  if (events.length > 0) await inngest.send(events);
+  if (events.length > 0) {
+    try {
+      await inngest.send(events);
+    } catch (err) {
+      console.warn(
+        "[runAllPromptsNowAction] Inngest no disponible, runs queued en BD:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
 
   const workspaceSlug = await getWorkspaceSlug(workspaceId);
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
@@ -527,21 +543,11 @@ export async function runPromptsBulkNowAction(
 
   try {
     await inngest.send(events);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Error desconocido";
-
-    await service
-      .from("prompt_runs")
-      .delete()
-      .in(
-        "id",
-        createdRuns.map((run) => run.id as string)
-      );
-
-    return {
-      success: false,
-      error: `No se pudieron encolar los prompts en Inngest: ${message}`,
-    };
+  } catch (err) {
+    console.warn(
+      "[runPromptsBulkNowAction] Inngest no disponible, runs queued en BD:",
+      err instanceof Error ? err.message : String(err)
+    );
   }
 
   const workspaceSlug = await getWorkspaceSlug(workspaceId);
