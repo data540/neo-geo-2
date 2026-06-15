@@ -6,8 +6,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // pueden superar este tope — protege contra picos accidentales de coste.
 
 const SAFETY_MARGIN = 1.2;
+const MIN_DAILY_CAP = 60;
 // Tope de seguridad absoluto por si la config quedara vacía o desconfigurada.
-const FALLBACK_CAP = 120;
+const FALLBACK_CAP = 200;
 
 export async function getWorkspaceDailyCap(
   supabase: SupabaseClient,
@@ -25,7 +26,7 @@ export async function getWorkspaceDailyCap(
   );
 
   if (sum <= 0) return FALLBACK_CAP;
-  return Math.ceil(sum * SAFETY_MARGIN);
+  return Math.max(MIN_DAILY_CAP, Math.ceil(sum * SAFETY_MARGIN));
 }
 
 export async function countRunsToday(

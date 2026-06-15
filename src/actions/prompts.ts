@@ -21,12 +21,20 @@ import type {
   PromptDetailSource,
 } from "@/types";
 
+const UNLIMITED_EMAILS = ["tester@gmail.com"];
+
 function getServiceClient() {
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
+}
+
+async function isUnlimitedUser(): Promise<boolean> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return UNLIMITED_EMAILS.includes(user?.email ?? "");
 }
 
 async function requireManage(workspaceId: string): Promise<boolean> {
@@ -197,7 +205,8 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
   }
 
   // Cap duro diario: no superar el remanente del día
-  const remaining = await remainingRunsToday(supabase, workspaceId);
+  const unlimited = await isUnlimitedUser();
+  const remaining = unlimited ? 999_999 : await remainingRunsToday(supabase, workspaceId);
   if (remaining <= 0) {
     return { success: false, error: "Límite diario de ejecuciones alcanzado. Inténtalo mañana." };
   }
@@ -301,7 +310,8 @@ export async function createPromptsBulkAction(
 
     const providerIds = (llmConfigs ?? []).map((c) => c.llm_provider_id as string);
 
-    const remaining = providerIds.length > 0 ? await remainingRunsToday(service, workspaceId) : 0;
+    const unlimitedBulk = await isUnlimitedUser();
+    const remaining = providerIds.length > 0 ? (unlimitedBulk ? 999_999 : await remainingRunsToday(service, workspaceId)) : 0;
 
     if (providerIds.length > 0 && remaining <= 0) {
       warning =
@@ -407,7 +417,8 @@ export async function runAllPromptsNowAction(
   }
 
   // Cap duro diario: no crear más runs de los que permita el remanente del día
-  const remaining = await remainingRunsToday(service, workspaceId);
+  const unlimitedAll = await isUnlimitedUser();
+  const remaining = unlimitedAll ? 999_999 : await remainingRunsToday(service, workspaceId);
   if (remaining <= 0) {
     return { success: false, error: "Límite diario de ejecuciones alcanzado. Inténtalo mañana." };
   }
@@ -504,7 +515,8 @@ export async function runPromptsBulkNowAction(
   }
 
   // Cap duro diario: recortar los runs al remanente del día
-  const remaining = await remainingRunsToday(service, workspaceId);
+  const unlimitedBulkNow = await isUnlimitedUser();
+  const remaining = unlimitedBulkNow ? 999_999 : await remainingRunsToday(service, workspaceId);
   if (remaining <= 0) {
     return { success: false, error: "Límite diario de ejecuciones alcanzado. Inténtalo mañana." };
   }
