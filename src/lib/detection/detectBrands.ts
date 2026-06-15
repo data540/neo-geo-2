@@ -24,26 +24,34 @@ interface CompetitorDetection {
 }
 
 const GENERIC_NON_BRANDS = new Set([
-  "espana",
-  "colombia",
-  "europa",
-  "madrid",
-  "bogota",
-  "medellin",
-  "barcelona",
-  "airline",
-  "aerolinea",
-  "aerolineas",
-  // geographic abbreviations — not brand names
-  "latam",
-  "emea",
-  "apac",
-  "mena",
-  "dach",
-  "amer",
-  "cee",
-  "ue",
-  "eeuu",
+  // Geografía — España y Latinoamérica
+  "espana", "colombia", "europa", "madrid", "bogota", "medellin", "barcelona",
+  "bilbao", "valencia", "sevilla", "alicante", "mallorca", "palma", "ibiza",
+  "santiago", "salamanca", "barajas", "zaragoza", "malaga", "granada", "toledo",
+  "burgos", "leon", "oviedo", "santander", "pamplona", "vitoria", "donostia",
+  "mexico", "argentina", "chile", "peru", "brasil", "venezuela", "ecuador",
+  // Abreviaturas regionales/globales
+  "latam", "emea", "apac", "mena", "dach", "amer", "cee", "ue", "eeuu",
+  // Sector aéreo (legacy)
+  "airline", "aerolinea", "aerolineas",
+  // Sustantivos/verbos genéricos españoles que arrancan en mayúscula en listas
+  "acceso", "algunas", "algunos", "analiza", "antes", "apoyo", "aqui",
+  "asesoramiento", "asociacion", "aunque", "ayudan", "buscas", "cadena",
+  "calidad", "cafeteria", "canon", "comida", "competencia", "concepto",
+  "conocida", "conocido", "considera", "consultor", "continua", "costes",
+  "costos", "decidir", "demanda", "dentro", "depende", "determinar", "dicho",
+  "diversidad", "entrada", "entre", "excelente", "existe", "existen",
+  "factores", "famoso", "formato", "formacion", "franquicia", "franquicias",
+  "franquiciador", "hamburgueseria", "innovacion", "inversion", "invertir",
+  "investiga", "marca", "marketing", "mayor", "mercado", "modelo",
+  "negociacion", "objetivo", "ofrece", "ofrecen", "otra", "panaderia",
+  "parte", "perfil", "pero", "pizzeria", "populares", "proporcionan",
+  "proveedores", "publicidad", "puede", "reconocimiento", "regulaciones",
+  "rentabilidad", "restauracion", "retail", "revisa", "roi", "sector",
+  "similar", "situacion", "soporte", "suele", "suelen", "sus", "tambien",
+  "tendencias", "tipo", "tiendas", "ubicacion", "visitar",
+  "especializada", "especializado", "general", "inicial", "ideal",
+  "salud", "belleza", "barrio", "taberna", "tapas", "casual",
 ]);
 
 export interface DetectBrandsOutput {
@@ -290,28 +298,46 @@ export function detectBrands(input: DetectBrandsInput): DetectBrandsOutput {
   };
 }
 
+// Rango Unicode À-ɏ cubre letras latinas extendidas (ñ, acentos, etc.)
+const UNICODE_LETTER = "A-Za-zÀ-ɏ";
+const WORD_CHARS = `${UNICODE_LETTER}0-9&'\\-`;
+
 export function extractPotentialCompetitorsFromResponse(rawResponse: string): string[] {
   const candidates = new Set<string>();
 
-  const quotedMatches = rawResponse.matchAll(/"([A-Z][A-Za-z0-9&\-\s]{2,40})"/g);
+  // 1. Texto en negrita markdown (**Marca**) — la señal más fiable en respuestas LLM
+  const boldMatches = rawResponse.matchAll(/\*\*([^*\n]{2,60})\*\*/g);
+  for (const m of boldMatches) {
+    // Quitar ": descripción" que siguen al nombre en listas
+    let val = (m[1] ?? "").replace(/:.*$/, "").trim();
+    if (val.length >= 2 && /^[A-ZÀ-ɏ]/.test(val)) {
+      const lower = val.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+      if (!GENERIC_NON_BRANDS.has(lower)) candidates.add(val);
+    }
+  }
+
+  // 2. Texto entre comillas que empieza en mayúscula
+  const quotedMatches = rawResponse.matchAll(new RegExp(`"([A-ZÀ-ɏ][${WORD_CHARS}\\s]{2,40})"`, "g"));
   for (const match of quotedMatches) {
     const value = (match[1] ?? "").trim();
     if (value) candidates.add(value);
   }
 
-  const namedMatches = rawResponse.matchAll(
-    /\b([A-Z][A-Za-z0-9&-]{1,20}(?:\s+[A-Z][A-Za-z0-9&-]{1,20}){0,3})\b/g
+  // 3. Nombres propios capitalizados — soporte Unicode para ñ/acentos completos
+  const namedPattern = new RegExp(
+    `\\b([A-ZÀ-ɏ][${WORD_CHARS}]{1,25}(?:\\s+[A-ZÀ-ɏ][${WORD_CHARS}]{1,25}){0,3})\\b`,
+    "g"
   );
-
+  const namedMatches = rawResponse.matchAll(namedPattern);
   for (const match of namedMatches) {
     const candidate = (match[1] ?? "").trim();
-    const lower = candidate.toLowerCase();
-    if (candidate.length < 3) continue;
+    if (candidate.length < 4) continue;
+    const lower = candidate.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
     if (GENERIC_NON_BRANDS.has(lower)) continue;
-    if (/^(Top|Los|Las|Otros|Otras|Para|Como|Esta|Esto|Este|Esos|Esas)$/i.test(candidate)) continue;
+    if (/^(Top|Los|Las|Otros|Otras|Para|Como|Esta|Esto|Este|Esos|Esas|Hay|Una|Uno|Con|Sin|Por|Sus|Pero|Aunque|Entre|Dentro|Dicho)$/i.test(candidate)) continue;
     if (/[0-9]{2,}/.test(candidate)) continue;
     candidates.add(candidate);
   }
 
-  return Array.from(candidates).slice(0, 25);
+  return Array.from(candidates).slice(0, 60);
 }

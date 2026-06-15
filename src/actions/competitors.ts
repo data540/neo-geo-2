@@ -6,47 +6,46 @@ import { createClient } from "@/lib/supabase/server";
 import { createCompetitorSchema, updateCompetitorSchema } from "@/lib/validations/schemas";
 import type { ActionResult } from "@/types";
 
-// Palabras genéricas que nunca son nombres de marca
+// Palabras genéricas que nunca son nombres de marca (normalizadas: sin acentos, minúsculas)
 const GENERIC_EXCLUSIONS = new Set([
-  "espana",
-  "colombia",
-  "mexico",
-  "argentina",
-  "chile",
-  "peru",
-  "madrid",
-  "bogota",
-  "barcelona",
-  "medellin",
-  "aeropuerto",
-  "ciudad",
-  "pais",
-  "region",
-  "empresa",
-  "compania",
-  "servicio",
-  "servicios",
-  "producto",
-  "productos",
-  "solucion",
-  "soluciones",
-  "plataforma",
-  "herramienta",
-  // geographic abbreviations — not brand names
-  "latam",
-  "emea",
-  "apac",
-  "mena",
-  "dach",
-  "amer",
-  "cee",
-  "ue",
-  "eeuu",
+  // Geografía — España y Latinoamérica
+  "espana", "colombia", "mexico", "argentina", "chile", "peru", "brasil",
+  "venezuela", "ecuador", "madrid", "bogota", "barcelona", "medellin",
+  "bilbao", "valencia", "sevilla", "alicante", "mallorca", "palma", "ibiza",
+  "santiago", "salamanca", "barajas", "zaragoza", "malaga", "granada", "toledo",
+  "aeropuerto", "ciudad", "pais", "region",
+  // Abreviaturas regionales
+  "latam", "emea", "apac", "mena", "dach", "amer", "cee", "ue", "eeuu",
+  // Sustantivos genéricos de negocio
+  "empresa", "compania", "servicio", "servicios", "producto", "productos",
+  "solucion", "soluciones", "plataforma", "herramienta", "cadena", "red",
+  "grupo", "marca", "sector", "mercado", "modelo", "formato", "concepto",
+  "tipo", "negocio", "retail", "marketing", "publicidad", "roi",
+  "rentabilidad", "canon", "inversion", "inversi", "costes", "costos",
+  // Verbos / infinitivos
+  "abrir", "analiza", "buscas", "considerar", "consultar", "decidir",
+  "determinar", "invertir", "investiga", "ofrece", "ofrecen", "proporcionar",
+  "proporcionan", "puede", "revisa", "suele", "suelen", "visitar",
+  // Adjetivos / pronombres genéricos
+  "algunas", "algunos", "conocida", "conocido", "especializada", "especializado",
+  "excelente", "famoso", "ideal", "inicial", "populares", "similar", "principal",
+  "principales", "general", "generales", "estas", "estos",
+  // Sustantivos comunes en respuestas LLM sobre franquicias/restauración
+  "acceso", "apoyo", "asesoramiento", "asociacion", "calidad", "cafeteria",
+  "competencia", "demanda", "dependencia", "diversidad", "entrada", "factores",
+  "formacion", "franquicia", "franquicias", "franquiciador", "hamburgueseria",
+  "innovacion", "mercado", "negociacion", "objetivo", "panaderia", "parte",
+  "perfil", "pizzeria", "proveedores", "reconocimiento", "regulaciones",
+  "restauracion", "soporte", "tendencias", "tiendas", "ubicacion",
+  // Adverbios / conjunciones que arrancan en mayúscula en listas
+  "aunque", "dentro", "dicho", "entre", "incluso", "pero", "sin", "tambien",
+  // Palabras de salud/belleza que no son marcas de comida
+  "salud", "belleza", "barrio", "tapas", "taberna", "casual",
 ]);
 
-// Verbos y frases genéricas que no son marcas
+// Verbos y frases genéricas en el nombre del candidato que indican que no es una marca
 const GENERIC_PHRASE_PATTERN =
-  /(^|\s)(compara|comparar|elige|elegir|busca|buscar|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas|precio|precios|oferta|ofertas|reserva|reservar|descuento)($|\s)/i;
+  /(^|\s)(compara|comparar|elige|elegir|busca|buscar|mejor|opcion|opciones|precio|precios|oferta|ofertas|reserva|reservar|descuento|analiza|considera|incluye|permite|ofrece)($|\s)/i;
 
 function normalizeName(value: string): string {
   return value
@@ -59,11 +58,12 @@ function normalizeName(value: string): string {
 
 function shouldKeepCompetitorCandidate(name: string): boolean {
   const normalized = normalizeName(name);
-  if (normalized.length < 3) return false;
+  // Mínimo 4 chars para evitar "Con", "Por", "AEF"-style ruido
+  if (normalized.length < 4) return false;
   if (GENERIC_EXCLUSIONS.has(normalized)) return false;
   if (GENERIC_PHRASE_PATTERN.test(normalized)) return false;
-  // Debe tener al menos una letra mayúscula inicial (nombre propio)
-  if (!/^[A-ZÁÉÍÓÚÑ]/.test(name.trim())) return false;
+  // Debe empezar con letra mayúscula (nombre propio)
+  if (!/^[A-ZÁÉÍÓÚÑÀ-ɏ]/.test(name.trim())) return false;
   return true;
 }
 

@@ -2,35 +2,31 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/inngest/client";
 import { extractPotentialCompetitorsFromResponse } from "@/lib/detection/detectBrands";
 
-const AIRLINE_NAME_HINTS = [
-  "air",
-  "airlines",
-  "airways",
-  "avianca",
-  "iberia",
-  "latam",
-  "ryanair",
-  "vueling",
-  "wizz",
-  "easyjet",
-  "klm",
-  "lufthansa",
-  "turkish",
-  "aeromexico",
-  "volaris",
-  "copa",
-  "delta",
-  "united",
-  "american",
-  "jetblue",
-  "emirates",
-  "qatar",
-  "etihad",
-  "air europa",
-  "air france",
-  "airline",
-  "aeroline",
-];
+// Palabras genéricas que nunca son nombres de marca (normalizadas)
+const GENERIC_EXCLUSIONS = new Set([
+  "espana", "colombia", "mexico", "argentina", "chile", "peru", "brasil",
+  "madrid", "bogota", "barcelona", "bilbao", "valencia", "sevilla",
+  "alicante", "mallorca", "salamanca", "barajas", "aeropuerto", "ciudad",
+  "latam", "emea", "apac", "mena", "dach", "ue", "eeuu",
+  "empresa", "compania", "servicio", "servicios", "producto", "productos",
+  "cadena", "red", "grupo", "marca", "sector", "mercado", "modelo",
+  "formato", "concepto", "tipo", "negocio", "retail", "marketing",
+  "publicidad", "roi", "rentabilidad", "canon", "inversion", "costes",
+  "abrir", "analiza", "buscas", "considerar", "consultar", "decidir",
+  "determinar", "invertir", "investiga", "ofrece", "ofrecen", "puede",
+  "revisa", "suele", "suelen", "visitar",
+  "algunas", "algunos", "especializada", "especializado", "excelente",
+  "ideal", "populares", "similar", "principal", "principales", "estas",
+  "acceso", "apoyo", "asesoramiento", "calidad", "competencia", "demanda",
+  "diversidad", "factores", "formacion", "franquicia", "franquicias",
+  "innovacion", "objetivo", "parte", "perfil", "proveedores",
+  "restauracion", "soporte", "tendencias", "tiendas", "ubicacion",
+  "aunque", "dentro", "dicho", "entre", "incluso", "pero", "sin", "tambien",
+  "salud", "belleza", "barrio", "tapas", "taberna", "casual",
+]);
+
+const GENERIC_PHRASE_PATTERN =
+  /(^|\s)(compara|comparar|elige|elegir|busca|buscar|mejor|opcion|opciones|precio|precios|oferta|ofertas|reserva|reservar|descuento|analiza|considera|incluye|permite|ofrece)($|\s)/i;
 
 function getServiceClient() {
   return createSupabaseClient(
@@ -51,18 +47,11 @@ function normalizeName(value: string): string {
 
 function shouldKeepCompetitorCandidate(name: string): boolean {
   const normalized = normalizeName(name);
-  if (normalized.length < 3) return false;
-  if (
-    /(^|\s)(compara|comparar|elige|mejor|opcion|opciones|vuelo|vuelos|ruta|rutas)($|\s)/i.test(
-      normalized
-    )
-  ) {
-    return false;
-  }
-  if (/^(espana|colombia|madrid|bogota|barcelona|medellin|aeropuerto)$/i.test(normalized)) {
-    return false;
-  }
-  return AIRLINE_NAME_HINTS.some((hint) => normalized.includes(hint));
+  if (normalized.length < 4) return false;
+  if (GENERIC_EXCLUSIONS.has(normalized)) return false;
+  if (GENERIC_PHRASE_PATTERN.test(normalized)) return false;
+  if (!/^[A-ZÀ-ɏ]/i.test(name.trim())) return false;
+  return true;
 }
 
 interface WorkspaceRow {
