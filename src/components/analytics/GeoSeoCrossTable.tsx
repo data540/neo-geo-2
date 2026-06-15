@@ -1,12 +1,81 @@
+"use client";
+
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { useState } from "react";
 import type { GeoSeoCrossRow } from "@/types";
+
+type SortKey = "promptText" | "matchedQuery" | "clicks" | "impressions" | "position";
+type SortDir = "asc" | "desc";
 
 interface Props {
   rows: GeoSeoCrossRow[];
 }
 
+function SortIcon({ col, active, dir }: { col: string; active: boolean; dir: SortDir }) {
+  if (!active) return <ArrowUpDown className="w-3 h-3 ml-1 opacity-40" aria-hidden="true" />;
+  return dir === "asc" ? (
+    <ArrowUp className="w-3 h-3 ml-1" aria-hidden="true" />
+  ) : (
+    <ArrowDown className="w-3 h-3 ml-1" aria-hidden="true" />
+  );
+}
+
 export function GeoSeoCrossTable({ rows }: Props) {
+  const [sortKey, setSortKey] = useState<SortKey>("clicks");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
   const tracked = rows.filter((r) => r.status === "tracked").length;
   const opportunities = rows.filter((r) => r.status === "opportunity").length;
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "promptText" || key === "matchedQuery" ? "asc" : "desc");
+    }
+  }
+
+  const sorted = [...rows].sort((a, b) => {
+    const mul = sortDir === "asc" ? 1 : -1;
+    if (sortKey === "promptText") {
+      return mul * a.promptText.localeCompare(b.promptText, "es");
+    }
+    if (sortKey === "matchedQuery") {
+      const aq = a.matchedQuery ?? "";
+      const bq = b.matchedQuery ?? "";
+      return mul * aq.localeCompare(bq, "es");
+    }
+    if (sortKey === "clicks") {
+      return mul * (a.clicks - b.clicks);
+    }
+    if (sortKey === "impressions") {
+      return mul * (a.impressions - b.impressions);
+    }
+    // position: null (oportunidades) siempre al final
+    if (sortKey === "position") {
+      if (a.position === null && b.position === null) return 0;
+      if (a.position === null) return 1;
+      if (b.position === null) return -1;
+      return mul * (a.position - b.position);
+    }
+    return 0;
+  });
+
+  function thClass(align: "left" | "right") {
+    return `px-4 py-3 text-${align} text-xs font-medium text-slate-500 uppercase tracking-wide select-none cursor-pointer hover:text-slate-800 whitespace-nowrap`;
+  }
+
+  function thBtn(key: SortKey, align: "left" | "right", label: string) {
+    return (
+      <th key={key} className={thClass(align)} onClick={() => handleSort(key)}>
+        <span className={`inline-flex items-center ${align === "right" ? "justify-end w-full" : ""}`}>
+          {label}
+          <SortIcon col={key} active={sortKey === key} dir={sortDir} />
+        </span>
+      </th>
+    );
+  }
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -27,25 +96,15 @@ export function GeoSeoCrossTable({ rows }: Props) {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Prompt monitorizado
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Búsqueda real
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Clics
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Impresiones
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Pos.
-                </th>
+                {thBtn("promptText", "left", "Prompt monitorizado")}
+                {thBtn("matchedQuery", "left", "Búsqueda real")}
+                {thBtn("clicks", "right", "Clics")}
+                {thBtn("impressions", "right", "Impresiones")}
+                {thBtn("position", "right", "Pos.")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((r) => (
+              {sorted.map((r) => (
                 <tr key={r.promptText} className="hover:bg-slate-50/60">
                   <td className="px-4 py-3 text-slate-700 max-w-sm truncate" title={r.promptText}>
                     {r.promptText}

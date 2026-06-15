@@ -270,9 +270,9 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
               />
             </div>
 
+            <LlmCpaTable rows={cpaRows} />
             <GscQueriesTable rows={gscQueries} />
             <GeoSeoCrossTable rows={crossRows} />
-            <LlmCpaTable rows={cpaRows} />
           </>
         )}
       </div>
