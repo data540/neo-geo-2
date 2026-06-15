@@ -1,9 +1,10 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { after } from "next/server";
 import { NextResponse } from "next/server";
-import { executeRunsInBackground } from "@/lib/llm/enqueueWorkspaceRuns";
+import { executePromptRun } from "@/lib/llm/executePromptRun";
 
 const INTERNAL_SECRET = process.env.INTERNAL_API_SECRET ?? "neo-geo-internal-2024";
+const CONCURRENCY = 5;
 
 function getServiceClient() {
   return createSupabaseClient(
@@ -11,6 +12,23 @@ function getServiceClient() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
+}
+
+async function executeRunsConcurrent(runIds: string[]): Promise<void> {
+  const queue = [...runIds];
+  const workers = Array.from({ length: CONCURRENCY }, async () => {
+    while (queue.length > 0) {
+      const id = queue.shift();
+      if (id) {
+        try {
+          await executePromptRun(id);
+        } catch (err) {
+          console.error(`[run-prompts] run ${id} failed:`, err);
+        }
+      }
+    }
+  });
+  await Promise.all(workers);
 }
 
 export async function POST(request: Request) {
@@ -31,7 +49,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing workspaceId or runIds" }, { status: 400 });
   }
 
-  // Verify workspaceId exists (basic security)
   const supabase = getServiceClient();
   const { data: ws } = await supabase
     .from("workspaces")
@@ -43,9 +60,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
   }
 
-  // Use after() from the route handler context — completely isolated from any Server Action.
-  // This route handler has no revalidatePath calls, so after() won't inherit any pending revalidations.
-  after(() => executeRunsInBackground(workspaceId, runIds));
+  after(() => executeRunsConcurrent(runIds));
 
   return NextResponse.json({ ok: true, queued: runIds.length });
 }

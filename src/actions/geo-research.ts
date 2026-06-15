@@ -395,10 +395,17 @@ export async function cancelAutoResearchAction(
   const canManage = await requireManage(workspaceId);
   if (!canManage) return { success: false, error: "Sin permisos" };
 
-  await inngest.send({
-    name: "geo/research.cancel",
-    data: { sessionId },
-  });
+  try {
+    await inngest.send({
+      name: "geo/research.cancel",
+      data: { sessionId },
+    });
+  } catch (err) {
+    console.warn(
+      "[cancelAutoResearchAction] Inngest send failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 
   return { success: true };
 }
