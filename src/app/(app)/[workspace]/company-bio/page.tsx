@@ -8,13 +8,6 @@ interface Props {
   params: Promise<{ workspace: string }>;
 }
 
-function splitLegacyList(value: string | null | undefined): string[] {
-  if (!value) return [];
-  return value
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
 
 export default async function CompanyBioPage({ params }: Props) {
   const { workspace: slug } = await params;
@@ -40,43 +33,26 @@ export default async function CompanyBioPage({ params }: Props) {
     .eq("workspace_id", workspace.id)
     .eq("status", "active");
 
-  const fallbackProfile: CompanyBioProfile = {
+  const emptyProfile: CompanyBioProfile = {
     company: {
       name: workspace.brand_name,
       website: workspace.domain ?? "",
-      category: brandProfile?.positioning ?? "Aerolinea de pasajeros regular y charter",
-      industry: "Transporte aereo de pasajeros",
-      geography: workspace.country === "CO" ? "Colombia" : "Espana",
+      category: null,
+      industry: null,
+      geography: null,
       logoHint: null,
     },
-    businessOverview: {
-      summary:
-        brandProfile?.extracted_summary ??
-        workspace.brand_statement ??
-        "Genera una Company Bio desde la URL para completar la inteligencia de negocio de esta aerolinea.",
-      valueProposition: brandProfile?.differentiators ?? null,
-    },
-    targetAudience:
-      brandProfile?.audience ??
-      "Pasajeros que necesitan informacion fiable sobre vuelos, check-in, equipaje, cambios, reembolsos, incidencias y asistencia durante su viaje.",
-    businessModelRevenue: {
-      pricingStrategy: null,
-      revenueStreams: [],
-    },
-    productsServices: splitLegacyList(brandProfile?.products_services),
-    technologyPartnerships: {
-      technologyStack: [],
-      keyPartnerships: [],
-    },
-    userExperienceContent: {
-      userExperience: null,
-      contentStrategy: null,
-    },
+    businessOverview: { summary: "", valueProposition: null },
+    targetAudience: "",
+    businessModelRevenue: { pricingStrategy: null, revenueStreams: [] },
+    productsServices: [],
+    technologyPartnerships: { technologyStack: [], keyPartnerships: [] },
+    userExperienceContent: { userExperience: null, contentStrategy: null },
     socialProof: [],
-    keyFeatures: splitLegacyList(brandProfile?.differentiators),
+    keyFeatures: [],
     analysisInfo: {
-      analyzedAt: brandProfile?.analyzed_at ?? "",
-      sourceUrl: brandProfile?.analysis_source_url ?? workspace.domain ?? "",
+      analyzedAt: "",
+      sourceUrl: workspace.domain ?? "",
       pagesAnalyzed: [],
       confidence: "low",
     },
@@ -85,7 +61,7 @@ export default async function CompanyBioPage({ params }: Props) {
   const profile =
     brandProfile?.profile_data && typeof brandProfile.profile_data === "object"
       ? (brandProfile.profile_data as CompanyBioProfile)
-      : fallbackProfile;
+      : emptyProfile;
 
   return (
     <div className="flex-1 overflow-auto min-h-0">
@@ -96,7 +72,7 @@ export default async function CompanyBioPage({ params }: Props) {
             <h1 className="text-xl font-bold text-slate-900">Company Bio</h1>
           </div>
           <p className="text-sm text-slate-500">
-            Inteligencia de negocio de la aerolinea usada para prompts, analisis y seguimiento GEO.
+            Inteligencia de negocio de la marca usada para prompts, analisis y seguimiento GEO.
           </p>
         </div>
 

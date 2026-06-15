@@ -7,64 +7,23 @@ import type {
   ExtractedBrandProfile,
 } from "@/types";
 
-const SYSTEM_PROMPT = `Eres un analista senior de inteligencia de negocio para una unica aerolinea cliente.
-Tu objetivo es entregar un informe completo y usable para inteligencia GEO de una aerolinea, a partir de contenido web y de inferencias prudentes basadas en ese contenido.
+const SYSTEM_PROMPT = `Eres un analista senior de inteligencia de negocio.
+Tu objetivo es entregar un perfil completo y usable para inteligencia GEO de una marca, a partir del contenido web proporcionado.
 
-Contexto obligatorio:
-- El cliente opera en el vertical aerolineas, soporte al pasajero y operaciones.
-- Prioriza Espana primero y Colombia segundo.
-- Enfoca el analisis en vuelos, rutas, check-in, equipaje, cambios, reembolsos, cancelaciones, demoras, rebooking, compensaciones, asistencia especial, fidelizacion, aeropuertos y experiencia del pasajero.
-- No escribas analisis generico multi-sector.
-- Rellena todas las secciones con informacion explicita o inferencia prudente basada en el sitio.
-- No inventes premios, partners, certificaciones ni tecnologias concretas. Si algo concreto no aparece, no lo nombres como hecho.
-- Si una seccion puede inferirse por el modelo operativo de una aerolinea y los servicios publicados, rellenala de forma util.
-- Responde unicamente JSON valido, sin markdown ni comentarios.`;
+Reglas:
+- Analiza cualquier tipo de negocio o sector (no asumas industria especifica).
+- Infiere sector, productos, audiencia y propuesta de valor desde el contenido real del sitio.
+- No inventes premios, partners ni certificaciones que no aparezcan explicitamente en el contenido.
+- Si un campo no puede determinarse con confianza, usa null en lugar de inventar.
+- Responde unicamente JSON valido sin markdown ni comentarios.`;
 
 const RELEVANT_LINK_PATTERNS = [
-  "about",
-  "company",
-  "empresa",
-  "quienes",
-  "sobre",
-  "help",
-  "support",
-  "ayuda",
-  "atencion",
-  "baggage",
-  "equipaje",
-  "check-in",
-  "checkin",
-  "refund",
-  "reembolso",
-  "change",
-  "cambio",
-  "assistance",
-  "asistencia",
-  "special",
-  "routes",
-  "destinations",
-  "rutas",
-  "destinos",
-  "flying-blue",
-  "skyteam",
-  "suma",
-  "business",
-  "economy",
-  "mascotas",
-  "menores",
-  "movilidad",
-  "embarazada",
-  "wifi",
-  "wi-fi",
-  "entretenimiento",
-  "comida",
-  "gestion-reserva",
-  "gestionar",
-  "reserva",
-  "servicios",
-  "a-bordo",
-  "familias",
-  "asiento",
+  "about", "company", "empresa", "quienes", "sobre", "historia", "mision", "nosotros",
+  "products", "services", "productos", "servicios", "soluciones", "solutions",
+  "features", "pricing", "precios", "planes", "plans", "tarifas",
+  "help", "support", "ayuda", "faq", "contact", "contacto",
+  "terms", "privacy", "legal",
+  "blog", "cases", "clientes", "customers", "partners",
 ];
 
 const MAX_ANALYZED_PAGES = 10;
@@ -82,7 +41,8 @@ function normalizeUrl(input: string): string {
 function stringOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (trimmed === "" || trimmed === "null" || trimmed === "undefined" || trimmed === "N/A" || trimmed === "n/a") return null;
+  return trimmed;
 }
 
 function stringValue(value: unknown, fallback: string): string {
@@ -178,125 +138,15 @@ function dedupeContent(pages: Array<{ url: string; content: string }>): string {
   return sections.join("\n\n").slice(0, 28_000);
 }
 
-function includesAny(content: string, terms: string[]): boolean {
-  const lower = content.toLowerCase();
-  return terms.some((term) => lower.includes(term));
-}
-
-function detectedPartnerships(content: string): string[] {
-  const items: string[] = [];
-  if (includesAny(content, ["skyteam"])) items.push("Miembro de SkyTeam");
-  if (includesAny(content, ["globalia"])) items.push("Parte del grupo Globalia");
-  if (includesAny(content, ["flying blue", "flying-blue"])) items.push("Programa Flying Blue");
-  if (includesAny(content, ["suma"])) items.push("Programa de fidelizacion Air Europa SUMA");
-  if (includesAny(content, ["martin berasategui", "berasategui"])) {
-    items.push("Colaboracion gastronomica con Martin Berasategui");
-  }
-  return items;
-}
-
-function defaultRevenueStreams(): string[] {
-  return [
-    "Venta de billetes en rutas nacionales e internacionales",
-    "Tarifas diferenciadas por cabina, ruta y condiciones de flexibilidad",
-    "Servicios auxiliares como equipaje, seleccion de asiento y cambios de reserva",
-    "Ingresos asociados a servicios premium, fidelizacion y acuerdos comerciales",
-  ];
-}
-
-function defaultProductsServices(): string[] {
-  return [
-    "Vuelos regulares de pasajeros",
-    "Cabina Economy",
-    "Cabina Business",
-    "Check-in online y gestion de reserva",
-    "Equipaje de mano y equipaje facturado",
-    "Cambios, reembolsos y gestion de incidencias",
-    "Asistencia para pasajeros con movilidad reducida",
-    "Servicios para menores, familias y pasajeros con necesidades especiales",
-    "Transporte de mascotas segun condiciones operativas",
-    "Informacion de vuelos, rutas y aeropuertos",
-  ];
-}
-
-function defaultKeyFeatures(): string[] {
-  return [
-    "Operacion orientada a pasajeros en Espana y mercados internacionales",
-    "Gestion digital de reserva, check-in e informacion de vuelo",
-    "Soporte para cambios, reembolsos, cancelaciones y demoras",
-    "Servicios de asistencia especial durante la experiencia aeroportuaria",
-    "Opciones de cabina y servicios a bordo para distintos perfiles de viaje",
-    "Informacion operativa para equipaje, embarque y documentacion",
-  ];
-}
-
-function defaultTargetAudience(): string {
-  return "Pasajeros individuales, familias y viajeros frecuentes que necesitan reservar vuelos, gestionar check-in, equipaje, cambios, reembolsos e incidencias. Incluye viajeros de ocio y negocio en Espana, pasajeros con conexiones internacionales y usuarios con necesidades operativas especificas como movilidad reducida, menores, familias, mascotas o asistencia durante disrupciones.";
-}
-
-function defaultPricingStrategy(companyName: string): string {
-  return `${companyName} opera con una estrategia de precios propia del transporte aereo de pasajeros: tarifas variables por ruta, cabina, antelacion, disponibilidad y condiciones de flexibilidad, complementadas por servicios auxiliares relacionados con equipaje, asientos, cambios, servicios premium y gestion de viaje.`;
-}
-
-function defaultValueProposition(companyName: string): string {
-  return `${companyName} ofrece conectividad aerea para pasajeros con servicios de gestion de viaje, atencion operativa y soporte en momentos clave como check-in, equipaje, cambios, reembolsos e incidencias.`;
-}
-
-function defaultUserExperience(): string {
-  return "La experiencia de usuario se apoya en procesos digitales de consulta, reserva, check-in, gestion de viaje e informacion operativa, con contenidos de soporte para reducir friccion antes, durante y despues del vuelo.";
-}
-
-function defaultContentStrategy(): string {
-  return "La estrategia de contenido debe priorizar informacion accionable para pasajeros: politicas de equipaje, cambios, reembolsos, asistencia especial, documentacion, rutas, aeropuertos y comunicacion clara ante disrupciones.";
-}
-
-function defaultSocialProof(content: string): string[] {
-  const partnerships = detectedPartnerships(content);
-  if (partnerships.length > 0) return partnerships;
-  return ["Red de rutas y servicios publicados en su web oficial"];
-}
-
 function mergeFallbacks(profile: CompanyBioProfile, content: string): CompanyBioProfile {
-  const companyName = profile.company.name || "La aerolinea";
-  const partnerships = detectedPartnerships(content);
   const hasSparseContent = content.length < 1500;
 
   return {
     ...profile,
-    businessOverview: {
-      summary: profile.businessOverview.summary,
-      valueProposition:
-        profile.businessOverview.valueProposition || defaultValueProposition(companyName),
-    },
-    targetAudience:
-      profile.targetAudience && !profile.targetAudience.startsWith("No se detecto")
-        ? profile.targetAudience
-        : defaultTargetAudience(),
-    businessModelRevenue: {
-      pricingStrategy:
-        profile.businessModelRevenue.pricingStrategy || defaultPricingStrategy(companyName),
-      revenueStreams:
-        profile.businessModelRevenue.revenueStreams.length > 0
-          ? profile.businessModelRevenue.revenueStreams
-          : defaultRevenueStreams(),
-    },
-    productsServices:
-      profile.productsServices.length >= 5 ? profile.productsServices : defaultProductsServices(),
     technologyPartnerships: {
       technologyStack: profile.technologyPartnerships.technologyStack,
-      keyPartnerships:
-        profile.technologyPartnerships.keyPartnerships.length > 0
-          ? profile.technologyPartnerships.keyPartnerships
-          : partnerships.length > 0
-            ? partnerships
-            : ["No detectado publicamente en las paginas analizadas"],
+      keyPartnerships: profile.technologyPartnerships.keyPartnerships,
     },
-    userExperienceContent: {
-      userExperience: profile.userExperienceContent.userExperience || defaultUserExperience(),
-      contentStrategy: profile.userExperienceContent.contentStrategy || defaultContentStrategy(),
-    },
-    socialProof: profile.socialProof.length > 0 ? profile.socialProof : defaultSocialProof(content),
-    keyFeatures: profile.keyFeatures.length >= 4 ? profile.keyFeatures : defaultKeyFeatures(),
     analysisInfo: {
       ...profile.analysisInfo,
       confidence: hasSparseContent

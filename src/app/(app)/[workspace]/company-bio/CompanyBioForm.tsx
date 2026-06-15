@@ -49,6 +49,11 @@ function cloneProfile(profile: CompanyBioProfile): CompanyBioProfile {
   return JSON.parse(JSON.stringify(profile)) as CompanyBioProfile;
 }
 
+function safe(val: string | null | undefined): string {
+  if (!val || val === "null" || val === "undefined") return "";
+  return val;
+}
+
 function linesToList(value: string): string[] {
   return value
     .split(/\r?\n/)
@@ -366,22 +371,28 @@ export function CompanyBioForm({
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="bg-blue-50 text-blue-700">
-                    <Building2 className="size-3" aria-hidden="true" />
-                    {profile.company.category || "Aerolinea de pasajeros"}
-                  </Badge>
-                  <Badge variant="secondary" className="bg-slate-100 text-slate-700">
-                    {profile.company.industry || "Transporte aereo de pasajeros"}
-                  </Badge>
-                  <Badge variant="secondary" className="bg-slate-100 text-slate-700">
-                    <MapPin className="size-3" aria-hidden="true" />
-                    {profile.company.geography || "Espana primero, Colombia segundo"}
-                  </Badge>
+                  {safe(profile.company.category) && (
+                    <Badge variant="secondary" className="bg-blue-50 text-blue-700">
+                      <Building2 className="size-3" aria-hidden="true" />
+                      {safe(profile.company.category)}
+                    </Badge>
+                  )}
+                  {safe(profile.company.industry) && (
+                    <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+                      {safe(profile.company.industry)}
+                    </Badge>
+                  )}
+                  {safe(profile.company.geography) && (
+                    <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+                      <MapPin className="size-3" aria-hidden="true" />
+                      {safe(profile.company.geography)}
+                    </Badge>
+                  )}
                 </div>
                 {editing && (
                   <div className="grid gap-2 md:grid-cols-3">
                     <Input
-                      value={profile.company.category ?? ""}
+                      value={safe(profile.company.category)}
                       placeholder="Category"
                       onChange={(event) =>
                         update((draft) => {
@@ -390,7 +401,7 @@ export function CompanyBioForm({
                       }
                     />
                     <Input
-                      value={profile.company.industry ?? ""}
+                      value={safe(profile.company.industry)}
                       placeholder="Industry"
                       onChange={(event) =>
                         update((draft) => {
@@ -399,7 +410,7 @@ export function CompanyBioForm({
                       }
                     />
                     <Input
-                      value={profile.company.geography ?? ""}
+                      value={safe(profile.company.geography)}
                       placeholder="Geography"
                       onChange={(event) =>
                         update((draft) => {
