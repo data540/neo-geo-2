@@ -19,14 +19,15 @@ export function AddCompetitorForm({ workspaceId }: Props) {
     e.preventDefault();
     setLoading(true);
 
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     fd.set("workspaceId", workspaceId);
 
     const result = await createCompetitorAction(fd);
 
     if (result.success) {
       toast.success("Competidor añadido");
-      (e.currentTarget as HTMLFormElement).reset();
+      form.reset();
     } else {
       toast.error(result.error ?? "Error al añadir competidor");
     }
