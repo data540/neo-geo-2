@@ -1,70 +1,24 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { extractPotentialCompetitorsFromResponse } from "@/lib/detection/detectBrands";
+import {
+  type CompetitorCandidateForClassification,
+  classifyCompetitorCandidates,
+  normalizeCompetitorName,
+  shouldPrefilterCompetitorCandidate,
+} from "@/lib/llm/classifyCompetitors";
 import { createClient } from "@/lib/supabase/server";
 import { createCompetitorSchema, updateCompetitorSchema } from "@/lib/validations/schemas";
 import type { ActionResult } from "@/types";
 
-// Palabras genéricas que nunca son nombres de marca (normalizadas: sin acentos, minúsculas)
-const GENERIC_EXCLUSIONS = new Set([
-  // Geografía — España y Latinoamérica
-  "espana", "colombia", "mexico", "argentina", "chile", "peru", "brasil",
-  "venezuela", "ecuador", "madrid", "bogota", "barcelona", "medellin",
-  "bilbao", "valencia", "sevilla", "alicante", "mallorca", "palma", "ibiza",
-  "santiago", "salamanca", "barajas", "zaragoza", "malaga", "granada", "toledo",
-  "aeropuerto", "ciudad", "pais", "region",
-  // Abreviaturas regionales
-  "latam", "emea", "apac", "mena", "dach", "amer", "cee", "ue", "eeuu",
-  // Sustantivos genéricos de negocio
-  "empresa", "compania", "servicio", "servicios", "producto", "productos",
-  "solucion", "soluciones", "plataforma", "herramienta", "cadena", "red",
-  "grupo", "marca", "sector", "mercado", "modelo", "formato", "concepto",
-  "tipo", "negocio", "retail", "marketing", "publicidad", "roi",
-  "rentabilidad", "canon", "inversion", "inversi", "costes", "costos",
-  // Verbos / infinitivos
-  "abrir", "analiza", "buscas", "considerar", "consultar", "decidir",
-  "determinar", "invertir", "investiga", "ofrece", "ofrecen", "proporcionar",
-  "proporcionan", "puede", "revisa", "suele", "suelen", "visitar",
-  // Adjetivos / pronombres genéricos
-  "algunas", "algunos", "conocida", "conocido", "especializada", "especializado",
-  "excelente", "famoso", "ideal", "inicial", "populares", "similar", "principal",
-  "principales", "general", "generales", "estas", "estos",
-  // Sustantivos comunes en respuestas LLM sobre franquicias/restauración
-  "acceso", "apoyo", "asesoramiento", "asociacion", "calidad", "cafeteria",
-  "competencia", "demanda", "dependencia", "diversidad", "entrada", "factores",
-  "formacion", "franquicia", "franquicias", "franquiciador", "hamburgueseria",
-  "innovacion", "mercado", "negociacion", "objetivo", "panaderia", "parte",
-  "perfil", "pizzeria", "proveedores", "reconocimiento", "regulaciones",
-  "restauracion", "soporte", "tendencias", "tiendas", "ubicacion",
-  // Adverbios / conjunciones que arrancan en mayúscula en listas
-  "aunque", "dentro", "dicho", "entre", "incluso", "pero", "sin", "tambien",
-  // Palabras de salud/belleza que no son marcas de comida
-  "salud", "belleza", "barrio", "tapas", "taberna", "casual",
-]);
-
-// Verbos y frases genéricas en el nombre del candidato que indican que no es una marca
-const GENERIC_PHRASE_PATTERN =
-  /(^|\s)(compara|comparar|elige|elegir|busca|buscar|mejor|opcion|opciones|precio|precios|oferta|ofertas|reserva|reservar|descuento|analiza|considera|incluye|permite|ofrece)($|\s)/i;
-
 function normalizeName(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .replace(/\s+/g, " ");
+  return normalizeCompetitorName(value);
 }
 
 function shouldKeepCompetitorCandidate(name: string): boolean {
-  const normalized = normalizeName(name);
-  // Mínimo 4 chars para evitar "Con", "Por", "AEF"-style ruido
-  if (normalized.length < 4) return false;
-  if (GENERIC_EXCLUSIONS.has(normalized)) return false;
-  if (GENERIC_PHRASE_PATTERN.test(normalized)) return false;
-  // Debe empezar con letra mayúscula (nombre propio)
-  if (!/^[A-ZÁÉÍÓÚÑÀ-ɏ]/.test(name.trim())) return false;
-  return true;
+  return shouldPrefilterCompetitorCandidate(name);
 }
 
 async function requireManage(workspaceId: string): Promise<boolean> {
@@ -97,11 +51,10 @@ export async function createCompetitorAction(
 
   const parsed = createCompetitorSchema.safeParse(raw);
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos invalidos" };
   }
 
   const { workspaceId, name, domain, aliases } = parsed.data;
-
   const canManage = await requireManage(workspaceId);
   if (!canManage) return { success: false, error: "Sin permisos" };
 
@@ -129,11 +82,10 @@ export async function createCompetitorAction(
 export async function updateCompetitorAction(data: unknown): Promise<ActionResult> {
   const parsed = updateCompetitorSchema.safeParse(data);
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos" };
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos invalidos" };
   }
 
   const { brandId, workspaceId, name, domain, aliases } = parsed.data;
-
   const canManage = await requireManage(workspaceId);
   if (!canManage) return { success: false, error: "Sin permisos" };
 
@@ -157,35 +109,82 @@ export async function updateCompetitorAction(data: unknown): Promise<ActionResul
   return { success: true };
 }
 
-export async function deleteCompetitorAction(
-  brandId: string,
-  workspaceId: string
-): Promise<ActionResult> {
+const deleteCompetitorsBulkSchema = z.object({
+  workspaceId: z.string().uuid(),
+  brandIds: z.array(z.string().uuid()).min(1).max(10_000),
+});
+
+const DELETE_BATCH_SIZE = 500;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+export async function deleteCompetitorsBulkAction(
+  input: unknown
+): Promise<ActionResult<{ deletedCompetitors: number; deletedMentions: number }>> {
+  const parsed = deleteCompetitorsBulkSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues[0]?.message ?? "Datos invalidos" };
+  }
+
+  const { workspaceId, brandIds } = parsed.data;
   const canManage = await requireManage(workspaceId);
   if (!canManage) return { success: false, error: "Sin permisos" };
 
+  const uniqueBrandIds = Array.from(new Set(brandIds));
   const supabase = await createClient();
 
-  // Desvincular menciones antes de borrar (FK sin ON DELETE CASCADE)
-  await supabase
-    .from("mentions")
-    .update({ brand_id: null, brand_type: null })
-    .eq("brand_id", brandId)
-    .eq("workspace_id", workspaceId);
+  let deletedMentionsCount = 0;
+  let deletedCompetitorsCount = 0;
 
-  const { error } = await supabase
-    .from("brands")
-    .delete()
-    .eq("id", brandId)
-    .eq("workspace_id", workspaceId)
-    .eq("type", "competitor");
+  for (const batch of chunkArray(uniqueBrandIds, DELETE_BATCH_SIZE)) {
+    const { data: deletedMentions, error: mentionError } = await supabase
+      .from("mentions")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .in("brand_id", batch)
+      .select("id");
 
-  if (error) return { success: false, error: "Error al eliminar competidor" };
+    if (mentionError) return { success: false, error: "Error al eliminar menciones" };
+    deletedMentionsCount += deletedMentions?.length ?? 0;
+  }
+
+  for (const batch of chunkArray(uniqueBrandIds, DELETE_BATCH_SIZE)) {
+    const { data: deletedCompetitors, error } = await supabase
+      .from("brands")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .eq("type", "competitor")
+      .in("id", batch)
+      .select("id");
+
+    if (error) return { success: false, error: "Error al eliminar competidores" };
+    deletedCompetitorsCount += deletedCompetitors?.length ?? 0;
+  }
 
   const slug = await getWorkspaceSlug(workspaceId);
   if (slug) revalidatePath(`/${slug}/competitors`);
 
-  return { success: true };
+  return {
+    success: true,
+    data: {
+      deletedCompetitors: deletedCompetitorsCount,
+      deletedMentions: deletedMentionsCount,
+    },
+  };
+}
+
+export async function deleteCompetitorAction(
+  brandId: string,
+  workspaceId: string
+): Promise<ActionResult> {
+  const result = await deleteCompetitorsBulkAction({ workspaceId, brandIds: [brandId] });
+  return result.success ? { success: true } : { success: false, error: result.error };
 }
 
 export async function approveCompetitorSuggestionAction(
@@ -218,9 +217,7 @@ export async function approveCompetitorSuggestionAction(
     type: "competitor",
   });
 
-  if (brandError) {
-    return { success: false, error: "No se pudo crear el competidor" };
-  }
+  if (brandError) return { success: false, error: "No se pudo crear el competidor" };
 
   await supabase
     .from("competitor_suggestions")
@@ -274,6 +271,57 @@ interface PromptRunForExtraction {
   raw_response: string | null;
 }
 
+function snippetForCandidate(rawResponse: string, candidate: string): string {
+  const index = rawResponse.toLowerCase().indexOf(candidate.toLowerCase());
+  if (index < 0) return rawResponse.replace(/\s+/g, " ").trim().slice(0, 240);
+  const start = Math.max(0, index - 120);
+  const end = Math.min(rawResponse.length, index + candidate.length + 160);
+  return rawResponse.slice(start, end).replace(/\s+/g, " ").trim();
+}
+
+function addCandidate(
+  candidateMap: Map<string, { name: string; count: number; examples: string[] }>,
+  candidate: string,
+  rawResponse: string
+) {
+  const normalized = normalizeName(candidate);
+  if (!normalized || !shouldKeepCompetitorCandidate(candidate)) return;
+
+  const existing = candidateMap.get(normalized);
+  if (!existing) {
+    candidateMap.set(normalized, {
+      name: candidate.trim(),
+      count: 1,
+      examples: [snippetForCandidate(rawResponse, candidate)],
+    });
+    return;
+  }
+
+  existing.count += 1;
+  if (existing.examples.length < 3) existing.examples.push(snippetForCandidate(rawResponse, candidate));
+  if (candidate.length > existing.name.length) existing.name = candidate.trim();
+}
+
+async function getWorkspaceClassificationContext(workspaceId: string) {
+  const supabase = await createClient();
+  const [{ data: workspace }, { data: ownBrands }, { data: competitorBrands }] =
+    await Promise.all([
+      supabase
+        .from("workspaces")
+        .select("domain, brand_statement")
+        .eq("id", workspaceId)
+        .single(),
+      supabase.from("brands").select("name").eq("workspace_id", workspaceId).eq("type", "own"),
+      supabase
+        .from("brands")
+        .select("name")
+        .eq("workspace_id", workspaceId)
+        .eq("type", "competitor"),
+    ]);
+
+  return { workspace, ownBrands, competitorBrands };
+}
+
 export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: string): Promise<
   ActionResult<{
     analyzedRuns: number;
@@ -286,28 +334,13 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
   if (!canManage) return { success: false, error: "Sin permisos" };
 
   const supabase = await createClient();
-
-  const [
-    { data: ownBrands },
-    { data: competitorBrands },
-    { data: pendingSuggestions, error: pendingSuggestionsError },
-  ] = await Promise.all([
-    supabase.from("brands").select("name").eq("workspace_id", workspaceId).eq("type", "own"),
-    supabase.from("brands").select("name").eq("workspace_id", workspaceId).eq("type", "competitor"),
-    supabase
-      .from("competitor_suggestions")
-      .select("normalized_name")
-      .eq("workspace_id", workspaceId)
-      .eq("status", "pending"),
-  ]);
+  const { workspace, ownBrands, competitorBrands } =
+    await getWorkspaceClassificationContext(workspaceId);
 
   const existingNames = new Set(
     [
       ...(ownBrands ?? []).map((b) => normalizeName(String(b.name ?? ""))),
       ...(competitorBrands ?? []).map((b) => normalizeName(String(b.name ?? ""))),
-      ...((pendingSuggestionsError ? [] : pendingSuggestions) ?? []).map((s) =>
-        normalizeName(String(s.normalized_name ?? ""))
-      ),
     ].filter(Boolean)
   );
 
@@ -320,6 +353,7 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
       .select("id, raw_response")
       .eq("workspace_id", workspaceId)
       .eq("status", "completed")
+      .not("raw_response", "is", null)
       .order("created_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
 
@@ -330,43 +364,36 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
     offset += pageSize;
   }
 
-  const candidateMap = new Map<string, { name: string; count: number; firstRunId: string }>();
-
+  const candidateMap = new Map<string, { name: string; count: number; examples: string[] }>();
   for (const run of runs) {
     if (!run.raw_response) continue;
-
-    const candidates = extractPotentialCompetitorsFromResponse(run.raw_response);
-    for (const candidate of candidates) {
+    for (const candidate of extractPotentialCompetitorsFromResponse(run.raw_response)) {
       const normalized = normalizeName(candidate);
       if (!normalized || existingNames.has(normalized)) continue;
-      if (!shouldKeepCompetitorCandidate(candidate)) continue;
-
-      const existing = candidateMap.get(normalized);
-      if (!existing) {
-        candidateMap.set(normalized, {
-          name: candidate.trim(),
-          count: 1,
-          firstRunId: run.id,
-        });
-      } else {
-        existing.count += 1;
-        if (candidate.length > existing.name.length) {
-          existing.name = candidate.trim();
-        }
-      }
+      addCandidate(candidateMap, candidate, run.raw_response);
     }
   }
 
-  const entries = Array.from(candidateMap.entries());
-  const competitorsToCreate = entries
-    .filter(([, value]) => value.count >= 2)
-    .map(([normalizedName, value]) => ({ normalizedName, ...value }));
-  const suggestionsToCreate = entries
-    .filter(([, value]) => value.count < 2)
-    .map(([normalizedName, value]) => ({ normalizedName, ...value }));
+  const candidates: CompetitorCandidateForClassification[] = [...candidateMap.values()];
+  const classifications = await classifyCompetitorCandidates({
+    ownBrandName: String(ownBrands?.[0]?.name ?? ""),
+    workspaceDomain: workspace?.domain ?? null,
+    businessContext: workspace?.brand_statement ?? null,
+    candidates,
+  });
+  const validByName = new Map(
+    classifications
+      .filter((c) => c.isCompetitor && c.confidence !== "low")
+      .map((c) => [normalizeName(c.name), c])
+  );
+  const competitorsToCreate = [...candidateMap.entries()]
+    .filter(([normalizedName]) => validByName.has(normalizedName))
+    .map(([normalizedName, value]) => ({
+      name: validByName.get(normalizedName)?.normalizedName || value.name,
+    }));
 
   if (competitorsToCreate.length > 0) {
-    const { error: insertCompetitorsError } = await supabase.from("brands").insert(
+    const { error } = await supabase.from("brands").insert(
       competitorsToCreate.map((candidate) => ({
         workspace_id: workspaceId,
         name: candidate.name,
@@ -374,27 +401,7 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
         type: "competitor",
       }))
     );
-
-    if (insertCompetitorsError) {
-      return { success: false, error: "No se pudieron crear competidores desde los runs" };
-    }
-  }
-
-  let createdSuggestions = 0;
-  if (suggestionsToCreate.length > 0 && !pendingSuggestionsError) {
-    const { error: insertSuggestionsError } = await supabase.from("competitor_suggestions").insert(
-      suggestionsToCreate.map((candidate) => ({
-        workspace_id: workspaceId,
-        prompt_run_id: candidate.firstRunId,
-        name: candidate.name,
-        normalized_name: candidate.normalizedName,
-        status: "pending",
-      }))
-    );
-
-    if (!insertSuggestionsError) {
-      createdSuggestions = suggestionsToCreate.length;
-    }
+    if (error) return { success: false, error: "No se pudieron crear competidores desde los runs" };
   }
 
   const slug = await getWorkspaceSlug(workspaceId);
@@ -404,9 +411,55 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
     success: true,
     data: {
       analyzedRuns: runs.length,
-      detectedCandidates: entries.length,
+      detectedCandidates: candidateMap.size,
       createdCompetitors: competitorsToCreate.length,
-      createdSuggestions,
+      createdSuggestions: 0,
     },
   };
+}
+
+export async function auditExistingCompetitorsAction(workspaceId: string): Promise<
+  ActionResult<{
+    invalidCompetitors: Array<{ brandId: string; name: string; reason: string }>;
+    checked: number;
+  }>
+> {
+  const canManage = await requireManage(workspaceId);
+  if (!canManage) return { success: false, error: "Sin permisos" };
+
+  const supabase = await createClient();
+  const { workspace, ownBrands } = await getWorkspaceClassificationContext(workspaceId);
+  const { data: competitors } = await supabase
+    .from("brands")
+    .select("id, name")
+    .eq("workspace_id", workspaceId)
+    .eq("type", "competitor")
+    .order("name");
+
+  const rows = (competitors ?? []) as Array<{ id: string; name: string }>;
+  if (rows.length === 0) {
+    return { success: true, data: { invalidCompetitors: [], checked: 0 } };
+  }
+
+  const classifications = await classifyCompetitorCandidates({
+    ownBrandName: String(ownBrands?.[0]?.name ?? ""),
+    workspaceDomain: workspace?.domain ?? null,
+    businessContext: workspace?.brand_statement ?? null,
+    candidates: rows.map((row) => ({ name: row.name, count: 1, examples: [] })),
+    maxCandidates: 500,
+  });
+  const byName = new Map(classifications.map((c) => [normalizeName(c.name), c]));
+  const invalidCompetitors = rows.flatMap((row) => {
+    const classification = byName.get(normalizeName(row.name));
+    if (classification?.isCompetitor) return [];
+    return [
+      {
+        brandId: row.id,
+        name: row.name,
+        reason: classification?.reason || "No parece un competidor real",
+      },
+    ];
+  });
+
+  return { success: true, data: { invalidCompetitors, checked: rows.length } };
 }

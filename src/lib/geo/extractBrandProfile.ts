@@ -11,8 +11,9 @@ const SYSTEM_PROMPT = `Eres un analista senior de inteligencia de negocio.
 Tu objetivo es entregar un perfil completo y usable para inteligencia GEO de una marca, a partir del contenido web proporcionado.
 
 Reglas:
-- Analiza cualquier tipo de negocio o sector (no asumas industria especifica).
+- Analiza el negocio real detectado en el contenido; no arrastres vocabulario ni audiencias de otros sectores.
 - Infiere sector, productos, audiencia y propuesta de valor desde el contenido real del sitio.
+- No uses terminos de aerolineas, pasajeros, vuelos, aeropuertos, equipaje, check-in o rebooking salvo que el sitio analizado sea claramente de una aerolinea.
 - No inventes premios, partners ni certificaciones que no aparezcan explicitamente en el contenido.
 - Si un campo no puede determinarse con confianza, usa null en lugar de inventar.
 - Responde unicamente JSON valido sin markdown ni comentarios.`;
@@ -267,7 +268,8 @@ Devuelve un JSON con exactamente esta estructura:
 Reglas de redaccion:
 - Escribe en espanol claro.
 - Resume Business Overview en 80-120 palabras.
-- Tu objetivo es entregar un informe completo y usable para inteligencia GEO de una aerolinea.
+- Tu objetivo es entregar un informe completo y usable para inteligencia GEO de la marca analizada.
+- Mantente fiel al sector detectado. Si la marca es restauracion, franquicias, retail, tecnologia u otro vertical, adapta audiencia, servicios, features y revenue a ese vertical.
 - Rellena todas las secciones con informacion explicita o inferencia prudente basada en el sitio.
 - No dejes arrays vacios salvo que sea realmente imposible tras analizar home y paginas secundarias.
 - No inventes premios, partners, certificaciones ni tecnologias concretas. Si no aparecen, no los nombres como hechos.
@@ -275,13 +277,13 @@ Reglas de redaccion:
 - valueProposition debe ser 1 frase obligatoria.
 - pricingStrategy debe ser 1 parrafo breve obligatorio.
 - revenueStreams debe tener 3-6 items.
-- Target Audience debe describir tipos reales de pasajeros y necesidades operativas.
+- Target Audience debe describir segmentos reales de clientes, compradores, usuarios, franquiciados, partners o stakeholders segun el negocio detectado.
 - Products & Services debe tener 8-12 items.
-- Key Features debe tener 6-10 items orientados a operaciones y experiencia del pasajero.
-- User Experience y Content Strategy deben rellenarse desde navegacion, procesos de pasajero, ayuda, check-in, gestion de reserva, informacion operativa y soporte.
+- Key Features debe tener 6-10 items orientados a operaciones, experiencia de usuario, propuesta comercial y diferenciadores del vertical detectado.
+- User Experience y Content Strategy deben rellenarse desde navegacion, procesos de usuario, formularios, informacion comercial, soporte, contenidos corporativos y llamadas a la accion.
 - Social Proof debe incluir alianzas, premios, partners, chefs, programas, certificaciones o senales publicas solo si aparecen en el contenido.
 - Technology & Partnerships no debe listar tecnologia si solo se infiere por ser una web moderna.
-- Valida internamente que no haya claims inventados, lenguaje generico de otros sectores, ni datos fuera del vertical aerolinea.`;
+- Valida internamente que no haya claims inventados, lenguaje generico de otros sectores, ni datos fuera del vertical detectado.`;
 }
 
 export async function extractBrandProfile(domain: string): Promise<CompanyBioAnalysisResult> {

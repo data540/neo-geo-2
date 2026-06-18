@@ -11,6 +11,7 @@ const PROVIDER_PREFIXES: Record<LlmProviderKey, string[]> = {
   gemini: ["google/gemini"],
   perplexity: ["perplexity/"],
 };
+const MAX_PROMPTS_PER_PROVIDER = 200;
 
 export interface OpenRouterModel {
   id: string;
@@ -65,7 +66,7 @@ const upsertLlmConfigSchema = z.object({
     .array(
       z.object({
         llmProviderId: z.string().uuid(),
-        promptsPerDay: z.number().int().min(0).max(50),
+        promptsPerDay: z.number().int().min(0).max(MAX_PROMPTS_PER_PROVIDER),
         model: z.string().optional(),
       })
     )

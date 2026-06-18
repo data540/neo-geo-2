@@ -1,7 +1,13 @@
 "use client";
 
-import { ChevronDown, ChevronsUpDown, ChevronUp } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, ChevronsUpDown, ChevronUp, Loader2, ScanSearch, Trash2 } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { toast } from "sonner";
+import {
+  auditExistingCompetitorsAction,
+  deleteCompetitorsBulkAction,
+} from "@/actions/competitors";
+import { Button } from "@/components/ui/button";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 
 interface CompetitorPerformanceRow {
@@ -27,6 +33,7 @@ interface CompetitorPerformanceRow {
 }
 
 interface Props {
+  workspaceId: string;
   rows: CompetitorPerformanceRow[];
   totalRuns: number;
   llm: string;
@@ -45,6 +52,30 @@ type SortKey =
 
 const SENTIMENT_ORDER = { positive: 0, neutral: 1, negative: 2, no_data: 3 };
 const THREAT_ORDER = { high: 0, medium: 1, low: 2 };
+
+const MENTION_TYPE_COLORS: Record<string, string> = {
+  primary_recommendation: "bg-green-500",
+  list_option: "bg-blue-500",
+  comparison: "bg-purple-500",
+  general_mention: "bg-slate-300",
+  warning: "bg-red-500",
+};
+
+const MENTION_TYPE_LABELS: Record<string, string> = {
+  primary_recommendation: "Recomendacion",
+  list_option: "Lista",
+  comparison: "Comparacion",
+  general_mention: "Mencion",
+  warning: "Advertencia",
+};
+
+const MENTION_TYPE_ORDER = [
+  "primary_recommendation",
+  "list_option",
+  "comparison",
+  "general_mention",
+  "warning",
+] as const;
 
 function sentimentClass(sentiment: CompetitorPerformanceRow["sentiment"]): string {
   const map = {
@@ -66,30 +97,6 @@ function sentimentLabel(sentiment: CompetitorPerformanceRow["sentiment"]): strin
   return map[sentiment];
 }
 
-const MENTION_TYPE_COLORS: Record<string, string> = {
-  primary_recommendation: "bg-green-500",
-  list_option: "bg-blue-500",
-  comparison: "bg-purple-500",
-  general_mention: "bg-slate-300",
-  warning: "bg-red-500",
-};
-
-const MENTION_TYPE_LABELS: Record<string, string> = {
-  primary_recommendation: "Recomendación",
-  list_option: "Lista",
-  comparison: "Comparación",
-  general_mention: "Mención",
-  warning: "Advertencia",
-};
-
-const MENTION_TYPE_ORDER = [
-  "primary_recommendation",
-  "list_option",
-  "comparison",
-  "general_mention",
-  "warning",
-] as const;
-
 function MentionProfileBar({
   breakdown,
   total,
@@ -97,22 +104,22 @@ function MentionProfileBar({
   breakdown: CompetitorPerformanceRow["mentionBreakdown"];
   total: number;
 }) {
-  if (total === 0) return <span className="text-slate-400 text-xs">—</span>;
+  if (total === 0) return <span className="text-slate-400 text-xs">-</span>;
 
   const dominant = MENTION_TYPE_ORDER.reduce((a, b) => (breakdown[a] >= breakdown[b] ? a : b));
 
   return (
     <div className="space-y-1">
       <div className="flex h-2 w-28 rounded-full overflow-hidden gap-px">
-        {MENTION_TYPE_ORDER.map((t) => {
-          const pct = (breakdown[t] / total) * 100;
+        {MENTION_TYPE_ORDER.map((type) => {
+          const pct = (breakdown[type] / total) * 100;
           if (pct === 0) return null;
           return (
             <div
-              key={t}
-              className={`${MENTION_TYPE_COLORS[t]} h-full`}
+              key={type}
+              className={`${MENTION_TYPE_COLORS[type]} h-full`}
               style={{ width: `${pct}%` }}
-              title={`${MENTION_TYPE_LABELS[t]}: ${breakdown[t]}`}
+              title={`${MENTION_TYPE_LABELS[type]}: ${breakdown[type]}`}
             />
           );
         })}
@@ -120,16 +127,6 @@ function MentionProfileBar({
       <p className="text-xs text-slate-400">{MENTION_TYPE_LABELS[dominant]}</p>
     </div>
   );
-}
-
-interface SortableHeaderProps {
-  label: string;
-  sortKey: SortKey;
-  activeSortKey: SortKey;
-  activeSortDir: "asc" | "desc";
-  onSort: (key: SortKey) => void;
-  align?: "left" | "right";
-  tooltip?: string;
 }
 
 function SortableHeader({
@@ -140,11 +137,21 @@ function SortableHeader({
   onSort,
   align = "right",
   tooltip,
-}: SortableHeaderProps) {
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeSortKey: SortKey;
+  activeSortDir: "asc" | "desc";
+  onSort: (key: SortKey) => void;
+  align?: "left" | "right";
+  tooltip?: string;
+}) {
   const isActive = activeSortKey === sortKey;
   return (
     <th
-      className={`px-4 py-3 text-slate-500 font-medium ${align === "right" ? "text-right" : "text-left"}`}
+      className={`px-4 py-3 text-slate-500 font-medium ${
+        align === "right" ? "text-right" : "text-left"
+      }`}
     >
       <div
         className={`inline-flex items-center gap-1 ${align === "right" ? "flex-row-reverse" : ""}`}
@@ -152,7 +159,9 @@ function SortableHeader({
         <button
           type="button"
           onClick={() => onSort(sortKey)}
-          className={`inline-flex items-center gap-0.5 hover:text-slate-800 transition-colors ${isActive ? "text-slate-800" : ""}`}
+          className={`inline-flex items-center gap-0.5 hover:text-slate-800 transition-colors ${
+            isActive ? "text-slate-800" : ""
+          }`}
         >
           {label}
           {isActive ? (
@@ -171,13 +180,23 @@ function SortableHeader({
   );
 }
 
-export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Props) {
+export function CompetitorTableSortable({
+  workspaceId,
+  rows,
+  totalRuns,
+  llm,
+  rangeLabel,
+}: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("visibility");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [auditReasons, setAuditReasons] = useState<Record<string, string>>({});
+  const [auditPending, startAudit] = useTransition();
+  const [deletePending, startDelete] = useTransition();
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      setSortDir((dir) => (dir === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
       setSortDir(key === "avgPosition" ? "asc" : "desc");
@@ -187,34 +206,30 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
   const sorted = useMemo(() => {
     return [...rows].sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
-
       switch (sortKey) {
         case "name":
           return dir * a.name.localeCompare(b.name, "es");
-        case "avgPosition": {
+        case "avgPosition":
           if (a.avgPosition === null && b.avgPosition === null) return 0;
           if (a.avgPosition === null) return 1;
           if (b.avgPosition === null) return -1;
           return dir * (a.avgPosition - b.avgPosition);
-        }
-        case "sov": {
+        case "sov":
           if (a.sov === null && b.sov === null) return 0;
           if (a.sov === null) return 1;
           if (b.sov === null) return -1;
           return dir * (a.sov - b.sov);
-        }
         case "sentiment":
           return dir * (SENTIMENT_ORDER[a.sentiment] - SENTIMENT_ORDER[b.sentiment]);
         case "visibility":
           return dir * (a.visibility - b.visibility);
         case "mentions":
           return dir * (a.mentions - b.mentions);
-        case "recScore": {
+        case "recScore":
           if (a.recScore === null && b.recScore === null) return 0;
           if (a.recScore === null) return 1;
           if (b.recScore === null) return -1;
           return dir * (a.recScore - b.recScore);
-        }
         case "threatLevel":
           return dir * (THREAT_ORDER[a.threatLevel] - THREAT_ORDER[b.threatLevel]);
         default:
@@ -223,6 +238,64 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
     });
   }, [rows, sortKey, sortDir]);
 
+  const allSortedIds = sorted.map((row) => row.competitorId);
+  const selectedCount = selectedIds.size;
+  const allSelected = allSortedIds.length > 0 && allSortedIds.every((id) => selectedIds.has(id));
+
+  function toggleOne(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds((current) => {
+      if (allSelected) return new Set();
+      return new Set([...current, ...allSortedIds]);
+    });
+  }
+
+  function handleAudit() {
+    startAudit(async () => {
+      const result = await auditExistingCompetitorsAction(workspaceId);
+      if (!result.success || !result.data) {
+        toast.error(result.error ?? "No se pudo auditar competidores");
+        return;
+      }
+      const invalidIds = result.data.invalidCompetitors.map((item) => item.brandId);
+      setSelectedIds(new Set(invalidIds));
+      setAuditReasons(
+        Object.fromEntries(result.data.invalidCompetitors.map((item) => [item.brandId, item.reason]))
+      );
+      toast.success(
+        `Auditados ${result.data.checked}. Detectados ${invalidIds.length} invalidos.`
+      );
+    });
+  }
+
+  function handleBulkDelete() {
+    if (selectedCount === 0) return;
+    if (!confirm(`Eliminar ${selectedCount} competidores seleccionados y sus menciones?`)) return;
+    startDelete(async () => {
+      const result = await deleteCompetitorsBulkAction({
+        workspaceId,
+        brandIds: Array.from(selectedIds),
+      });
+      if (!result.success || !result.data) {
+        toast.error(result.error ?? "No se pudieron eliminar competidores");
+        return;
+      }
+      setSelectedIds(new Set());
+      setAuditReasons({});
+      toast.success(
+        `Eliminados ${result.data.deletedCompetitors} competidores y ${result.data.deletedMentions} menciones`
+      );
+    });
+  }
+
   if (rows.length === 0) {
     return <p className="px-5 py-6 text-sm text-slate-400">No hay competidores para analizar.</p>;
   }
@@ -230,18 +303,61 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-5 py-3 border-b border-slate-100 bg-slate-50">
-        <h2 className="text-sm font-semibold text-slate-800">Rendimiento de competidores</h2>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Métricas para <span className="font-medium">{llm}</span> ·{" "}
-          <span className="font-medium">{rangeLabel}</span> · {totalRuns} ejecuciones. Haz clic en
-          las cabeceras para ordenar.
-        </p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-800">Rendimiento de competidores</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Metricas para <span className="font-medium">{llm}</span> ·{" "}
+              <span className="font-medium">{rangeLabel}</span> · {totalRuns} ejecuciones.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleAudit}
+              disabled={auditPending}
+            >
+              {auditPending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ScanSearch className="w-4 h-4" />
+              )}
+              Auditar con LLM
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={handleBulkDelete}
+              disabled={deletePending || selectedCount === 0}
+              className="text-red-600 hover:text-red-700"
+            >
+              {deletePending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              Eliminar seleccionados{selectedCount > 0 ? ` (${selectedCount})` : ""}
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
+              <th className="px-4 py-3 text-left text-slate-500 font-medium w-10">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleAll}
+                  aria-label="Seleccionar todos los competidores"
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+              </th>
               <SortableHeader
                 label="Competidor"
                 sortKey="name"
@@ -257,7 +373,7 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="% de prompts únicos donde aparece la marca."
+                tooltip="% de prompts unicos donde aparece la marca."
               />
               <SortableHeader
                 label="AVG POS"
@@ -265,7 +381,7 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="Posición promedio cuando es mencionado (1 = primero)."
+                tooltip="Posicion promedio cuando es mencionado (1 = primero)."
               />
               <SortableHeader
                 label="SOV"
@@ -273,12 +389,12 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="SOV operativo del competidor en esta tabla: sus menciones frente al pool analizado del periodo. No es la serie normalizada del donut Market Share."
+                tooltip="SOV operativo del competidor en esta tabla."
               />
               <th className="px-4 py-3 text-left text-slate-500 font-medium">
                 <div className="inline-flex items-center gap-1">
                   Perfil
-                  <InfoTooltip content="Distribución de cómo es mencionado: recomendado, comparado, listado, advertido o mención general." />
+                  <InfoTooltip content="Distribucion de como es mencionado." />
                 </div>
               </th>
               <SortableHeader
@@ -287,7 +403,7 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="Recommendation Strength: % de menciones donde la IA recomienda esta marca directamente (0-100)."
+                tooltip="% de menciones donde la IA recomienda esta marca directamente."
               />
               <SortableHeader
                 label="Sentimiento"
@@ -296,7 +412,7 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
                 activeSortDir={sortDir}
                 onSort={handleSort}
                 align="left"
-                tooltip="Tono emocional en escala −1 (negativo) a +1 (positivo)."
+                tooltip="Tono emocional de las menciones."
               />
               <SortableHeader
                 label="Amenaza"
@@ -313,62 +429,47 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
             {sorted.map((row) => (
               <tr key={row.competitorId} className="hover:bg-slate-50/60">
                 <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(row.competitorId)}
+                    onChange={() => toggleOne(row.competitorId)}
+                    aria-label={`Seleccionar ${row.name}`}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                </td>
+                <td className="px-4 py-3">
                   <p className="font-medium text-slate-800">{row.name}</p>
                   <p className="text-xs text-slate-400 mt-0.5">{row.mentions} menciones</p>
+                  {auditReasons[row.competitorId] && (
+                    <p className="text-xs text-red-500 mt-1">{auditReasons[row.competitorId]}</p>
+                  )}
                 </td>
-
                 <td className="px-4 py-3 text-right text-slate-700">
                   {row.visibility.toFixed(1)}%
                 </td>
-
                 <td className="px-4 py-3 text-right">
                   {row.avgPosition !== null ? (
-                    <span
-                      className={[
-                        "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold",
-                        row.avgPosition <= 2
-                          ? "bg-green-50 text-green-700 border-green-200"
-                          : row.avgPosition <= 4
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-red-50 text-red-700 border-red-200",
-                      ].join(" ")}
-                    >
+                    <span className="inline-flex items-center rounded-full border border-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-700">
                       #{row.avgPosition.toFixed(1)}
                     </span>
                   ) : (
-                    <span className="text-slate-400">—</span>
+                    <span className="text-slate-400">-</span>
                   )}
                 </td>
-
                 <td className="px-4 py-3 text-right text-slate-700">
-                  {row.sov !== null ? `${row.sov.toFixed(1)}%` : "—"}
+                  {row.sov !== null ? `${row.sov.toFixed(1)}%` : "-"}
                 </td>
-
                 <td className="px-4 py-3">
                   <MentionProfileBar breakdown={row.mentionBreakdown} total={row.mentions} />
                 </td>
-
-                <td className="px-4 py-3">
-                  <div className="flex flex-col items-end gap-1">
-                    <span
-                      className={`text-sm font-semibold ${row.recScore !== null && row.recScore > 50 ? "text-green-600" : "text-slate-600"}`}
-                    >
-                      {row.recScore !== null ? row.recScore.toFixed(1) : "—"}
-                    </span>
-                    {row.recScore !== null && (
-                      <div className="w-12 h-1.5 rounded-full bg-slate-100">
-                        <div
-                          className="h-full bg-green-500 rounded-full"
-                          style={{ width: `${row.recScore}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
+                <td className="px-4 py-3 text-right">
+                  {row.recScore !== null ? row.recScore.toFixed(1) : "-"}
                 </td>
-
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${sentimentClass(row.sentiment)}`}
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${sentimentClass(
+                      row.sentiment
+                    )}`}
                   >
                     {sentimentLabel(row.sentiment)}
                     {row.sentimentScore !== null && (
@@ -379,18 +480,8 @@ export function CompetitorTableSortable({ rows, totalRuns, llm, rangeLabel }: Pr
                     )}
                   </span>
                 </td>
-
                 <td className="px-4 py-3">
-                  <span
-                    className={[
-                      "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium",
-                      row.threatLevel === "high"
-                        ? "bg-red-50 text-red-700 border-red-200"
-                        : row.threatLevel === "medium"
-                          ? "bg-amber-50 text-amber-700 border-amber-200"
-                          : "bg-slate-50 text-slate-500 border-slate-200",
-                    ].join(" ")}
-                  >
+                  <span className="inline-flex items-center rounded-full border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
                     {row.threatLevel === "high"
                       ? "Alta"
                       : row.threatLevel === "medium"

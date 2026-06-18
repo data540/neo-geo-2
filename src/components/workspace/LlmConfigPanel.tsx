@@ -20,6 +20,7 @@ const PROVIDER_LABELS: Record<LlmProviderKey, string> = {
   gemini: "AI Overviews",
   perplexity: "Perplexity",
 };
+const MAX_PROMPTS_PER_PROVIDER = 200;
 
 interface ProviderConfig {
   providerId: string;
@@ -208,7 +209,7 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
                   id={`slider-${config.providerId}`}
                   type="range"
                   min={0}
-                  max={50}
+                  max={MAX_PROMPTS_PER_PROVIDER}
                   step={1}
                   value={current}
                   disabled={!canManage || pending}
@@ -217,7 +218,7 @@ export function LlmConfigPanel({ workspaceId, workspaceSlug, currentRole, config
                 />
                 <div className="flex justify-between text-xs text-slate-400">
                   <span>0 (off)</span>
-                  <span>50</span>
+                  <span>{MAX_PROMPTS_PER_PROVIDER}</span>
                 </div>
               </div>
             </div>

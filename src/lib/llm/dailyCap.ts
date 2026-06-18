@@ -1,14 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Cap duro de ejecuciones diarias por workspace. Se calcula como la suma de
-// prompts_per_day de los proveedores habilitados, con un margen del 20% para
+// prompts_per_day de los proveedores habilitados, con margen para
 // absorber ejecuciones manuales legítimas. Ni el cron ni las acciones manuales
 // pueden superar este tope — protege contra picos accidentales de coste.
 
-const SAFETY_MARGIN = 1.2;
-const MIN_DAILY_CAP = 60;
+const SAFETY_MARGIN = 3;
+const MIN_DAILY_CAP = 300;
 // Tope de seguridad absoluto por si la config quedara vacía o desconfigurada.
-const FALLBACK_CAP = 200;
+const FALLBACK_CAP = 600;
 
 export async function getWorkspaceDailyCap(
   supabase: SupabaseClient,
