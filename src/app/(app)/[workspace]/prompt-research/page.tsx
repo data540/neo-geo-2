@@ -4,6 +4,8 @@ import { GeoResearchWizard } from "@/components/geo/GeoResearchWizard";
 import { hasKnowledgeChunks, prepareInitialContext } from "@/lib/geo/promptResearchSkill";
 import { createClient } from "@/lib/supabase/server";
 
+export const maxDuration = 60;
+
 interface Props {
   params: Promise<{ workspace: string }>;
 }

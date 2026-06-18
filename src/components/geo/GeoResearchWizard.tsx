@@ -60,12 +60,10 @@ export function GeoResearchWizard({
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
 
-  // Pipeline asíncrono
-  const [pipelineSessionId, setPipelineSessionId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(getStorageKey(workspaceId));
-  });
-  const [pipelineRunning, setPipelineRunning] = useState(!!pipelineSessionId);
+  // Pipeline asíncrono (se hidrata desde localStorage solo en el useEffect de montaje,
+  // para que el render inicial coincida entre servidor y cliente)
+  const [pipelineSessionId, setPipelineSessionId] = useState<string | null>(null);
+  const [pipelineRunning, setPipelineRunning] = useState(false);
 
   // Paso 2
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -184,6 +182,7 @@ export function GeoResearchWizard({
 
   function handlePipelineCancelled() {
     clearPipeline();
+    toast.info("La sesión de generación anterior ya no está activa. Puedes generar de nuevo.");
   }
 
   async function handleActivate(_selectedTexts: string[], candidateIds: string[]) {

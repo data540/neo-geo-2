@@ -273,17 +273,18 @@ export const geoResearchPipeline = inngest.createFunction(
 
       const result = await prioritizePrompts(savedList, limit, knowledge.priorityChunks);
 
-      // Persistir priority_rank y risk_if_brand_absent
-      for (const p of result) {
-        const match = savedList.find((c) => c.prompt === p.prompt);
-        if (match) {
-          await supabase
+      // Persistir priority_rank y risk_if_brand_absent (en paralelo)
+      await Promise.all(
+        result.map((p) => {
+          const match = savedList.find((c) => c.prompt === p.prompt);
+          if (!match) return null;
+          return supabase
             .from("prompt_candidates")
             .update({ priority_rank: p.priorityRank, risk_if_brand_absent: p.riskIfBrandAbsent })
             .eq("id", match.id)
             .eq("session_id", sessionId);
-        }
-      }
+        })
+      );
 
       await logPhase(supabase, { workspaceId, sessionId, phase: "prioritize", status: "completed", modelUsed: "openai/gpt-4.1-mini", durationMs: Date.now() - t0 });
 

@@ -114,7 +114,7 @@ export function PromptCandidateGrid({ candidates, onContinue, loading }: Props) 
         ))}
       </div>
 
-      <div className="flex justify-end pt-2">
+      <div className="flex flex-col items-end gap-2 pt-2">
         <Button
           onClick={() => onContinue(Array.from(selectedIds))}
           disabled={loading || selectedCount === 0}
@@ -129,6 +129,11 @@ export function PromptCandidateGrid({ candidates, onContinue, loading }: Props) 
             `Auditar cobertura (${selectedCount} prompts)`
           )}
         </Button>
+        {loading && (
+          <p className="text-xs text-slate-400">
+            Esto puede tardar hasta 30 segundos — estamos consultando varios modelos de IA…
+          </p>
+        )}
       </div>
     </div>
   );

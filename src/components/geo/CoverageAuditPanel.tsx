@@ -123,7 +123,7 @@ export function CoverageAuditPanel({ result, onContinue, loading }: Props) {
         </div>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-2">
         <Button
           onClick={onContinue}
           disabled={loading}
@@ -138,6 +138,11 @@ export function CoverageAuditPanel({ result, onContinue, loading }: Props) {
             "Continuar → Priorizar prompts"
           )}
         </Button>
+        {loading && (
+          <p className="text-xs text-slate-400">
+            Esto puede tardar hasta 30 segundos — estamos consultando varios modelos de IA…
+          </p>
+        )}
       </div>
     </div>
   );

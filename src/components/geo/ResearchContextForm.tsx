@@ -252,6 +252,12 @@ export function ResearchContextForm({
           )}
         </Button>
 
+        {loading && (
+          <p className="text-xs text-slate-400 text-center mt-2">
+            Esto puede tardar hasta 30 segundos — estamos consultando varios modelos de IA…
+          </p>
+        )}
+
         {showAutoButton && onAutoAll && (
           <Button
             type="button"

@@ -58,6 +58,7 @@ export function PipelineProgressPanel({ sessionId, workspaceId, onCompleted, onC
   const [runs, setRuns] = useState<Record<string, PipelineRun>>({});
   const [hintIndex, setHintIndex] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [orphaned, setOrphaned] = useState(false);
   const hintRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const completedCount = getCompletedCount(runs);
@@ -83,6 +84,12 @@ export function PipelineProgressPanel({ sessionId, workspaceId, onCompleted, onC
   }, [isCancelled, onCancelled]);
 
   useEffect(() => {
+    if (orphaned && onCancelled) {
+      onCancelled();
+    }
+  }, [orphaned, onCancelled]);
+
+  useEffect(() => {
     const supabase = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -101,6 +108,10 @@ export function PipelineProgressPanel({ sessionId, workspaceId, onCompleted, onC
           }
           setRuns(map);
           if (data.some((r) => r.status === "failed")) setFailed(true);
+          // Sesión huérfana: localStorage apuntaba a un session_id sin filas en
+          // pipeline_runs (p.ej. tras un fallo al disparar el evento Inngest).
+          // Sin esto el panel se queda esperando para siempre.
+          if (data.length === 0) setOrphaned(true);
         }
       });
 

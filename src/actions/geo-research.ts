@@ -213,17 +213,18 @@ export async function prioritizePromptsAction(
     knowledgeChunks
   );
 
-  // Actualizar priority_rank en DB
-  for (const p of prioritized) {
-    const match = (candidates as PromptCandidate[]).find((c) => c.prompt === p.prompt);
-    if (match) {
-      await supabase
+  // Actualizar priority_rank en DB (en paralelo)
+  await Promise.all(
+    prioritized.map((p) => {
+      const match = (candidates as PromptCandidate[]).find((c) => c.prompt === p.prompt);
+      if (!match) return null;
+      return supabase
         .from("prompt_candidates")
         .update({ priority_rank: p.priorityRank, risk_if_brand_absent: p.riskIfBrandAbsent })
         .eq("id", match.id)
         .eq("session_id", sessionId);
-    }
-  }
+    })
+  );
 
   return { success: true, data: prioritized };
 }
