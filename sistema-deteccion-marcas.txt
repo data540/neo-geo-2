@@ -1,0 +1,89 @@
+SISTEMA DE DETECCIÓN DE MARCAS EN RESPUESTAS LLM
+Neo-Geo 2 — src/lib/detection/detectBrands.ts + extractRanking.ts
+=================================================================
+
+FASE              | COMPONENTE                        | QUÉ HACE
+------------------|-----------------------------------|------------------------------------------------------------------
+1a — Lista        | extractRankingFromList            | Parsea línea a línea buscando listas numeradas (1. 2. 3.) y
+estructurada      |                                   | bullets (- • *). Requiere mínimo 2 ítems. Listas numeradas
+                  |                                   | tienen preferencia sobre bullets.
+------------------|-----------------------------------|------------------------------------------------------------------
+1a — Matching     | matchBrandInItem                  | Para cada ítem de lista busca la marca y sus aliases. Primero
+en lista          |                                   | String.includes() exacto; si falla y el nombre tiene >= 4 chars,
+                  |                                   | fuzzy matching con ventana deslizante (>= 85% de chars
+                  |                                   | coincidentes).
+------------------|-----------------------------------|------------------------------------------------------------------
+1b — Fallback     | extractByAppearanceOrder          | Si no hay lista estructurada, localiza la primera ocurrencia
+textual           |                                   | de cada marca con indexOf, ordena por posición en el texto y
+                  |                                   | asigna rango 1, 2, 3...
+------------------|-----------------------------------|------------------------------------------------------------------
+1c — Relleno      | extractMentionedBrands            | Marcas detectadas en lista reciben su rango real. Marcas que
+híbrido           |                                   | aparecen en texto pero no en lista reciben posición consecutiva
+                  |                                   | tras el último rango de lista, por orden de aparición.
+------------------|-----------------------------------|------------------------------------------------------------------
+2 — Tipo de       | classifyMentionType               | Extrae ventana de 450 chars alrededor de la mención y aplica
+mención           |                                   | 5 niveles en cascada:
+                  |                                   | warning > primary_recommendation > comparison > list_option
+                  |                                   | > general_mention
+------------------|-----------------------------------|------------------------------------------------------------------
+2 — Warning       | Regex                             | Detecta: "evitar", "no recomend", "cuidado con", "fraude",
+                  |                                   | "estafa", "pésimo", "deficiente".
+------------------|-----------------------------------|------------------------------------------------------------------
+2 — Primary       | Regex                             | Detecta: "la mejor opción", "mi recomendación", "top 1",
+                  |                                   | "nº1", "es líder", "ideal". También: posición 1 + no está en
+                  |                                   | lista + texto empieza con patrón de recomendación.
+------------------|-----------------------------------|------------------------------------------------------------------
+2 — Comparison    | Regex                             | Detecta: "vs", "versus", "frente a", "comparado con",
+                  |                                   | "en cambio", "mientras que".
+------------------|-----------------------------------|------------------------------------------------------------------
+2 — List option   | Regex                             | Detecta si la línea donde aparece la marca empieza con
+                  |                                   | \d+. o - • *
+------------------|-----------------------------------|------------------------------------------------------------------
+3 — Sentiment     | detectSentiment                   | Extrae 300 chars de contexto, cuenta palabras positivas
+heurístico        |                                   | ("recomiendo", "excelente", "líder"...) vs negativas
+                  |                                   | ("malo", "evitar", "pésimo"...).
+                  |                                   | Resultado: positive, negative o neutral.
+------------------|-----------------------------------|------------------------------------------------------------------
+4 — Corrección    | analyzeMentionsBatch              | Llamada a OpenRouter (gpt-4o-mini) que reanaliza sentiment y
+LLM               | (Inngest step 6.5)                | ranking de todas las marcas en una sola llamada. Sobreescribe
+                  |                                   | valores heurísticos si mejora la precisión. Solo aplica ranking
+                  |                                   | LLM cuando la heurística no detectó lista numerada/bullet.
+------------------|-----------------------------------|------------------------------------------------------------------
+
+
+FLUJO COMPLETO
+==============
+
+  Respuesta del LLM
+      |
+      +-- extractRankingFromList --> lista numerada o bullet
+      |       | (fallback si no hay lista)
+      +-- extractByAppearanceOrder --> orden textual
+      |
+      +-- detectSentiment (heurístico, 300 chars contexto)
+      +-- classifyMentionType (5 niveles, 450 chars contexto)
+      |
+      +-- [Inngest step analyze-mentions-llm]
+              |
+              +-- OpenRouter gpt-4o-mini --> sentiment_score + rank LLM
+                      |
+                      +-- sobreescribe posición/sentiment si mejora precisión
+
+
+FUENTES DE POSICIÓN (position_source)
+======================================
+
+  numbered_list   --> marca encontrada en lista numerada explícita
+  bullet_list     --> marca encontrada en lista bullet
+  appearance_order --> posición por orden de primera aparición en el texto
+  llm             --> posición corregida por el modelo gpt-4o-mini (paso 6.5)
+
+
+TIPOS DE MENCIÓN (mention_type)
+================================
+
+  primary_recommendation  --> la marca es la recomendación principal
+  list_option             --> la marca aparece en una lista de opciones
+  comparison              --> la marca se menciona en comparación con otras
+  general_mention         --> mención sin contexto de recomendación
+  warning                 --> la marca se menciona con connotación negativa/advertencia
