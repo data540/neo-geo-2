@@ -154,7 +154,17 @@ export async function deleteCompetitorsBulkAction(
     deletedMentionsCount += deletedMentions?.length ?? 0;
   }
 
+  const rejectionEntries: { workspace_id: string; normalized_name: string }[] = [];
+
   for (const batch of chunkArray(uniqueBrandIds, DELETE_BATCH_SIZE)) {
+    // Obtener nombres antes del DELETE para registrarlos en el blocklist
+    const { data: toReject } = await supabase
+      .from("brands")
+      .select("name")
+      .in("id", batch)
+      .eq("workspace_id", workspaceId)
+      .eq("type", "competitor");
+
     const { data: deletedCompetitors, error } = await supabase
       .from("brands")
       .delete()
@@ -165,6 +175,19 @@ export async function deleteCompetitorsBulkAction(
 
     if (error) return { success: false, error: "Error al eliminar competidores" };
     deletedCompetitorsCount += deletedCompetitors?.length ?? 0;
+
+    for (const b of toReject ?? []) {
+      const normalized = normalizeCompetitorName(String(b.name ?? ""));
+      if (normalized) rejectionEntries.push({ workspace_id: workspaceId, normalized_name: normalized });
+    }
+  }
+
+  // Registrar en blocklist para que el CRON y la extracción en tiempo real no los re-inserten
+  if (rejectionEntries.length > 0) {
+    await supabase.from("competitor_rejections").upsert(rejectionEntries, {
+      onConflict: "workspace_id,normalized_name",
+      ignoreDuplicates: true,
+    });
   }
 
   const slug = await getWorkspaceSlug(workspaceId);

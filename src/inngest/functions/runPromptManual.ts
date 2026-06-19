@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { detectBrands } from "@/lib/detection/detectBrands";
 import { countRunsToday, getWorkspaceDailyCap } from "@/lib/llm/dailyCap";
+import { extractCompetitorsForRun } from "@/lib/llm/extractCompetitorsForRun";
 import { analyzeMentionsBatch } from "@/lib/llm/mentionAnalyzer";
 import { persistSourcesForRun } from "@/lib/llm/persistSources";
 import { estimateCostForModel } from "@/lib/llm/pricing";
@@ -170,6 +171,24 @@ export const runPromptManual = inngest.createFunction(
           completed_at: new Date().toISOString(),
         })
         .eq("id", runId);
+    });
+
+    // 4.5. Extraer e insertar competidores nuevos con gate LLM pre-inserción.
+    // No bloquea el flujo principal si falla (catch interno).
+    await step.run("extract-competitors", async () => {
+      try {
+        await extractCompetitorsForRun({
+          supabase,
+          workspaceId,
+          promptRunId: runId,
+          rawResponse: llmResult.rawResponse,
+          ownBrandName: ownBrand.name,
+          workspaceDomain: context.workspace!.domain as string | null,
+          businessContext: context.workspace!.brand_statement as string | null,
+        });
+      } catch (err) {
+        console.error("[extract-competitors] failed, run continues:", err);
+      }
     });
 
     // 5. Detectar marcas

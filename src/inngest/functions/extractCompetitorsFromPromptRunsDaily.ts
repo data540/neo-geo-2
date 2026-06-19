@@ -27,6 +27,7 @@ interface WorkspaceRow {
 }
 
 interface RunRow {
+  id: string;
   raw_response: string | null;
 }
 
@@ -47,14 +48,19 @@ async function processWorkspace(
 }> {
   const supabase = getServiceClient();
 
-  const [{ data: ownBrands }, { data: existingCompetitors }] = await Promise.all([
-    supabase.from("brands").select("name").eq("workspace_id", workspace.id).eq("type", "own"),
-    supabase
-      .from("brands")
-      .select("name")
-      .eq("workspace_id", workspace.id)
-      .eq("type", "competitor"),
-  ]);
+  const [{ data: ownBrands }, { data: existingCompetitors }, { data: rejections }] =
+    await Promise.all([
+      supabase.from("brands").select("name").eq("workspace_id", workspace.id).eq("type", "own"),
+      supabase
+        .from("brands")
+        .select("name")
+        .eq("workspace_id", workspace.id)
+        .eq("type", "competitor"),
+      supabase
+        .from("competitor_rejections")
+        .select("normalized_name")
+        .eq("workspace_id", workspace.id),
+    ]);
 
   const existingNames = new Set(
     [
@@ -62,19 +68,24 @@ async function processWorkspace(
       ...(existingCompetitors ?? []).map((b) => normalizeCompetitorName(String(b.name ?? ""))),
     ].filter(Boolean)
   );
+  const blocklist = new Set(
+    (rejections ?? []).map((r) => r.normalized_name as string).filter(Boolean)
+  );
 
   const candidateMap = new Map<string, { name: string; count: number; examples: string[] }>();
   const pageSize = 500;
   let analyzedRuns = 0;
   let offset = 0;
+  const processedRunIds: string[] = [];
 
   while (true) {
     const { data } = await supabase
       .from("prompt_runs")
-      .select("raw_response")
+      .select("id, raw_response")
       .eq("workspace_id", workspace.id)
       .eq("status", "completed")
       .not("raw_response", "is", null)
+      .is("competitors_extracted_at", null)
       .order("created_at", { ascending: false })
       .range(offset, offset + pageSize - 1);
 
@@ -83,11 +94,12 @@ async function processWorkspace(
     analyzedRuns += chunk.length;
 
     for (const run of chunk) {
+      processedRunIds.push(run.id);
       const rawResponse = String(run.raw_response ?? "");
       for (const candidate of extractPotentialCompetitorsFromResponse(rawResponse)) {
         if (!shouldPrefilterCompetitorCandidate(candidate)) continue;
         const normalized = normalizeCompetitorName(candidate);
-        if (!normalized || existingNames.has(normalized)) continue;
+        if (!normalized || existingNames.has(normalized) || blocklist.has(normalized)) continue;
 
         const existing = candidateMap.get(normalized);
         if (!existing) {
@@ -110,8 +122,21 @@ async function processWorkspace(
     offset += pageSize;
   }
 
+  const markProcessed = async () => {
+    if (processedRunIds.length === 0) return;
+    const MARK_BATCH = 1000;
+    const ts = new Date().toISOString();
+    for (let i = 0; i < processedRunIds.length; i += MARK_BATCH) {
+      await supabase
+        .from("prompt_runs")
+        .update({ competitors_extracted_at: ts })
+        .in("id", processedRunIds.slice(i, i + MARK_BATCH));
+    }
+  };
+
   const candidates: CompetitorCandidateForClassification[] = [...candidateMap.values()];
   if (candidates.length === 0) {
+    await markProcessed();
     return { analyzedRuns, extractedCandidates: 0, insertedCompetitors: 0 };
   }
 
@@ -133,6 +158,7 @@ async function processWorkspace(
     }));
 
   if (toInsert.length === 0) {
+    await markProcessed();
     return { analyzedRuns, extractedCandidates: candidates.length, insertedCompetitors: 0 };
   }
 
@@ -150,9 +176,11 @@ async function processWorkspace(
       `[extractCompetitorsFromPromptRunsDaily] ${workspace.slug} insert failed:`,
       error.message
     );
+    await markProcessed();
     return { analyzedRuns, extractedCandidates: candidates.length, insertedCompetitors: 0 };
   }
 
+  await markProcessed();
   return {
     analyzedRuns,
     extractedCandidates: candidates.length,
