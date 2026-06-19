@@ -38,6 +38,9 @@ interface Props {
   totalRuns: number;
   llm: string;
   rangeLabel: string;
+  inactiveCount?: number;
+  showInactive?: boolean;
+  toggleHref?: string;
 }
 
 type SortKey =
@@ -186,6 +189,9 @@ export function CompetitorTableSortable({
   totalRuns,
   llm,
   rangeLabel,
+  inactiveCount = 0,
+  showInactive = false,
+  toggleHref,
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("visibility");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -297,7 +303,23 @@ export function CompetitorTableSortable({
   }
 
   if (rows.length === 0) {
-    return <p className="px-5 py-6 text-sm text-slate-400">No hay competidores para analizar.</p>;
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-6 text-center">
+        <p className="text-sm text-slate-400">
+          {!showInactive && inactiveCount > 0
+            ? `Ningún competidor con actividad en este período.`
+            : "No hay competidores para analizar."}
+        </p>
+        {!showInactive && inactiveCount > 0 && toggleHref && (
+          <a
+            href={toggleHref}
+            className="mt-2 inline-block text-xs text-indigo-600 hover:underline"
+          >
+            Mostrar {inactiveCount} {inactiveCount === 1 ? "competidor sin actividad" : "competidores sin actividad"}
+          </a>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -312,6 +334,18 @@ export function CompetitorTableSortable({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {inactiveCount > 0 && toggleHref && (
+              <a
+                href={toggleHref}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 hover:bg-slate-50 transition-colors"
+              >
+                {showInactive ? (
+                  <>Ocultar inactivos</>
+                ) : (
+                  <>{inactiveCount} sin actividad · Mostrar</>
+                )}
+              </a>
+            )}
             <Button
               type="button"
               size="sm"

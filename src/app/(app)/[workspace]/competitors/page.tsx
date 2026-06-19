@@ -12,7 +12,7 @@ import type { CompetitorDynamic } from "./MarketDynamicsCards";
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
+  searchParams: Promise<{ llm?: string; range?: string; country?: string; show_inactive?: string }>;
 }
 
 interface CompetitorRow {
@@ -97,7 +97,8 @@ function getDominantSentiment(
 
 export default async function CompetitorsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm, range = "30", country } = await searchParams;
+  const { llm, range = "30", country, show_inactive } = await searchParams;
+  const showInactive = show_inactive === "1";
   const llmKey = llm ?? null;
 
   // ── Cálculo de ventana temporal ────────────────────────────────────────────
@@ -591,7 +592,15 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
 
         <CompetitorTableSortable
           workspaceId={workspace.id}
-          rows={competitorPerformance}
+          rows={showInactive ? competitorPerformance : competitorPerformance.filter((c) => c.mentions > 0)}
+          inactiveCount={competitorPerformance.filter((c) => c.mentions === 0).length}
+          showInactive={showInactive}
+          toggleHref={`/${slug}/competitors?${[
+            llm ? `llm=${llm}` : "",
+            `range=${range}`,
+            country ? `country=${country}` : "",
+            showInactive ? "" : "show_inactive=1",
+          ].filter(Boolean).join("&")}`}
           totalRuns={totalRuns}
           llm={llm ?? "All LLMs"}
           rangeLabel={isYesterday ? "Yesterday" : `últimos ${PERIOD_DAYS} días`}
