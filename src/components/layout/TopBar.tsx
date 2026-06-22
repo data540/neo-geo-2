@@ -10,7 +10,7 @@ import { PlanBanner } from "./PlanBanner";
 
 const LLM_TABS: { key: LlmProviderKey; label: string }[] = [
   { key: "chatgpt", label: "ChatGPT" },
-  { key: "gemini", label: "AI Overviews" },
+  { key: "gemini", label: "Gemini" },
   { key: "perplexity", label: "Perplexity" },
 ];
 

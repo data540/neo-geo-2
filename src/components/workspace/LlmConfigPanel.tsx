@@ -17,7 +17,7 @@ import type { LlmProviderKey, WorkspaceMemberRole } from "@/types";
 
 const PROVIDER_LABELS: Record<LlmProviderKey, string> = {
   chatgpt: "ChatGPT",
-  gemini: "AI Overviews",
+  gemini: "Gemini",
   perplexity: "Perplexity",
 };
 const MAX_PROMPTS_PER_PROVIDER = 200;

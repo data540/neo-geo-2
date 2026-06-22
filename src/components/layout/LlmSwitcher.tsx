@@ -13,7 +13,7 @@ import {
 const LLM_OPTIONS = [
   { value: "all", label: "All LLMs" },
   { value: "chatgpt", label: "ChatGPT" },
-  { value: "gemini", label: "AI Overviews" },
+  { value: "gemini", label: "Gemini" },
   { value: "perplexity", label: "Perplexity" },
 ];
 

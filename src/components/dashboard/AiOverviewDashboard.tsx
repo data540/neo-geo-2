@@ -10,6 +10,12 @@ interface SerpDistribution {
   noAio: number;
 }
 
+interface AiModeMetrics {
+  presenceRate: number | null;
+  avgSerpPosition: number | null;
+  totalSnapshots: number;
+}
+
 interface Props {
   // Métricas derivadas del texto del modelo
   visibility: number | null;
@@ -23,12 +29,14 @@ interface Props {
   blocksAnalyzed: number;
   responsesAnalyzed: number;
   rangeLabel: string;
-  // Métricas SERP reales (null = caché vacía, mostrar placeholder)
+  // Métricas SERP reales — AI Overviews (null = caché vacía, mostrar placeholder)
   presenceRate: number | null;
   avgSerpPosition: number | null;
   serpDistribution: SerpDistribution | null;
   serpTopicSections: Array<{ name: string; count: number }>;
   totalSnapshots: number;
+  // Métricas SERP reales — AI Mode
+  aiModeMetrics?: AiModeMetrics;
 }
 
 const BLOCK_COLORS: Record<string, string> = {
@@ -63,6 +71,7 @@ export function AiOverviewDashboard({
   serpDistribution,
   serpTopicSections,
   totalSnapshots,
+  aiModeMetrics,
 }: Props) {
   const sent = sentimentLabel(avgSentiment);
   const hasSerpData = totalSnapshots > 0;
@@ -115,6 +124,56 @@ export function AiOverviewDashboard({
               <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
               <p className="text-[11px] text-slate-400 mt-1">
                 {avgSerpPosition === null ? "No aparece en ninguna query" : "Posición media en la SERP"}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-slate-300">—</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Sin datos SERP. Ejecuta el refresco semanal para activar.
+              </p>
+            </>
+          )}
+        </KpiCard>
+
+        {/* AI Mode Presence Rate */}
+        <KpiCard
+          label="AI Mode Presence"
+          icon={<Search className="w-4 h-4 text-violet-500" aria-hidden="true" />}
+          iconBg="bg-violet-50"
+        >
+          {hasSerpData && aiModeMetrics && aiModeMetrics.presenceRate !== null ? (
+            <>
+              <p className="text-3xl font-bold text-slate-900">{aiModeMetrics.presenceRate}%</p>
+              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Google AI Mode en SERP
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-3xl font-bold text-slate-300">—</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                Sin datos SERP. Ejecuta el refresco semanal para activar.
+              </p>
+            </>
+          )}
+        </KpiCard>
+
+        {/* AI Mode Position */}
+        <KpiCard
+          label="AI Mode Position"
+          icon={<Hash className="w-4 h-4 text-violet-400" aria-hidden="true" />}
+          iconBg="bg-violet-50"
+        >
+          {hasSerpData && aiModeMetrics ? (
+            <>
+              <p className="text-3xl font-bold text-slate-900">
+                {aiModeMetrics.avgSerpPosition !== null ? `#${aiModeMetrics.avgSerpPosition}` : "—"}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {aiModeMetrics.avgSerpPosition === null ? "No aparece en ninguna query" : "Posición media en SERP"}
               </p>
             </>
           ) : (

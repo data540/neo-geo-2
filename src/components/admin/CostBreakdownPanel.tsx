@@ -19,7 +19,7 @@ const PROVIDER_META: Record<string, { label: string; color: string; bg: string; 
     dot: "bg-emerald-500",
   },
   gemini: {
-    label: "AI Overviews",
+    label: "Gemini",
     color: "text-blue-700",
     bg: "bg-blue-50 border-blue-200",
     dot: "bg-blue-500",

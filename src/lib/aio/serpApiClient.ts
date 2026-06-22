@@ -7,6 +7,10 @@ export interface SerpAioResult {
   present: boolean;
   serpPosition: number | null;
   sections: Array<{ name: string; position: number }>;
+  aiMode: {
+    present: boolean;
+    serpPosition: number | null;
+  };
 }
 
 interface SerpApiBlock {
@@ -24,6 +28,12 @@ interface SerpApiResponse {
     blocks?: SerpApiBlock[];
     // Algunos campos alternativos según versión de la API
     items?: SerpApiBlock[];
+  };
+  // Google AI Mode: pestaña conversacional de Google Search (2025+)
+  // El fieldname exacto puede variar — ajustar si SerpAPI lo llama diferente
+  ai_mode?: {
+    position?: number;
+    blocks?: SerpApiBlock[];
   };
 }
 
@@ -68,7 +78,7 @@ export async function fetchAiOverviewSerp(
   }
 
   if (!data.ai_overview) {
-    return { present: false, serpPosition: null, sections: [] };
+    return { present: false, serpPosition: null, sections: [], aiMode: { present: false, serpPosition: null } };
   }
 
   const position = data.ai_overview.position ?? null;
@@ -86,5 +96,9 @@ export async function fetchAiOverviewSerp(
     present: true,
     serpPosition: typeof position === "number" ? position : 1,
     sections,
+    aiMode: {
+      present: !!data.ai_mode,
+      serpPosition: typeof data.ai_mode?.position === "number" ? data.ai_mode.position : null,
+    },
   };
 }

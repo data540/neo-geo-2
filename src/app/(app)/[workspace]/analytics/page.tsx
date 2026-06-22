@@ -21,7 +21,7 @@ interface Props {
 
 const LLM_NAMES: Record<LlmProviderKey, string> = {
   chatgpt: "ChatGPT",
-  gemini: "AI Overviews",
+  gemini: "Gemini",
   perplexity: "Perplexity",
 };
 

@@ -13,7 +13,7 @@ const PAGE_SIZE = 50;
 
 const LLM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
-  gemini: "AI Overview",
+  gemini: "Gemini",
   perplexity: "Perplexity",
 };
 

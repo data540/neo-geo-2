@@ -439,6 +439,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     serpTopicSections: [] as Array<{ name: string; count: number }>,
     totalSnapshots: 0,
   };
+  let aiModeMetrics = {
+    presenceRate: null as number | null,
+    avgSerpPosition: null as number | null,
+    totalSnapshots: 0,
+  };
 
   if (isAiOverview && providerId) {
     // Datos del texto del modelo (sin coste SERP)
@@ -458,7 +463,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     // Datos SERP reales de la caché semanal (se generan por el CRON de Inngest)
     const { data: serpRows } = await supabase
       .from("prompt_serp_cache")
-      .select("ai_overview_present, ai_overview_serp_position, ai_overview_sections")
+      .select("ai_overview_present, ai_overview_serp_position, ai_overview_sections, ai_mode_present, ai_mode_serp_position")
       .eq("workspace_id", workspace.id)
       // Tomamos el snapshot más reciente de cada prompt dentro del período
       .gte("fetched_at", periodStart.toISOString())
@@ -470,6 +475,8 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         ai_overview_present: boolean;
         ai_overview_serp_position: number | null;
         ai_overview_sections: Array<{ name: string; position: number }>;
+        ai_mode_present: boolean;
+        ai_mode_serp_position: number | null;
       };
       const rows = serpRows as SerpRow[];
       const total = rows.length;
@@ -505,6 +512,20 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         .slice(0, 8);
 
       serpMetrics = { presenceRate, avgSerpPosition, distribution: dist, serpTopicSections, totalSnapshots: total };
+
+      // ── AI Mode metrics ──────────────────────────────────────────────────────
+      const modePresent = rows.filter((r) => r.ai_mode_present);
+      const modePosns = modePresent
+        .map((r) => r.ai_mode_serp_position)
+        .filter((p): p is number => typeof p === "number");
+      aiModeMetrics = {
+        presenceRate: Math.round((modePresent.length / total) * 1000) / 10,
+        avgSerpPosition:
+          modePosns.length > 0
+            ? Math.round((modePosns.reduce((s, v) => s + v, 0) / modePosns.length) * 10) / 10
+            : null,
+        totalSnapshots: total,
+      };
     }
   }
 
@@ -571,6 +592,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
             serpDistribution={serpMetrics.distribution}
             serpTopicSections={serpMetrics.serpTopicSections}
             totalSnapshots={serpMetrics.totalSnapshots}
+            aiModeMetrics={aiModeMetrics}
           />
         ) : (
           <>

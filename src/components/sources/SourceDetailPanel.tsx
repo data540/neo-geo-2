@@ -7,7 +7,7 @@ import type { SourceDetail } from "@/types";
 
 const LLM_LABELS: Record<string, string> = {
   chatgpt: "ChatGPT",
-  gemini: "AI Overview",
+  gemini: "Gemini",
   perplexity: "Perplexity",
 };
 
