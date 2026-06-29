@@ -3,6 +3,7 @@ import { extractPotentialCompetitorsFromResponse } from "@/lib/detection/detectB
 import {
   type CompetitorCandidateForClassification,
   classifyCompetitorCandidates,
+  isAcceptedCompetitor,
   normalizeCompetitorName,
   shouldPrefilterCompetitorCandidate,
 } from "@/lib/llm/classifyCompetitors";
@@ -18,7 +19,7 @@ interface ExtractForRunInput {
 }
 
 export interface ExtractForRunResult {
-  insertedCompetitors: number;
+  suggestedCompetitors: number;
   rejectedByBlocklist: number;
 }
 
@@ -41,20 +42,29 @@ export async function extractCompetitorsForRun(
 
   if (rawCandidates.length === 0) {
     await markRunExtracted(supabase, promptRunId);
-    return { insertedCompetitors: 0, rejectedByBlocklist: 0 };
+    return { suggestedCompetitors: 0, rejectedByBlocklist: 0 };
   }
 
-  // 2. Cargar marcas existentes y blocklist en paralelo
-  const [{ data: existingBrands }, { data: rejections }] = await Promise.all([
-    supabase.from("brands").select("name").eq("workspace_id", workspaceId),
-    supabase
-      .from("competitor_rejections")
-      .select("normalized_name")
-      .eq("workspace_id", workspaceId),
-  ]);
+  // 2. Cargar marcas existentes, sugerencias pendientes y blocklist en paralelo
+  const [{ data: existingBrands }, { data: pendingSuggestions }, { data: rejections }] =
+    await Promise.all([
+      supabase.from("brands").select("name").eq("workspace_id", workspaceId),
+      supabase
+        .from("competitor_suggestions")
+        .select("normalized_name")
+        .eq("workspace_id", workspaceId)
+        .eq("status", "pending"),
+      supabase
+        .from("competitor_rejections")
+        .select("normalized_name")
+        .eq("workspace_id", workspaceId),
+    ]);
 
   const existingNormalized = new Set(
     (existingBrands ?? []).map((b) => normalizeCompetitorName(String(b.name ?? "")))
+  );
+  const pendingNormalized = new Set(
+    (pendingSuggestions ?? []).map((s) => s.normalized_name as string)
   );
   const blocklist = new Set(
     (rejections ?? []).map((r) => r.normalized_name as string)
@@ -82,7 +92,7 @@ export async function extractCompetitorsForRun(
 
   if (candidateMap.size === 0) {
     await markRunExtracted(supabase, promptRunId);
-    return { insertedCompetitors: 0, rejectedByBlocklist };
+    return { suggestedCompetitors: 0, rejectedByBlocklist };
   }
 
   // 4. Clasificar con LLM — gate pre-inserción (no post-hoc)
@@ -95,29 +105,28 @@ export async function extractCompetitorsForRun(
 
   const validByNormalized = new Map(
     classifications
-      .filter((c) => c.isCompetitor && c.confidence !== "low")
+      .filter(isAcceptedCompetitor)
       .map((c) => [normalizeCompetitorName(c.name), c])
   );
 
-  // 5. Insertar solo los validados por el LLM
-  const toInsert = [...candidateMap.entries()]
-    .filter(([norm]) => validByNormalized.has(norm))
+  // 5. Insertar sugerencias — solo validados por LLM que no estén ya pendientes
+  const toSuggest = [...candidateMap.entries()]
+    .filter(([norm]) => validByNormalized.has(norm) && !pendingNormalized.has(norm))
     .map(([norm, value]) => ({
       workspace_id: workspaceId,
+      prompt_run_id: promptRunId,
       name: validByNormalized.get(norm)!.normalizedName || value.name,
-      aliases: [] as string[],
-      type: "competitor" as const,
+      normalized_name: norm,
+      status: "pending" as const,
+      source: "auto_extraction" as const,
     }));
 
-  if (toInsert.length > 0) {
-    await supabase.from("brands").upsert(toInsert, {
-      onConflict: "workspace_id,name,type",
-      ignoreDuplicates: true,
-    });
+  if (toSuggest.length > 0) {
+    await supabase.from("competitor_suggestions").insert(toSuggest);
   }
 
   // 6. Marcar el run como procesado
   await markRunExtracted(supabase, promptRunId);
 
-  return { insertedCompetitors: toInsert.length, rejectedByBlocklist };
+  return { suggestedCompetitors: toSuggest.length, rejectedByBlocklist };
 }

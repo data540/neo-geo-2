@@ -6,6 +6,7 @@ import { extractPotentialCompetitorsFromResponse } from "@/lib/detection/detectB
 import {
   type CompetitorCandidateForClassification,
   classifyCompetitorCandidates,
+  isAcceptedCompetitor,
   normalizeCompetitorName,
   shouldPrefilterCompetitorCandidate,
 } from "@/lib/llm/classifyCompetitors";
@@ -367,6 +368,15 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
     ].filter(Boolean)
   );
 
+  const { data: pendingRows } = await supabase
+    .from("competitor_suggestions")
+    .select("normalized_name")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "pending");
+  const pendingNames = new Set(
+    (pendingRows ?? []).map((s) => normalizeName(String(s.normalized_name ?? "")))
+  );
+
   const runs: PromptRunForExtraction[] = [];
   const pageSize = 500;
   let offset = 0;
@@ -406,25 +416,23 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
   });
   const validByName = new Map(
     classifications
-      .filter((c) => c.isCompetitor && c.confidence !== "low")
+      .filter(isAcceptedCompetitor)
       .map((c) => [normalizeName(c.name), c])
   );
-  const competitorsToCreate = [...candidateMap.entries()]
-    .filter(([normalizedName]) => validByName.has(normalizedName))
+  const suggestionsToCreate = [...candidateMap.entries()]
+    .filter(([normalizedName]) => validByName.has(normalizedName) && !pendingNames.has(normalizedName))
     .map(([normalizedName, value]) => ({
+      workspace_id: workspaceId,
+      prompt_run_id: null,
       name: validByName.get(normalizedName)?.normalizedName || value.name,
+      normalized_name: normalizedName,
+      status: "pending" as const,
+      source: "manual_batch" as const,
     }));
 
-  if (competitorsToCreate.length > 0) {
-    const { error } = await supabase.from("brands").insert(
-      competitorsToCreate.map((candidate) => ({
-        workspace_id: workspaceId,
-        name: candidate.name,
-        aliases: [],
-        type: "competitor",
-      }))
-    );
-    if (error) return { success: false, error: "No se pudieron crear competidores desde los runs" };
+  if (suggestionsToCreate.length > 0) {
+    const { error } = await supabase.from("competitor_suggestions").insert(suggestionsToCreate);
+    if (error) return { success: false, error: "No se pudieron crear sugerencias desde los runs" };
   }
 
   const slug = await getWorkspaceSlug(workspaceId);
@@ -435,8 +443,8 @@ export async function extractCompetitorsFromExecutedPromptsAction(workspaceId: s
     data: {
       analyzedRuns: runs.length,
       detectedCandidates: candidateMap.size,
-      createdCompetitors: competitorsToCreate.length,
-      createdSuggestions: 0,
+      createdCompetitors: 0,
+      createdSuggestions: suggestionsToCreate.length,
     },
   };
 }
@@ -474,7 +482,7 @@ export async function auditExistingCompetitorsAction(workspaceId: string): Promi
   const byName = new Map(classifications.map((c) => [normalizeName(c.name), c]));
   const invalidCompetitors = rows.flatMap((row) => {
     const classification = byName.get(normalizeName(row.name));
-    if (classification?.isCompetitor) return [];
+    if (classification && isAcceptedCompetitor(classification)) return [];
     return [
       {
         brandId: row.id,

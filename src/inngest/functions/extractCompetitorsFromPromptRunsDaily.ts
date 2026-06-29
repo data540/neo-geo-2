@@ -4,6 +4,7 @@ import { extractPotentialCompetitorsFromResponse } from "@/lib/detection/detectB
 import {
   type CompetitorCandidateForClassification,
   classifyCompetitorCandidates,
+  isAcceptedCompetitor,
   normalizeCompetitorName,
   shouldPrefilterCompetitorCandidate,
 } from "@/lib/llm/classifyCompetitors";
@@ -44,29 +45,41 @@ async function processWorkspace(
 ): Promise<{
   analyzedRuns: number;
   extractedCandidates: number;
-  insertedCompetitors: number;
+  suggestedCompetitors: number;
 }> {
   const supabase = getServiceClient();
 
-  const [{ data: ownBrands }, { data: existingCompetitors }, { data: rejections }] =
-    await Promise.all([
-      supabase.from("brands").select("name").eq("workspace_id", workspace.id).eq("type", "own"),
-      supabase
-        .from("brands")
-        .select("name")
-        .eq("workspace_id", workspace.id)
-        .eq("type", "competitor"),
-      supabase
-        .from("competitor_rejections")
-        .select("normalized_name")
-        .eq("workspace_id", workspace.id),
-    ]);
+  const [
+    { data: ownBrands },
+    { data: existingCompetitors },
+    { data: pendingSuggestions },
+    { data: rejections },
+  ] = await Promise.all([
+    supabase.from("brands").select("name").eq("workspace_id", workspace.id).eq("type", "own"),
+    supabase
+      .from("brands")
+      .select("name")
+      .eq("workspace_id", workspace.id)
+      .eq("type", "competitor"),
+    supabase
+      .from("competitor_suggestions")
+      .select("normalized_name")
+      .eq("workspace_id", workspace.id)
+      .eq("status", "pending"),
+    supabase
+      .from("competitor_rejections")
+      .select("normalized_name")
+      .eq("workspace_id", workspace.id),
+  ]);
 
   const existingNames = new Set(
     [
       ...(ownBrands ?? []).map((b) => normalizeCompetitorName(String(b.name ?? ""))),
       ...(existingCompetitors ?? []).map((b) => normalizeCompetitorName(String(b.name ?? ""))),
     ].filter(Boolean)
+  );
+  const pendingNames = new Set(
+    (pendingSuggestions ?? []).map((s) => s.normalized_name as string).filter(Boolean)
   );
   const blocklist = new Set(
     (rejections ?? []).map((r) => r.normalized_name as string).filter(Boolean)
@@ -137,7 +150,7 @@ async function processWorkspace(
   const candidates: CompetitorCandidateForClassification[] = [...candidateMap.values()];
   if (candidates.length === 0) {
     await markProcessed();
-    return { analyzedRuns, extractedCandidates: 0, insertedCompetitors: 0 };
+    return { analyzedRuns, extractedCandidates: 0, suggestedCompetitors: 0 };
   }
 
   const classifications = await classifyCompetitorCandidates({
@@ -148,28 +161,28 @@ async function processWorkspace(
   });
   const validByName = new Map(
     classifications
-      .filter((c) => c.isCompetitor && c.confidence !== "low")
+      .filter(isAcceptedCompetitor)
       .map((c) => [normalizeCompetitorName(c.name), c])
   );
-  const toInsert = [...candidateMap.entries()]
-    .filter(([normalizedName]) => validByName.has(normalizedName))
+
+  // Solo sugerir los que no estén ya como pendientes
+  const toSuggest = [...candidateMap.entries()]
+    .filter(([normalizedName]) => validByName.has(normalizedName) && !pendingNames.has(normalizedName))
     .map(([normalizedName, value]) => ({
+      workspace_id: workspace.id,
+      prompt_run_id: null,
       name: validByName.get(normalizedName)?.normalizedName || value.name,
+      normalized_name: normalizedName,
+      status: "pending" as const,
+      source: "auto_extraction" as const,
     }));
 
-  if (toInsert.length === 0) {
+  if (toSuggest.length === 0) {
     await markProcessed();
-    return { analyzedRuns, extractedCandidates: candidates.length, insertedCompetitors: 0 };
+    return { analyzedRuns, extractedCandidates: candidates.length, suggestedCompetitors: 0 };
   }
 
-  const { error } = await supabase.from("brands").insert(
-    toInsert.map((entry) => ({
-      workspace_id: workspace.id,
-      name: entry.name,
-      aliases: [],
-      type: "competitor",
-    }))
-  );
+  const { error } = await supabase.from("competitor_suggestions").insert(toSuggest);
 
   if (error) {
     console.error(
@@ -177,14 +190,14 @@ async function processWorkspace(
       error.message
     );
     await markProcessed();
-    return { analyzedRuns, extractedCandidates: candidates.length, insertedCompetitors: 0 };
+    return { analyzedRuns, extractedCandidates: candidates.length, suggestedCompetitors: 0 };
   }
 
   await markProcessed();
   return {
     analyzedRuns,
     extractedCandidates: candidates.length,
-    insertedCompetitors: toInsert.length,
+    suggestedCompetitors: toSuggest.length,
   };
 }
 
@@ -207,7 +220,7 @@ export const extractCompetitorsFromPromptRunsDaily = inngest.createFunction(
 
     let totalRuns = 0;
     let totalCandidates = 0;
-    let totalInserted = 0;
+    let totalSuggested = 0;
 
     for (const workspace of workspaces) {
       const result = await step.run(`process-workspace-${workspace.slug}`, async () =>
@@ -216,14 +229,14 @@ export const extractCompetitorsFromPromptRunsDaily = inngest.createFunction(
 
       totalRuns += result.analyzedRuns;
       totalCandidates += result.extractedCandidates;
-      totalInserted += result.insertedCompetitors;
+      totalSuggested += result.suggestedCompetitors;
     }
 
     return {
       workspaces: workspaces.length,
       analyzedRuns: totalRuns,
       extractedCandidates: totalCandidates,
-      insertedCompetitors: totalInserted,
+      suggestedCompetitors: totalSuggested,
     };
   }
 );

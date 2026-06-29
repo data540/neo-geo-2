@@ -26,30 +26,58 @@ const MODEL = "google/gemini-2.5-flash-lite";
 const MAX_CANDIDATES_PER_BATCH = 40;
 
 const GENERIC_EXCLUSIONS = new Set([
-  "acceso",
-  "accesibilidad",
-  "adaptabilidad",
-  "ademas",
-  "analisis",
-  "analizar",
-  "apertura",
-  "apoyo",
-  "calidad",
-  "cualquier",
-  "dependencia",
-  "identificar",
-  "inversion",
-  "mercado",
-  "modelo",
-  "proveedores",
-  "rentabilidad",
-  "restauracion",
-  "soporte",
-  "ubicacion",
+  // Abstractos y estrategia
+  "acceso", "accesibilidad", "adaptabilidad", "ademas", "analisis", "analizar",
+  "apertura", "apoyo", "calidad", "cualquier", "dependencia", "diferenciacion",
+  "eficiencia", "eficacia", "estrategia", "exito", "experiencia", "flexibilidad",
+  "gestion", "identificar", "inversion", "liderazgo", "modelo", "oportunidad",
+  "oportunidades", "perspectiva", "posicionamiento", "proceso", "rentabilidad",
+  "sostenibilidad", "tendencia", "tendencias", "ventaja", "ventajas",
+  // Entidades genéricas
+  "empresa", "empresas", "grupo", "grupos", "marca", "marcas", "negocio",
+  "negocios", "organizacion", "plataforma", "plataformas", "proveedor",
+  "proveedores", "sector", "sectores", "sistema", "sistemas",
+  // Productos y servicios genéricos
+  "mercado", "mercados", "producto", "productos", "servicio", "servicios",
+  "soporte", "restauracion", "ubicacion", "variedad",
+  // Clientes y usuarios
+  "cliente", "clientes", "consumidor", "consumidores", "usuario", "usuarios",
+  // Precios y valor
+  "coste", "costes", "precio", "precios", "valor", "valores",
+  // Adjetivos frecuentes en LLM responses
+  "mejor", "mejores", "principal", "principales", "nuevo", "nueva",
+  "nuevos", "nuevas", "digital", "online", "local", "nacional",
+  "internacional", "importante", "importantes",
+  // Transaccionales
+  "compra", "entrega", "pedido", "pedidos", "venta",
+  // Categorías y tipos de comida (no son marcas)
+  "pizza", "pizzas", "taco", "tacos", "hamburguesa", "hamburguesas",
+  "ensalada", "ensaladas", "bocadillo", "bocadillos", "sandwich", "sandwiches",
+  "pollo frito", "comida rapida", "comida saludable", "comida mexicana",
+  "comida internacional", "comida casera", "comida asiatica", "comida italiana",
+  "comida japonesa", "comida china", "comida tradicional", "tapas", "raciones",
+  "postres", "helados", "cafe", "cafes", "te", "bebidas", "snacks", "menu",
+  // Tipos de local / formato (no son marcas)
+  "restaurante", "restaurantes", "pizzeria", "pizzerias", "hamburgueseria",
+  "hamburgueserias", "cafeteria", "cafeterias", "panaderia", "panaderias",
+  "pasteleria", "pastelerias", "heladeria", "heladerias", "cerveceria",
+  "cervecerias", "bar", "bares", "taberna", "tabernas", "cantina", "cantinas",
+  "catering", "food truck", "coffee shop", "bubble tea", "dark kitchen",
+  "dark kitchens", "fast food", "fast casual", "casual dining", "fine dining",
+  "franquicia", "franquicias", "cadena", "cadenas", "local", "locales",
+  // Conceptos de sector de restauración
+  "restauracion informal", "restauracion organizada", "restauracion saludable",
+  "restauracion colectiva", "marcas establecidas", "modelos hibridos",
+  "gastronomia", "hosteleria", "delivery", "take away", "comida para llevar",
 ]);
 
 const GENERIC_PHRASE_PATTERN =
-  /(^|\s)(analisis|analizar|apoyo|cualquier|dependencia|identificar|mejor|opcion|opciones|precio|precios|proveedores|rentabilidad|visibilidad)($|\s)/i;
+  /(^|\s)(analisis|analizar|apoyo|cualquier|dependencia|empresa|grupo\s+de|identificar|mercado\s+de|mejor|negocio\s+de|opcion|opciones|precio|precios|proveedores|rentabilidad|servicio\s+de|visibilidad)($|\s)/i;
+
+// Frases compuestas que son categorías/conceptos, no marcas:
+// "comida X", "restauracion X", "marcas X", "modelos X", "cocina X", "X saludable/informal/rapida/casera"
+const GENERIC_COMPOSITE_PATTERN =
+  /^(comida|cocina|restauracion|marcas|modelos|tipo|tipos|estilo|estilos|categoria|categorias|formato|formatos|concepto|conceptos)\s+\w+|\b(saludable|informal|rapida|casera|tradicional|gourmet|hibrido|hibridos|establecida|establecidas|organizada|colectiva)$/i;
 
 export function normalizeCompetitorName(value: string): string {
   return value
@@ -64,9 +92,13 @@ export function normalizeCompetitorName(value: string): string {
 export function shouldPrefilterCompetitorCandidate(name: string): boolean {
   const trimmed = name.trim();
   const normalized = normalizeCompetitorName(trimmed);
-  if (normalized.length < 4) return false;
+  // Permite siglas de marca en mayúsculas de 2-3 caracteres (KFC, BK, TGB);
+  // el resto exige al menos 4 caracteres para evitar ruido.
+  const isAcronym = /^[A-Z0-9][A-Z0-9&.\-]{1,2}$/.test(trimmed);
+  if (normalized.length < 4 && !isAcronym) return false;
   if (GENERIC_EXCLUSIONS.has(normalized)) return false;
   if (GENERIC_PHRASE_PATTERN.test(normalized)) return false;
+  if (GENERIC_COMPOSITE_PATTERN.test(normalized)) return false;
   if (/[�]/.test(trimmed)) return false;
   if (/^[a-záéíóúñ]/.test(trimmed)) return false;
   if (!/^[A-ZÁÉÍÓÚÑÀ-ɏ0-9]/.test(trimmed)) return false;
@@ -88,19 +120,34 @@ function confidence(value: unknown): CompetitorConfidence {
   return value === "high" || value === "medium" || value === "low" ? value : "low";
 }
 
+/**
+ * Criterio único de aceptación de un competidor: debe ser marca real con
+ * confianza ALTA. Estricto a propósito — todo lo demás va a la cola de
+ * sugerencias para revisión humana, nunca directo a la lista.
+ */
+export function isAcceptedCompetitor(c: CompetitorClassification): boolean {
+  return c.isCompetitor && c.confidence === "high";
+}
+
 function buildPrompt(input: ClassifyCompetitorCandidatesInput): string {
-  return `Clasifica candidatos a competidor para una herramienta de inteligencia GEO.
+  return `Clasifica si cada candidato es un competidor real para la siguiente marca.
 
 Marca propia: ${input.ownBrandName}
 Dominio: ${input.workspaceDomain ?? "No disponible"}
 Contexto de negocio: ${input.businessContext ?? "No disponible"}
 
-Reglas:
-- Un competidor real es una marca, cadena, grupo, plataforma o negocio concreto que compite o puede competir con la marca propia en el sector detectado.
-- Rechaza palabras comunes, categorias, conceptos, verbos, adjetivos, ciudades, canales, requisitos operativos y texto roto/mojibake.
-- Rechaza terminos como Dependencia, Cualquier, Identificar, Accesibilidad, Analisis, Apoyo, Ubicacion, Proveedores.
-- Para Foodbox/restauracion organizada, acepta cadenas, grupos de restauracion, franquicias, marcas de comida, operadores de restauracion y conceptos gastronomicos concretos.
-- No inventes dominios ni aliases.
+ACEPTA (isCompetitor=true, confidence high/medium):
+- Nombres propios de marcas, cadenas, grupos empresariales o plataformas que operan en el mismo sector.
+- Empresas o productos concretos e identificables (tienen dominio web propio o presencia conocida).
+
+RECHAZA sin excepcion (isCompetitor=false):
+- Palabras comunes, categorias de producto, conceptos abstractos, adjetivos, verbos o frases genericas.
+- Ciudades, paises, regiones o zonas geograficas.
+- Terminos de sector o industria ("restauracion", "aviacion", "banca", etc.).
+- Canales de venta ("online", "ecommerce", "marketplace").
+- Requisitos operativos, caracteristicas o atributos ("calidad", "precio", "flexibilidad").
+- Texto roto, codigos o caracteres extraños.
+- Cualquier string que NO sea el nombre propio de una empresa o marca identificable.
 
 Candidatos:
 ${JSON.stringify(input.candidates, null, 2)}
@@ -110,7 +157,7 @@ Devuelve solo JSON valido con esta forma:
   "candidates": [
     {
       "name": "nombre original",
-      "normalizedName": "nombre canonico si es marca, o nombre normalizado",
+      "normalizedName": "nombre canonico de la marca (marca registrada o nombre mas conocido)",
       "isCompetitor": true,
       "confidence": "high|medium|low",
       "reason": "maximo 120 caracteres"
