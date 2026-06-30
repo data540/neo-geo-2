@@ -423,7 +423,7 @@ export function CompetitorTableSortable({
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="SOV operativo del competidor en esta tabla."
+                tooltip="Share of Voice: cuota de menciones de la marca sobre el total de menciones de marcas (propia + competidores)."
               />
               <th className="px-4 py-3 text-left text-slate-500 font-medium">
                 <div className="inline-flex items-center gap-1">

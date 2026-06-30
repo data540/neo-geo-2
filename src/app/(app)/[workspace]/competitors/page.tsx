@@ -111,7 +111,6 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
   const PERIOD_DAYS = isYesterday ? 1 : range === "7" ? 7 : range === "90" ? 90 : 30;
   const BUCKET_DAYS = isYesterday ? 1 : range === "7" ? 1 : range === "90" ? 15 : 5;
   const TOTAL_BUCKETS = 7;
-  const queryLimit = isYesterday ? 2000 : range === "7" ? 2000 : range === "90" ? 20000 : 6000;
 
   // Para Yesterday: desde ayer 00:00 UTC hasta hoy 00:00 UTC
   // Para rangos numéricos: miramos el doble del período para poder comparar
@@ -177,46 +176,77 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     countryPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
   }
 
-  let runsQuery = supabase
-    .from("prompt_runs")
-    .select("id, prompt_id, created_at")
-    .eq("workspace_id", workspace.id)
-    .eq("status", "completed")
-    .gte("created_at", lookbackIso)
-    .order("created_at", { ascending: false })
-    .limit(queryLimit);
-  if (providerId) runsQuery = runsQuery.eq("llm_provider_id", providerId);
-  if (ceilingIso) runsQuery = runsQuery.lt("created_at", ceilingIso);
-  if (countryPromptIds !== null) {
-    runsQuery = runsQuery.in("prompt_id", countryPromptIds.length > 0 ? countryPromptIds : ["__none__"]);
+  // Paginamos los runs igual que las menciones: un .limit() fijo trunca la
+  // ventana cuando el volumen crece y deja incompletos los buckets del gráfico.
+  const completedRuns: RunRow[] = [];
+  {
+    const PAGE = 1000;
+    const MAX_PAGES = 60;
+    let offset = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      let runsQuery = supabase
+        .from("prompt_runs")
+        .select("id, prompt_id, created_at")
+        .eq("workspace_id", workspace.id)
+        .eq("status", "completed")
+        .gte("created_at", lookbackIso)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + PAGE - 1);
+      if (providerId) runsQuery = runsQuery.eq("llm_provider_id", providerId);
+      if (ceilingIso) runsQuery = runsQuery.lt("created_at", ceilingIso);
+      if (countryPromptIds !== null) {
+        runsQuery = runsQuery.in(
+          "prompt_id",
+          countryPromptIds.length > 0 ? countryPromptIds : ["__none__"]
+        );
+      }
+      const { data: pageRows } = await runsQuery;
+      const rows = (pageRows ?? []) as RunRow[];
+      completedRuns.push(...rows);
+      if (rows.length < PAGE) break;
+      offset += PAGE;
+    }
   }
-  const { data: completedRunsData } = await runsQuery;
-
-  const completedRuns = (completedRunsData ?? []) as RunRow[];
   const runIds = completedRuns.map((r) => r.id);
   const runIdToPromptId = new Map(completedRuns.map((r) => [r.id, r.prompt_id]));
 
   // Nota: .in("prompt_run_id", runIds) falla con "Bad Request" cuando hay
   // cientos de IDs (URL de ~25KB). En su lugar filtramos por workspace_id + fecha
   // y luego reducimos client-side al proveedor LLM activo con un Set.
+  // Paginamos: un .limit() fijo trunca cuando el volumen de menciones crece
+  // (>15k en la ventana). Sin order el truncamiento descartaba las menciones
+  // recientes, dejando vacíos los buckets nuevos del gráfico de tendencias.
   let mentions: MentionRow[] = [];
   if (runIds.length > 0) {
     const runIdSet = new Set(runIds);
-    let mentionsQuery = supabase
-      .from("mentions")
-      .select("prompt_run_id, brand_id, brand_type, position, sentiment, mention_type, created_at")
-      .eq("workspace_id", workspace.id)
-      .gte("created_at", lookbackIso)
-      .limit(15000);
-    if (ceilingIso) mentionsQuery = mentionsQuery.lt("created_at", ceilingIso);
-    const { data: mentionRows } = await mentionsQuery;
-    mentions = ((mentionRows ?? []) as MentionRow[]).filter((m) => runIdSet.has(m.prompt_run_id));
+    const collected: MentionRow[] = [];
+    const PAGE = 1000;
+    const MAX_PAGES = 80; // tope de seguridad: hasta 80k menciones
+    let offset = 0;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      let mentionsQuery = supabase
+        .from("mentions")
+        .select("prompt_run_id, brand_id, brand_type, position, sentiment, mention_type, created_at")
+        .eq("workspace_id", workspace.id)
+        .gte("created_at", lookbackIso)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + PAGE - 1);
+      if (ceilingIso) mentionsQuery = mentionsQuery.lt("created_at", ceilingIso);
+      const { data: pageRows } = await mentionsQuery;
+      const rows = (pageRows ?? []) as MentionRow[];
+      collected.push(...rows);
+      if (rows.length < PAGE) break;
+      offset += PAGE;
+    }
+    mentions = collected.filter((m) => runIdSet.has(m.prompt_run_id));
   }
 
   const ownMentions = mentions.filter((m) => m.brand_type === "own").length;
   const competitorMentionsAll = mentions.filter((m) => m.brand_type === "competitor").length;
   const sovPool = ownMentions + competitorMentionsAll;
   const totalRuns = completedRuns.length;
+  // Total de prompts (temas) únicos ejecutados — denominador de Visibilidad
+  const totalPrompts = new Set(completedRuns.map((r) => r.prompt_id)).size;
 
   // Para THREAT: SOV de la marca propia (sin normalizar)
   const ownSovPct = sovPool > 0 ? (ownMentions / sovPool) * 100 : 0;
@@ -241,8 +271,10 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
           ? round1(positions.reduce((a, b) => a + b, 0) / positions.length)
           : null;
 
-      // VISIBILITY: % de queries (runs) donde aparece el competidor
-      const visibility = totalRuns > 0 ? round1((runIdsSet.size / totalRuns) * 100) : 0;
+      // VISIBILITY: % de prompts (temas) únicos donde aparece el competidor.
+      // Mide amplitud temática (en cuántos temas estás presente), no frecuencia
+      // de ejecuciones — así deja de ser proporcional al SOV (cuota de menciones).
+      const visibility = totalPrompts > 0 ? round1((promptIdsSet.size / totalPrompts) * 100) : 0;
 
       const sov = sovPool > 0 ? round1((cMentions.length / sovPool) * 100) : null;
       const sentiment = getDominantSentiment(cMentions.map((m) => m.sentiment));
