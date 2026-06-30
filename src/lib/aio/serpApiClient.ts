@@ -1,7 +1,6 @@
-// Wrapper mínimo para SerpAPI — solo se usa en el CRON semanal de AI Overview.
-// Una llamada por prompt por semana → coste ~$0.01/prompt/semana.
-//
-// Docs: https://serpapi.com/ai-overview
+// Minimal SerpAPI wrapper used by the weekly AI Overview / AI Mode refresh.
+// AI Overview is returned by engine=google; AI Mode is a separate surface and
+// must be queried with engine=google_ai_mode.
 
 export interface SerpAioResult {
   present: boolean;
@@ -22,19 +21,25 @@ interface SerpApiBlock {
 interface SerpApiResponse {
   error?: string;
   ai_overview?: {
-    // SerpAPI devuelve la posición del bloque AIO en la SERP (1 = primero)
     position?: number;
-    // Bloques internos del AI Overview (headings, snippets, listas…)
     blocks?: SerpApiBlock[];
-    // Algunos campos alternativos según versión de la API
     items?: SerpApiBlock[];
   };
-  // Google AI Mode: pestaña conversacional de Google Search (2025+)
-  // El fieldname exacto puede variar — ajustar si SerpAPI lo llama diferente
-  ai_mode?: {
-    position?: number;
-    blocks?: SerpApiBlock[];
+}
+
+interface SerpApiAiModeResponse {
+  error?: string;
+  search_metadata?: {
+    status?: string;
   };
+  reconstructed_markdown?: string;
+  text_blocks?: unknown[];
+  references?: unknown[];
+  inline_images?: unknown[];
+  inline_products?: unknown[];
+  shopping_results?: unknown[];
+  local_results?: unknown[];
+  quick_results?: unknown[];
 }
 
 export async function fetchAiOverviewSerp(
@@ -43,27 +48,55 @@ export async function fetchAiOverviewSerp(
 ): Promise<SerpAioResult> {
   const apiKey = process.env.SERPAPI_KEY;
   if (!apiKey) {
-    throw new Error("SERPAPI_KEY no está configurada");
+    throw new Error("SERPAPI_KEY no esta configurada");
   }
 
+  const localization = resolveLocalization(countryCode);
+  const [aio, aiMode] = await Promise.allSettled([
+    fetchAiOverview(query, apiKey, localization),
+    fetchAiMode(query, apiKey, localization),
+  ]);
+
+  if (aio.status === "rejected" && aiMode.status === "rejected") {
+    throw aio.reason instanceof Error ? aio.reason : new Error("SerpAPI requests failed");
+  }
+
+  return {
+    ...(aio.status === "fulfilled"
+      ? aio.value
+      : { present: false, serpPosition: null, sections: [] }),
+    aiMode: aiMode.status === "fulfilled" ? aiMode.value : { present: false, serpPosition: null },
+  };
+}
+
+function resolveLocalization(countryCode: string | null) {
+  const gl = (countryCode ?? "").trim().toLowerCase();
+  return {
+    gl: gl || null,
+    hl: gl === "es" || gl === "co" ? "es" : "en",
+  };
+}
+
+async function fetchAiOverview(
+  query: string,
+  apiKey: string,
+  localization: { gl: string | null; hl: string }
+): Promise<Omit<SerpAioResult, "aiMode">> {
   const params = new URLSearchParams({
     engine: "google",
     q: query,
     api_key: apiKey,
-    // Desactivar resultados orgánicos para ahorrar ancho de banda
     num: "1",
   });
 
-  // País: código ISO 2 letras → parámetro gl de SerpAPI
-  if (countryCode) {
-    params.set("gl", countryCode.toLowerCase());
-    params.set("hl", countryCode.toLowerCase() === "es" ? "es" : "en");
+  if (localization.gl) {
+    params.set("gl", localization.gl);
+    params.set("hl", localization.hl);
   }
 
   const res = await fetch(`https://serpapi.com/search.json?${params.toString()}`, {
     method: "GET",
     headers: { Accept: "application/json" },
-    // Timeout generoso — SerpAPI puede tardar 2-5s
     signal: AbortSignal.timeout(15_000),
   });
 
@@ -78,27 +111,82 @@ export async function fetchAiOverviewSerp(
   }
 
   if (!data.ai_overview) {
-    return { present: false, serpPosition: null, sections: [], aiMode: { present: false, serpPosition: null } };
+    return { present: false, serpPosition: null, sections: [] };
   }
 
   const position = data.ai_overview.position ?? null;
   const blocks: SerpApiBlock[] = data.ai_overview.blocks ?? data.ai_overview.items ?? [];
 
   const sections: Array<{ name: string; position: number }> = blocks
-    .filter((b) => b.type === "heading" || b.type === "paragraph_with_header")
-    .map((b, idx) => ({
-      name: (b.title ?? b.snippet ?? "").trim().replace(/:$/, ""),
+    .filter((block) => block.type === "heading" || block.type === "paragraph_with_header")
+    .map((block, idx) => ({
+      name: (block.title ?? block.snippet ?? "").trim().replace(/:$/, ""),
       position: idx + 1,
     }))
-    .filter((s) => s.name.length > 0 && s.name.length <= 80);
+    .filter((section) => section.name.length > 0 && section.name.length <= 80);
 
   return {
     present: true,
     serpPosition: typeof position === "number" ? position : 1,
     sections,
-    aiMode: {
-      present: !!data.ai_mode,
-      serpPosition: typeof data.ai_mode?.position === "number" ? data.ai_mode.position : null,
-    },
   };
+}
+
+async function fetchAiMode(
+  query: string,
+  apiKey: string,
+  localization: { gl: string | null; hl: string }
+): Promise<SerpAioResult["aiMode"]> {
+  const params = new URLSearchParams({
+    engine: "google_ai_mode",
+    q: query,
+    api_key: apiKey,
+  });
+
+  if (localization.gl) {
+    params.set("gl", localization.gl);
+    params.set("hl", localization.hl);
+  }
+
+  const res = await fetch(`https://serpapi.com/search.json?${params.toString()}`, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`SerpAPI AI Mode HTTP ${res.status}: ${await res.text().catch(() => "")}`);
+  }
+
+  const data = (await res.json()) as SerpApiAiModeResponse;
+
+  if (data.error) {
+    throw new Error(`SerpAPI AI Mode error: ${data.error}`);
+  }
+
+  const present =
+    data.search_metadata?.status === "Success" &&
+    (hasText(data.reconstructed_markdown) ||
+      hasItems(data.text_blocks) ||
+      hasItems(data.references) ||
+      hasItems(data.inline_images) ||
+      hasItems(data.inline_products) ||
+      hasItems(data.shopping_results) ||
+      hasItems(data.local_results) ||
+      hasItems(data.quick_results));
+
+  return {
+    present,
+    // AI Mode is a separate Google tab, not an organic SERP block. Store #1
+    // when it is served so the existing dashboard position card can reflect it.
+    serpPosition: present ? 1 : null,
+  };
+}
+
+function hasItems(value: unknown[] | undefined) {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function hasText(value: string | undefined) {
+  return typeof value === "string" && value.trim().length > 0;
 }
