@@ -36,6 +36,9 @@ export default async function SettingsPage({ params }: Props) {
 
   if (!currentMembership) notFound();
 
+  // Solo el rol 'owner' accede a Settings (defensa en profundidad: además de ocultarlo en el menú)
+  if (currentMembership.role !== "owner") notFound();
+
   const { data: providers } = await supabase
     .from("llm_providers")
     .select("id, key, name, enabled")

@@ -39,6 +39,11 @@ export default async function AdminPage({ params, searchParams }: AdminPageProps
     notFound();
   }
 
+  // Solo el rol 'owner' accede a Admin (defensa en profundidad: además de ocultarlo en el menú)
+  if (membership.role !== "owner") {
+    notFound();
+  }
+
   const { data: runs } = await supabase
     .from("prompt_runs")
     .select(`

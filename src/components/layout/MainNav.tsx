@@ -16,10 +16,12 @@ import {
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import type { WorkspaceMemberRole } from "@/types";
 
 interface MainNavProps {
   workspaceSlug: string;
   collapsed?: boolean;
+  userRole: WorkspaceMemberRole;
 }
 
 const getNavItems = (slug: string) => [
@@ -32,14 +34,17 @@ const getNavItems = (slug: string) => [
   { href: `/${slug}/competitors`, label: "Competitors", icon: Swords },
   { href: `/${slug}/analytics`, label: "Analytics", icon: BarChart3 },
   { href: `/${slug}/team`, label: "Team", icon: Users },
-  { href: `/${slug}/settings`, label: "Settings", icon: Settings },
-  { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck },
+  // Solo el rol 'owner' ve la administración del workspace.
+  { href: `/${slug}/settings`, label: "Settings", icon: Settings, ownerOnly: true },
+  { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck, ownerOnly: true },
 ];
 
-export function MainNav({ workspaceSlug, collapsed = false }: MainNavProps) {
+export function MainNav({ workspaceSlug, collapsed = false, userRole }: MainNavProps) {
   const pathname = usePathname();
 
-  const items = getNavItems(workspaceSlug);
+  const items = getNavItems(workspaceSlug).filter(
+    (item) => !("ownerOnly" in item && item.ownerOnly) || userRole === "owner"
+  );
 
   return (
     <ul className="space-y-0.5 px-2">
