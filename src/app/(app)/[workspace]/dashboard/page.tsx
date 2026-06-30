@@ -460,25 +460,39 @@ export default async function DashboardPage({ params, searchParams }: Props) {
       .filter((r): r is string => typeof r === "string" && r.length > 0);
     aio = parseAioContent(rawResponses);
 
-    // Datos SERP reales de la caché semanal (se generan por el CRON de Inngest)
+    // Datos SERP reales de la caché semanal (se generan por el CRON de Inngest).
+    // Usamos lookback fijo de 30 días en lugar del período seleccionado en UI:
+    // el snapshot SERP es semanal (no diario) y filtrar por el período activo
+    // hace que los datos desaparezcan cuando el último cron lleva >7 días.
+    const serpLookbackStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const { data: serpRows } = await supabase
       .from("prompt_serp_cache")
-      .select("ai_overview_present, ai_overview_serp_position, ai_overview_sections, ai_mode_present, ai_mode_serp_position")
+      .select("prompt_id, ai_overview_present, ai_overview_serp_position, ai_overview_sections, ai_mode_present, ai_mode_serp_position")
       .eq("workspace_id", workspace.id)
-      // Tomamos el snapshot más reciente de cada prompt dentro del período
-      .gte("fetched_at", periodStart.toISOString())
+      .gte("fetched_at", serpLookbackStart.toISOString())
       .order("fetched_at", { ascending: false })
       .limit(2000);
 
-    if (serpRows && serpRows.length > 0) {
-      type SerpRow = {
-        ai_overview_present: boolean;
-        ai_overview_serp_position: number | null;
-        ai_overview_sections: Array<{ name: string; position: number }>;
-        ai_mode_present: boolean;
-        ai_mode_serp_position: number | null;
-      };
-      const rows = serpRows as SerpRow[];
+    // Dedup: solo el snapshot más reciente por prompt (query ordenada desc por fetched_at)
+    type SerpRow = {
+      prompt_id: string;
+      ai_overview_present: boolean;
+      ai_overview_serp_position: number | null;
+      ai_overview_sections: Array<{ name: string; position: number }>;
+      ai_mode_present: boolean;
+      ai_mode_serp_position: number | null;
+    };
+    const seen = new Set<string>();
+    const dedupedRows: SerpRow[] = [];
+    for (const r of (serpRows ?? []) as SerpRow[]) {
+      if (!seen.has(r.prompt_id)) {
+        seen.add(r.prompt_id);
+        dedupedRows.push(r);
+      }
+    }
+
+    if (dedupedRows.length > 0) {
+      const rows = dedupedRows;
       const total = rows.length;
       const present = rows.filter((r) => r.ai_overview_present);
       const presenceRate = Math.round((present.length / total) * 1000) / 10;
