@@ -48,7 +48,7 @@ export function AppSidebar({ workspaces, currentWorkspace, userRole }: AppSideba
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
-        <MainNav workspaceSlug={currentWorkspace.slug} collapsed={collapsed} />
+        <MainNav workspaceSlug={currentWorkspace.slug} collapsed={collapsed} userRole={userRole} />
       </nav>
 
       {/* Filters panel */}
