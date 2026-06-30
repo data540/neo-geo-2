@@ -29,24 +29,15 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
 
   const publicPaths = ["/login", "/register", "/auth/callback"];
-  const isPublic = publicPaths.some((p) => pathname.startsWith(p));
+  const isPublic = publicPaths.some((path) => pathname.startsWith(path));
 
-  // Si no hay usuario y no es ruta pública, redirigir a login
   if (!user && !isPublic) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("redirect", pathname);
+    loginUrl.searchParams.set("redirect", `${pathname}${search}`);
     return NextResponse.redirect(loginUrl);
-  }
-
-  // Si hay usuario en login/register, redirigir a la raíz. La raíz (app/page.tsx)
-  // decide: con workspaces -> /workspaces, sin workspaces -> /onboarding.
-  // (Antes redirigía directo a /onboarding, dejando atascados a usuarios que ya
-  // tenían workspaces en la pantalla de "crear marca".)
-  if (user && (pathname === "/login" || pathname === "/register")) {
-    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return response;

@@ -25,19 +25,23 @@ export default function LoginPage() {
 
     if (error) {
       console.error("Login error:", error);
-      toast.error(error.message || "Credenciales incorrectas. Inténtalo de nuevo.");
+      toast.error(error.message || "Credenciales incorrectas. Intentalo de nuevo.");
       setLoading(false);
       return;
     }
 
-    router.push("/");
+    const searchParams = new URLSearchParams(window.location.search);
+    const redirectTo = searchParams.get("redirect");
+    const safeRedirect = redirectTo?.startsWith("/") && !redirectTo.startsWith("//");
+    const targetPath = safeRedirect && redirectTo ? redirectTo : "/";
+    router.push(targetPath);
     router.refresh();
   }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Iniciar sesión</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Iniciar sesion</h1>
         <p className="text-slate-500 text-sm mt-1">Accede a tu cuenta de Mentio</p>
       </div>
 
@@ -56,11 +60,11 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="password">Contraseña</Label>
+          <Label htmlFor="password">Contrasena</Label>
           <Input
             id="password"
             type="password"
-            placeholder="••••••••"
+            placeholder="********"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -76,18 +80,18 @@ export default function LoginPage() {
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Entrando…
+              Entrando...
             </>
           ) : (
-            "Iniciar sesión"
+            "Iniciar sesion"
           )}
         </Button>
       </form>
 
       <p className="mt-4 text-center text-sm text-slate-500">
-        ¿No tienes cuenta?{" "}
+        No tienes cuenta?{" "}
         <Link href="/register" className="text-indigo-600 hover:underline font-medium">
-          Regístrate
+          Registrate
         </Link>
       </p>
     </div>
