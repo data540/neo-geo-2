@@ -23,18 +23,21 @@ export default async function WorkspaceLayout({ children, params }: WorkspaceLay
 
   const user = session.user;
 
-  // Obtener el workspace
-  const { data: workspace, error: wsError } = await supabase
-    .from("workspaces")
-    .select("*")
-    .eq("slug", slug)
-    .single();
+  // Workspace + lista de workspaces del usuario en paralelo (no dependen entre sí)
+  const [{ data: workspace, error: wsError }, { data: memberships }] = await Promise.all([
+    supabase.from("workspaces").select("*").eq("slug", slug).single(),
+    supabase
+      .from("workspace_members")
+      .select("workspace_id, workspaces(*)")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true }),
+  ]);
 
   if (wsError || !workspace) {
     notFound();
   }
 
-  // Verificar membresía
+  // Verificar membresía (necesita workspace.id, va después)
   const { data: membership } = await supabase
     .from("workspace_members")
     .select("role")
@@ -45,13 +48,6 @@ export default async function WorkspaceLayout({ children, params }: WorkspaceLay
   if (!membership) {
     notFound();
   }
-
-  // Obtener todos los workspaces del usuario para el switcher
-  const { data: memberships } = await supabase
-    .from("workspace_members")
-    .select("workspace_id, workspaces(*)")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true });
 
   const workspaces: Workspace[] =
     memberships?.map((m) => m.workspaces as unknown as Workspace).filter(Boolean) ?? [];
