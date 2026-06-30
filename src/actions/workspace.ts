@@ -78,8 +78,13 @@ export async function createWorkspaceAction(
     slug = `${slug}-${Date.now().toString(36)}`;
   }
 
-  // 1. Crear workspace
-  const { data: workspace, error: wsError } = await supabase
+  // 1. Crear workspace con el service client. El INSERT ... RETURNING necesita
+  // leer la fila recién creada antes de que exista la membresía; hacerlo con el
+  // cliente del usuario obligaba a una política RLS de lectura abierta a todos.
+  // Con el service client, la lectura de `workspaces` queda restringida a
+  // is_workspace_member() y no se filtran workspaces ajenos.
+  const service = getServiceClient();
+  const { data: workspace, error: wsError } = await service
     .from("workspaces")
     .insert({
       slug,
@@ -131,7 +136,6 @@ export async function createWorkspaceAction(
   });
 
   // 6. Bulk insert prompts (con service role para evitar latencia de RLS)
-  const service = getServiceClient();
   const { data: insertedPrompts, error: promptsError } = await service
     .from("prompts")
     .insert(
