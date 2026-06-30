@@ -41,9 +41,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Si hay usuario en login/register, redirigir a onboarding o dashboard
+  // Si hay usuario en login/register, redirigir a la raíz. La raíz (app/page.tsx)
+  // decide: con workspaces -> /workspaces, sin workspaces -> /onboarding.
+  // (Antes redirigía directo a /onboarding, dejando atascados a usuarios que ya
+  // tenían workspaces en la pantalla de "crear marca".)
   if (user && (pathname === "/login" || pathname === "/register")) {
-    return NextResponse.redirect(new URL("/onboarding", request.url));
+    return NextResponse.redirect(new URL("/", request.url));
   }
 
   return response;
