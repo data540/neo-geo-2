@@ -45,6 +45,7 @@ interface Props {
   hasApiKey: boolean;
   generatedAt: string | null;
   canRegenerate: boolean;
+  isAdmin?: boolean;
 }
 
 function sourceTitleByFile(chunks: RetrievedChunk[]): Map<string, string> {
@@ -140,6 +141,7 @@ export function RecommendationsPanel({
   hasApiKey,
   generatedAt,
   canRegenerate: initialCanRegenerate,
+  isAdmin = false,
 }: Props) {
   const [recommendations, setRecommendations] =
     useState<GeoRecommendation[]>(initialRecommendations);
@@ -244,20 +246,22 @@ export function RecommendationsPanel({
               )}
             </p>
           </div>
-          <Button
-            type="button"
-            onClick={handleRegenerate}
-            disabled={pending || !canRegenerate}
-            title={!canRegenerate ? "Ya regeneraste hoy. Disponible mañana." : undefined}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {pending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            {canRegenerate ? "Regenerar" : "Regenerar (mañana)"}
-          </Button>
+          {isAdmin && (
+            <Button
+              type="button"
+              onClick={handleRegenerate}
+              disabled={pending || !canRegenerate}
+              title={!canRegenerate ? "Ya regeneraste hoy. Disponible mañana." : undefined}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {pending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              {canRegenerate ? "Regenerar" : "Regenerar (mañana)"}
+            </Button>
+          )}
         </div>
       </div>
 

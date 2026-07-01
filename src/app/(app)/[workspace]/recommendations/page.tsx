@@ -30,6 +30,7 @@ export default async function RecommendationsPage({ params }: Props) {
   if (!membership) notFound();
 
   const hasOpenRouterKey = !!process.env.OPENROUTER_API_KEY?.trim();
+  const isAdmin = user.email === "tester@gmail.com";
 
   // ── Leer caché ───────────────────────────────────────────────────────────
   const cacheResult = await getRecommendationsCacheAction(workspace.id);
@@ -70,6 +71,7 @@ export default async function RecommendationsPage({ params }: Props) {
           hasApiKey={hasOpenRouterKey}
           generatedAt={generatedAt}
           canRegenerate={canRegenerate}
+          isAdmin={isAdmin}
         />
       </div>
     </div>
