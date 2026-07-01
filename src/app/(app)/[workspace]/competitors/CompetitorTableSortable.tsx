@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronsUpDown, ChevronUp, Loader2, ScanSearch, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronsUpDown, ChevronUp, Loader2, ScanSearch, Search, Trash2 } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -195,6 +195,7 @@ export function CompetitorTableSortable({
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("visibility");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [auditReasons, setAuditReasons] = useState<Record<string, string>>({});
   const [auditPending, startAudit] = useTransition();
@@ -209,8 +210,14 @@ export function CompetitorTableSortable({
     }
   }
 
+  const filtered = useMemo(() => {
+    if (!searchQuery.trim()) return rows;
+    const q = searchQuery.toLowerCase();
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [rows, searchQuery]);
+
   const sorted = useMemo(() => {
-    return [...rows].sort((a, b) => {
+    return [...filtered].sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
       switch (sortKey) {
         case "name":
@@ -334,6 +341,16 @@ export function CompetitorTableSortable({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" aria-hidden="true" />
+              <input
+                type="search"
+                placeholder="Buscar competidor…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 pl-8 pr-3 text-xs rounded-md border border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-44"
+              />
+            </div>
             {inactiveCount > 0 && toggleHref && (
               <a
                 href={toggleHref}

@@ -4,10 +4,10 @@ import { AddCompetitorForm } from "./AddCompetitorForm";
 import { AnalyzeExecutedPromptsButton } from "./AnalyzeExecutedPromptsButton";
 import { CompetitorKpiCards } from "./CompetitorKpiCards";
 import type { RankPoint } from "./CompetitorRankChart";
+import { CompetitorListWithSearch } from "./CompetitorListWithSearch";
 import { CompetitorSuggestionActions } from "./CompetitorSuggestionActions";
 import { CompetitorTableSortable } from "./CompetitorTableSortable";
 import { CompetitorTrendsPanel } from "./CompetitorTrendsPanel";
-import { DeleteCompetitorButton } from "./DeleteCompetitorButton";
 import type { CompetitorDynamic } from "./MarketDynamicsCards";
 
 interface Props {
@@ -97,7 +97,7 @@ function getDominantSentiment(
 
 export default async function CompetitorsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm, range = "30", country, show_inactive } = await searchParams;
+  const { llm, range = "7", country, show_inactive } = await searchParams;
   const showInactive = show_inactive === "1";
   const llmKey = llm ?? null;
 
@@ -673,34 +673,10 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          {!competitors || competitors.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-slate-400">
-              Aún no has añadido competidores.
-            </p>
-          ) : (
-            <ul className="divide-y divide-slate-50">
-              {competitors.map((c) => (
-                <li key={c.id} className="flex items-center justify-between px-5 py-4">
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">{c.name}</p>
-                    {c.domain && <p className="text-xs text-slate-400 mt-0.5">{c.domain}</p>}
-                    {Array.isArray(c.aliases) && c.aliases.length > 0 && (
-                      <p className="text-xs text-slate-400 mt-0.5">
-                        Alias: {(c.aliases as string[]).join(", ")}
-                      </p>
-                    )}
-                  </div>
-                  <DeleteCompetitorButton
-                    competitorId={c.id}
-                    workspaceId={workspace.id}
-                    name={c.name}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <CompetitorListWithSearch
+          competitors={competitors ?? []}
+          workspaceId={workspace.id}
+        />
       </div>
     </div>
   );

@@ -55,7 +55,7 @@ export function AddCompetitorForm({ workspaceId }: Props) {
 
       <div className="space-y-1.5">
         <Label htmlFor="aliases">
-          Aliases <span className="text-slate-400 font-normal text-xs">(separados por coma)</span>
+          Alias <span className="text-slate-400 font-normal text-xs">(separados por coma)</span>
         </Label>
         <Input
           id="aliases"
