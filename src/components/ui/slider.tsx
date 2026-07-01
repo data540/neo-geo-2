@@ -30,18 +30,18 @@ function Slider({
       <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col">
         <SliderPrimitive.Track
           data-slot="slider-track"
-          className="relative grow overflow-hidden rounded-full bg-slate-200 select-none data-horizontal:h-1.5 data-horizontal:w-full data-vertical:h-full data-vertical:w-1.5"
+          className="relative grow overflow-hidden rounded-full bg-slate-300 h-2 w-full select-none data-horizontal:h-2 data-horizontal:w-full data-vertical:h-full data-vertical:w-2"
         >
           <SliderPrimitive.Indicator
             data-slot="slider-range"
-            className="bg-[#4F39F6] select-none data-horizontal:h-full data-vertical:w-full"
+            className="absolute inset-y-0 left-0 bg-[#4F39F6] select-none data-horizontal:h-full data-vertical:w-full"
           />
         </SliderPrimitive.Track>
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
-            className="relative block size-4 shrink-0 rounded-full border-2 border-[#4F39F6] bg-white shadow-sm ring-[#4F39F6]/30 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50"
+            className="relative block size-5 shrink-0 rounded-full border-2 border-[#4F39F6] bg-white shadow-md ring-[#4F39F6]/30 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-3 focus-visible:ring-3 focus-visible:outline-hidden active:ring-3 disabled:pointer-events-none disabled:opacity-50"
           />
         ))}
       </SliderPrimitive.Control>
