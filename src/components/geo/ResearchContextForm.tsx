@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 
 interface Props {
@@ -217,17 +216,23 @@ export function ResearchContextForm({
           <Label>Número de prompts a generar</Label>
           <span className="text-sm font-semibold text-indigo-600">{numPrompts}</span>
         </div>
-        <Slider
-          value={[numPrompts]}
-          onValueChange={(vals) => {
-            const v = Array.isArray(vals) ? vals[0] : vals;
-            setNumPrompts(v ?? 30);
-          }}
+        <input
+          type="range"
           min={15}
           max={60}
           step={5}
+          value={numPrompts}
+          onChange={(e) => setNumPrompts(Number(e.target.value))}
           disabled={anyLoading}
-          className="w-full"
+          className="w-full h-2 rounded-full cursor-pointer appearance-none disabled:opacity-50 disabled:cursor-not-allowed
+            [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-slate-200
+            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#4F39F6] [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:-mt-1.5
+            [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-slate-200
+            [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-[#4F39F6] [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-none
+            [&::-moz-range-progress]:h-2 [&::-moz-range-progress]:rounded-l-full [&::-moz-range-progress]:bg-[#4F39F6]"
+          style={{
+            background: `linear-gradient(to right, #4F39F6 0%, #4F39F6 ${((numPrompts - 15) / (60 - 15)) * 100}%, #e2e8f0 ${((numPrompts - 15) / (60 - 15)) * 100}%, #e2e8f0 100%)`,
+          }}
         />
         <div className="flex justify-between text-xs text-slate-400">
           <span>15</span>
