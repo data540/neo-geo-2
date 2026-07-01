@@ -74,7 +74,7 @@ export default function LoginPage() {
 
         <Button
           type="submit"
-          className="w-full bg-indigo-600 text-white hover:bg-indigo-700 hover:text-white"
+          className="w-full bg-indigo-600 !text-white hover:bg-indigo-700"
           disabled={loading}
         >
           {loading ? (
