@@ -36,8 +36,8 @@ function normalize(text: string): string {
 
 export default async function AnalyticsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { range = "30" } = await searchParams;
-  const days = Math.min(Math.max(Number.parseInt(range, 10) || 30, 1), 90);
+  const { range = "90" } = await searchParams;
+  const days = Math.min(Math.max(Number.parseInt(range, 10) || 90, 1), 90);
   const supabase = await createClient();
 
   const { data: workspace } = await supabase
