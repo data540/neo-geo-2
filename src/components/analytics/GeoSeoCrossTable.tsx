@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useState } from "react";
 import type { GeoSeoCrossRow } from "@/types";
 
-type SortKey = "promptText" | "matchedQuery" | "clicks" | "impressions" | "position";
+type SortKey = "promptText" | "matchedQuery" | "clicks" | "impressions";
 type SortDir = "asc" | "desc";
 
 interface Props {
@@ -52,13 +52,6 @@ export function GeoSeoCrossTable({ rows }: Props) {
     if (sortKey === "impressions") {
       return mul * (a.impressions - b.impressions);
     }
-    // position: null (oportunidades) siempre al final
-    if (sortKey === "position") {
-      if (a.position === null && b.position === null) return 0;
-      if (a.position === null) return 1;
-      if (b.position === null) return -1;
-      return mul * (a.position - b.position);
-    }
     return 0;
   });
 
@@ -100,7 +93,6 @@ export function GeoSeoCrossTable({ rows }: Props) {
                 {thBtn("matchedQuery", "left", "Búsqueda real")}
                 {thBtn("clicks", "right", "Clics")}
                 {thBtn("impressions", "right", "Impresiones")}
-                {thBtn("position", "right", "Pos.")}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -123,9 +115,6 @@ export function GeoSeoCrossTable({ rows }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                     {r.matchedQuery ? r.impressions.toLocaleString() : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-700">
-                    {r.position !== null ? r.position.toFixed(1) : "—"}
                   </td>
                 </tr>
               ))}

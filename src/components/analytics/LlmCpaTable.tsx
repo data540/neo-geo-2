@@ -4,10 +4,6 @@ interface Props {
   rows: LlmCpaRow[];
 }
 
-function fmtUsd(v: number): string {
-  return `$${v.toFixed(2)}`;
-}
-
 export function LlmCpaTable({ rows }: Props) {
   const visibleRows = [...rows].sort((a, b) => b.conversions - a.conversions);
 
@@ -35,12 +31,6 @@ export function LlmCpaTable({ rows }: Props) {
               <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
                 Tasa conv.
               </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                Coste GEO
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                CPA
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -58,22 +48,10 @@ export function LlmCpaTable({ rows }: Props) {
                 <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                   {r.conversionRatePct !== null ? `${r.conversionRatePct.toFixed(1)}%` : "—"}
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums text-slate-700">
-                  {fmtUsd(r.geoCostUsd)}
-                </td>
-                <td className="px-4 py-3 text-right tabular-nums font-medium text-slate-900">
-                  {r.cpaUsd !== null ? fmtUsd(r.cpaUsd) : "—"}
-                </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-      <div className="px-5 py-3 border-t border-slate-100">
-        <p className="text-[11px] text-slate-400">
-          CPA = coste de monitorización GEO ÷ conversiones atribuidas. AI Overviews tiene atribución
-          limitada en GA4 (su tráfico se mezcla con la búsqueda orgánica de Google).
-        </p>
       </div>
     </div>
   );

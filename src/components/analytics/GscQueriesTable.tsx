@@ -36,9 +36,6 @@ export function GscQueriesTable({ rows }: Props) {
                 <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
                   CTR
                 </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Pos. media
-                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -53,9 +50,6 @@ export function GscQueriesTable({ rows }: Props) {
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                     {(r.ctr * 100).toFixed(1)}%
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums text-slate-700">
-                    {r.position.toFixed(1)}
                   </td>
                 </tr>
               ))}
