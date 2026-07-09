@@ -1,3 +1,4 @@
+import { boundaryIndexOf } from "@/lib/detection/brandMatch";
 import { extractRankingFromList, type ListSource } from "@/lib/detection/extractRanking";
 import type { MentionType, PositionSource, Sentiment } from "@/types";
 
@@ -76,7 +77,9 @@ function findFirstIndex(text: string, brand: BrandInput): { idx: number; name: s
   const allNames = [brand.name, ...brand.aliases];
   let best: { idx: number; name: string } | null = null;
   for (const name of allNames) {
-    const idx = textLower.indexOf(name.toLowerCase());
+    // Match por límite de palabra: evita que un nombre prefijo (p.ej. "Iber")
+    // se cuente dentro de otro más largo ("Iberia") en el mismo run.
+    const idx = boundaryIndexOf(textLower, name.toLowerCase());
     if (idx >= 0 && (best === null || idx < best.idx)) {
       best = { idx, name };
     }

@@ -1,12 +1,36 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { extractPotentialCompetitorsFromResponse } from "@/lib/detection/detectBrands";
 import {
+  cleanCompetitorCandidate,
   type CompetitorCandidateForClassification,
   classifyCompetitorCandidates,
   isAcceptedCompetitor,
   normalizeCompetitorName,
   shouldPrefilterCompetitorCandidate,
 } from "@/lib/llm/classifyCompetitors";
+
+/**
+ * ¿El candidato normalizado es el mismo nombre, un fragmento/prefijo o una
+ * variante más específica de una marca ya existente? Compara por token de
+ * palabra completa en ambas direcciones para colapsar casos como
+ * "Iber" ⊂ "Iberia" o "Iberia Express" ⊃ "Iberia", evitando crear un brand
+ * duplicado que dispararía doble conteo de menciones.
+ */
+function isSubstringOfExistingBrand(normalized: string, existing: Set<string>): boolean {
+  if (existing.has(normalized)) return true;
+  for (const brand of existing) {
+    if (!brand) continue;
+    const shorter = brand.length <= normalized.length ? brand : normalized;
+    const longer = brand.length <= normalized.length ? normalized : brand;
+    // El token corto debe aparecer delimitado por palabras completas dentro del
+    // largo. Los nombres normalizados están separados por un solo espacio, así
+    // que basta comprobar con espacios de guarda. Exige >= 4 chars para no
+    // colapsar por subcadenas triviales.
+    if (shorter.length < 4) continue;
+    if (` ${longer} `.includes(` ${shorter} `)) return true;
+  }
+  return false;
+}
 
 interface ExtractForRunInput {
   supabase: SupabaseClient;
@@ -74,9 +98,13 @@ export async function extractCompetitorsForRun(
   const candidateMap = new Map<string, CompetitorCandidateForClassification>();
   let rejectedByBlocklist = 0;
 
-  for (const candidate of rawCandidates) {
+  for (const rawCandidate of rawCandidates) {
+    const candidate = cleanCompetitorCandidate(rawCandidate);
+    if (!candidate) continue;
     const normalized = normalizeCompetitorName(candidate);
-    if (!normalized || existingNormalized.has(normalized)) continue;
+    // Colapsa fragmentos/prefijos/variantes de una marca ya existente
+    // ("Iber" ⊂ "Iberia", "Iberia Express" ⊃ "Iberia") para no crear duplicados.
+    if (!normalized || isSubstringOfExistingBrand(normalized, existingNormalized)) continue;
     if (blocklist.has(normalized)) {
       rejectedByBlocklist++;
       continue;
@@ -84,7 +112,7 @@ export async function extractCompetitorsForRun(
 
     const existing = candidateMap.get(normalized);
     if (!existing) {
-      candidateMap.set(normalized, { name: candidate.trim(), count: 1, examples: [] });
+      candidateMap.set(normalized, { name: candidate, count: 1, examples: [] });
     } else {
       existing.count++;
     }

@@ -79,6 +79,53 @@ const GENERIC_PHRASE_PATTERN =
 const GENERIC_COMPOSITE_PATTERN =
   /^(comida|cocina|restauracion|marcas|modelos|tipo|tipos|estilo|estilos|categoria|categorias|formato|formatos|concepto|conceptos)\s+\w+|\b(saludable|informal|rapida|casera|tradicional|gourmet|hibrido|hibridos|establecida|establecidas|organizada|colectiva)$/i;
 
+// Conectores/stopwords españoles que la extracción capta al inicio de un
+// candidato porque abren frase en mayúscula: "Con Iberia", "Si Iberia",
+// "Aunque Iberia", "Considera Iberia Express"... Se recortan del principio.
+const LEADING_CONNECTORS = new Set([
+  "con", "si", "aunque", "considera", "segun", "para", "como", "tambien",
+  "ademas", "incluso", "quizas", "pero", "pues", "asi", "solo", "ya", "mas",
+  "muy", "desde", "hasta", "entre", "sobre", "ante", "tras", "mientras",
+  "cuando", "donde", "porque", "sin", "por", "del", "de", "la", "el", "los",
+  "las", "un", "una", "unos", "unas", "y", "o", "e", "u",
+]);
+
+function stripDiacritics(value: string): string {
+  return value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
+}
+
+/**
+ * Limpia un candidato a competidor antes de clasificarlo/almacenarlo:
+ *  - corta en el primer salto de línea ("Iberia\nSuele" -> "Iberia")
+ *  - elimina calificadores entre paréntesis ("Iberia (España)" -> "Iberia")
+ *  - se queda con la primera marca de un fragmento multi-marca
+ *    ("Iberia o Air Europa" -> "Iberia", "Iberia/Vueling" -> "Iberia")
+ *  - recorta conectores/stopwords iniciales ("Con Iberia" -> "Iberia")
+ *
+ * Evita la creación de brands basura que luego duplican menciones del brand
+ * canónico. Devuelve "" si tras limpiar no queda nada útil.
+ */
+export function cleanCompetitorCandidate(raw: string): string {
+  let s = (raw ?? "").trim();
+  if (!s) return "";
+  // 1. Primer salto de línea
+  s = s.split(/[\r\n]/)[0]?.trim() ?? "";
+  // 2. Calificador entre paréntesis al final o en medio
+  s = s.replace(/\s*\(.*$/, "").trim();
+  // 3. Fragmento multi-marca: separadores duros y conjunciones
+  s = s.split(/\s*[/,|]\s*|\s+(?:y|o|e|u|vs\.?|versus)\s+/i)[0]?.trim() ?? "";
+  // 4. Conectores iniciales (iterativo por si hay varios)
+  let prev = "";
+  while (s !== prev) {
+    prev = s;
+    const m = s.match(/^(\p{L}+)\s+(.+)$/u);
+    if (m?.[1] && LEADING_CONNECTORS.has(stripDiacritics(m[1]))) {
+      s = m[2]?.trim() ?? "";
+    }
+  }
+  return s;
+}
+
 export function normalizeCompetitorName(value: string): string {
   return value
     .trim()
@@ -90,7 +137,8 @@ export function normalizeCompetitorName(value: string): string {
 }
 
 export function shouldPrefilterCompetitorCandidate(name: string): boolean {
-  const trimmed = name.trim();
+  const trimmed = cleanCompetitorCandidate(name);
+  if (!trimmed) return false;
   const normalized = normalizeCompetitorName(trimmed);
   // Permite siglas de marca en mayúsculas de 2-3 caracteres (KFC, BK, TGB);
   // el resto exige al menos 4 caracteres para evitar ruido.
@@ -239,19 +287,20 @@ export async function classifyCompetitorCandidates(
   const unique = new Map<string, CompetitorCandidateForClassification>();
   for (const candidate of input.candidates) {
     if (!shouldPrefilterCompetitorCandidate(candidate.name)) continue;
-    const normalized = normalizeCompetitorName(candidate.name);
+    const cleanName = cleanCompetitorCandidate(candidate.name) || candidate.name.trim();
+    const normalized = normalizeCompetitorName(cleanName);
     if (!normalized) continue;
     const existing = unique.get(normalized);
     if (!existing) {
       unique.set(normalized, {
-        name: candidate.name.trim(),
+        name: cleanName,
         count: candidate.count,
         examples: candidate.examples.slice(0, 3),
       });
     } else {
       existing.count += candidate.count;
       existing.examples = [...existing.examples, ...candidate.examples].slice(0, 3);
-      if (candidate.name.length > existing.name.length) existing.name = candidate.name.trim();
+      if (cleanName.length > existing.name.length) existing.name = cleanName;
     }
   }
 

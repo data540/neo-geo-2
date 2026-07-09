@@ -1,3 +1,5 @@
+import { boundaryIncludes, isWordChar } from "@/lib/detection/brandMatch";
+
 interface BrandInput {
   id: string;
   name: string;
@@ -24,10 +26,14 @@ const NUMBERED_LINE = /^\s*(\d{1,3})[.):\-]\s+(.*)$/;
 const BULLET_LINE = /^\s*[-*•·]\s+(.*)$/;
 
 function fuzzyIncludes(haystack: string, needle: string, threshold = 0.85): boolean {
-  if (haystack.includes(needle)) return true;
+  if (boundaryIncludes(haystack, needle)) return true;
   if (needle.length < 4) return false;
-  // ventana deslizante de longitud needle.length sobre haystack
+  // ventana deslizante de longitud needle.length sobre haystack, respetando
+  // límites de palabra para no matchear prefijos dentro de otra palabra.
   for (let i = 0; i <= haystack.length - needle.length; i++) {
+    const before = i > 0 ? haystack[i - 1] : undefined;
+    const after = haystack[i + needle.length];
+    if (isWordChar(before) || isWordChar(after)) continue;
     const window = haystack.slice(i, i + needle.length);
     let matches = 0;
     for (let j = 0; j < needle.length; j++) {
@@ -79,7 +85,7 @@ function matchBrandInItem(
   const allNames = [brand.name, ...brand.aliases];
   for (const name of allNames) {
     const nameLower = name.toLowerCase();
-    if (lower.includes(nameLower)) return { matchedName: name };
+    if (boundaryIncludes(lower, nameLower)) return { matchedName: name };
     if (nameLower.length >= 4 && fuzzyIncludes(lower, nameLower)) {
       return { matchedName: name };
     }
