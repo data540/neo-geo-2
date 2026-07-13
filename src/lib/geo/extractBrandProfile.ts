@@ -18,13 +18,45 @@ Reglas:
 - Si un campo no puede determinarse con confianza, usa null en lugar de inventar.
 - Responde unicamente JSON valido sin markdown ni comentarios.`;
 
-const RELEVANT_LINK_PATTERNS = [
-  "about", "company", "empresa", "quienes", "sobre", "historia", "mision", "nosotros",
-  "products", "services", "productos", "servicios", "soluciones", "solutions",
-  "features", "pricing", "precios", "planes", "plans", "tarifas",
-  "help", "support", "ayuda", "faq", "contact", "contacto",
-  "terms", "privacy", "legal",
-  "blog", "cases", "clientes", "customers", "partners",
+// Páginas que NO describen el negocio y sesgan el análisis: legales/cookies y
+// pantallas transaccionales o de cuenta (checkout, login, gestión de reserva…).
+// Nunca se seleccionan por descubrimiento automático.
+const EXCLUDED_LINK_PATTERNS = [
+  "cookie", "privacy", "privacidad", "legal", "aviso-legal", "terms", "terminos",
+  "condiciones", "politica-de", "gdpr", "rgpd",
+  "login", "signin", "sign-in", "signup", "sign-up", "register", "registro",
+  "checkin", "check-in", "mytrips", "my-trips", "checkout", "cart", "basket",
+  "account", "cuenta", "logout", "password", "session", "wishlist",
+];
+
+// Patrones relevantes ponderados: mayor peso = describe mejor el negocio.
+// Genéricos para cualquier vertical (identidad, catálogo, precios, fidelización,
+// alianzas, contenido). Se prioriza por peso al seleccionar páginas.
+const RELEVANT_LINK_PATTERNS: Array<[string, number]> = [
+  // Identidad corporativa / negocio
+  ["about", 5], ["company", 5], ["empresa", 5], ["quienes", 5], ["sobre", 5],
+  ["nosotros", 5], ["conocenos", 5], ["corporate", 5], ["corporativ", 5],
+  ["compania", 5], ["historia", 4], ["mision", 4],
+  // Oferta / catálogo
+  ["products", 5], ["productos", 5], ["services", 5], ["servicios", 5],
+  ["solutions", 4], ["soluciones", 4], ["destinations", 5], ["destinos", 5],
+  ["destino", 5], ["routes", 5], ["rutas", 5], ["ruta", 4], ["cargo", 4], ["carga", 4],
+  // Precio / reserva
+  ["pricing", 4], ["precios", 4], ["plans", 4], ["planes", 4], ["tarifas", 4],
+  ["tarifa", 4], ["fares", 4], ["book", 3], ["reserva", 3], ["booking", 3],
+  ["flights", 3], ["vuelos", 3], ["vuelo", 3], ["ofertas", 3], ["oferta", 3], ["deals", 3],
+  // Fidelización / programa
+  ["loyalty", 4], ["fideliz", 4], ["rewards", 4], ["miles", 4], ["millas", 4],
+  ["program", 3], ["programa", 3], ["suma", 4], ["member", 3], ["socio", 3],
+  // Alianzas / partners
+  ["alliance", 5], ["alianza", 5], ["skyteam", 5], ["oneworld", 5],
+  ["staralliance", 5], ["partners", 4], ["partner", 4],
+  // Features / soporte / contenido corporativo
+  ["features", 3], ["help", 2], ["support", 2], ["ayuda", 2], ["faq", 2],
+  ["contact", 2], ["contacto", 2], ["blog", 2], ["news", 2], ["noticias", 2],
+  ["prensa", 3], ["press", 3], ["investor", 3], ["inversor", 3], ["cases", 3],
+  ["clientes", 3], ["customers", 3], ["sostenib", 2], ["sustainab", 2],
+  ["experiencia", 2],
 ];
 
 const MAX_ANALYZED_PAGES = 10;
@@ -81,19 +113,34 @@ function extractJsonObject(text: string): unknown {
 }
 
 async function fetchJinaMarkdown(url: string): Promise<string | null> {
+  // 20s: las páginas SPA pesadas (p. ej. programas de fidelización) tardan en
+  // renderizar en Jina; con 12s se descartaban y sesgaban el análisis.
   const response = await fetch(`https://r.jina.ai/${url}`, {
     headers: { Accept: "text/plain" },
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(20_000),
   });
   if (!response.ok) return null;
   const text = await response.text();
   return text.length >= 100 ? text : null;
 }
 
+// Puntúa una ruta: -1 si es una página excluida (legal/transaccional), en otro
+// caso el mayor peso de los patrones relevantes que contenga (0 = irrelevante).
+function scorePath(searchable: string): number {
+  if (EXCLUDED_LINK_PATTERNS.some((pattern) => searchable.includes(pattern))) return -1;
+  let score = 0;
+  for (const [pattern, weight] of RELEVANT_LINK_PATTERNS) {
+    if (searchable.includes(pattern)) score = Math.max(score, weight);
+  }
+  return score;
+}
+
+const ASSET_EXTENSION = /\.(svg|png|jpe?g|gif|webp|ico|css|js|mjs|woff2?|ttf|eot|pdf|xml|json|zip|mp4|webm)$/i;
+
 function discoverRelevantUrls(markdown: string, baseUrl: string): string[] {
   const base = new URL(baseUrl);
-  const urls = new Set<string>([baseUrl]);
   const linkPattern = /\[[^\]]+\]\((https?:\/\/[^)\s]+|\/[^)\s]+)\)/gi;
+  const scored = new Map<string, number>();
 
   for (const match of markdown.matchAll(linkPattern)) {
     const href = match[1];
@@ -105,14 +152,20 @@ function discoverRelevantUrls(markdown: string, baseUrl: string): string[] {
       continue;
     }
     if (url.hostname.replace(/^www\./, "") !== base.hostname.replace(/^www\./, "")) continue;
+    if (ASSET_EXTENSION.test(url.pathname)) continue;
     const searchable = `${url.pathname} ${url.search}`.toLowerCase();
-    if (!RELEVANT_LINK_PATTERNS.some((pattern) => searchable.includes(pattern))) continue;
+    const score = scorePath(searchable);
+    if (score <= 0) continue;
     url.hash = "";
-    urls.add(url.toString().replace(/\/$/, ""));
-    if (urls.size >= MAX_ANALYZED_PAGES) break;
+    const clean = url.toString().replace(/\/$/, "");
+    scored.set(clean, Math.max(scored.get(clean) ?? 0, score));
   }
 
-  return [...urls].slice(0, MAX_ANALYZED_PAGES);
+  // Prioriza las páginas más representativas del negocio (mayor peso primero).
+  return [...scored.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([url]) => url)
+    .slice(0, MAX_ANALYZED_PAGES);
 }
 
 function dedupeContent(pages: Array<{ url: string; content: string }>): string {
@@ -136,7 +189,7 @@ function dedupeContent(pages: Array<{ url: string; content: string }>): string {
     }
   }
 
-  return sections.join("\n\n").slice(0, 28_000);
+  return sections.join("\n\n").slice(0, 45_000);
 }
 
 function mergeFallbacks(profile: CompanyBioProfile, content: string): CompanyBioProfile {
@@ -273,7 +326,7 @@ Reglas de redaccion:
 - Rellena todas las secciones con informacion explicita o inferencia prudente basada en el sitio.
 - No dejes arrays vacios salvo que sea realmente imposible tras analizar home y paginas secundarias.
 - No inventes premios, partners, certificaciones ni tecnologias concretas. Si no aparecen, no los nombres como hechos.
-- Si no hay partner concreto, usa "No detectado publicamente en las paginas analizadas" solo como ultimo recurso.
+- Usa "No detectado publicamente en las paginas analizadas" UNICAMENTE si no hay ningun partner o alianza real en el contenido. Si detectas al menos uno (p. ej. una alianza o socio nombrado), lista solo los reales y no incluyas ese texto.
 - valueProposition debe ser 1 frase obligatoria.
 - pricingStrategy debe ser 1 parrafo breve obligatorio.
 - revenueStreams debe tener 3-6 items.
@@ -286,7 +339,10 @@ Reglas de redaccion:
 - Valida internamente que no haya claims inventados, lenguaje generico de otros sectores, ni datos fuera del vertical detectado.`;
 }
 
-export async function extractBrandProfile(domain: string): Promise<CompanyBioAnalysisResult> {
+export async function extractBrandProfile(
+  domain: string,
+  seedUrls: string[] = []
+): Promise<CompanyBioAnalysisResult> {
   if (!process.env.OPENROUTER_API_KEY?.trim()) {
     throw new Error(
       "OPENROUTER_API_KEY no esta configurada. La Company Bio se genera via OpenRouter y no tiene fallback mock."
@@ -297,9 +353,26 @@ export async function extractBrandProfile(domain: string): Promise<CompanyBioAna
   const homeContent = await fetchJinaMarkdown(sourceUrl);
   if (!homeContent) throw new Error("No se pudo extraer contenido suficiente desde la URL");
 
-  const urls = discoverRelevantUrls(homeContent, sourceUrl);
+  // Seeds curados por workspace: páginas representativas que se fuerzan a incluir
+  // (imprescindible en sitios SPA cuya home apenas expone enlaces). Tienen
+  // prioridad sobre el descubrimiento automático y saltan el filtro de exclusión.
+  const normalizedSeeds = seedUrls
+    .map((url) => {
+      try {
+        return normalizeUrl(url);
+      } catch {
+        return null;
+      }
+    })
+    .filter((url): url is string => Boolean(url));
+
+  const discovered = discoverRelevantUrls(homeContent, sourceUrl);
+  const targetUrls = [...new Set([...normalizedSeeds, ...discovered])]
+    .filter((url) => url !== sourceUrl)
+    .slice(0, MAX_ANALYZED_PAGES);
+
   const pages = [{ url: sourceUrl, content: homeContent }];
-  for (const url of urls.slice(1, MAX_ANALYZED_PAGES)) {
+  for (const url of targetUrls) {
     try {
       const content = await fetchJinaMarkdown(url);
       if (content) pages.push({ url, content });

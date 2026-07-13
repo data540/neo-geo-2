@@ -201,7 +201,7 @@ export async function extractBrandProfileAction(
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("domain")
+    .select("domain, bio_seed_urls")
     .eq("id", workspaceId)
     .single();
 
@@ -209,8 +209,12 @@ export async function extractBrandProfileAction(
     return { success: false, error: "No hay dominio configurado en este workspace" };
   }
 
+  const seedUrls = Array.isArray(workspace.bio_seed_urls)
+    ? (workspace.bio_seed_urls as string[])
+    : [];
+
   try {
-    const extracted = await extractBrandProfile(workspace.domain);
+    const extracted = await extractBrandProfile(workspace.domain, seedUrls);
 
     const { error } = await supabase.from("brand_profiles").upsert(
       {
