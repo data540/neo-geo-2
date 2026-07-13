@@ -1,6 +1,7 @@
 import { Eye, Hash, Heading, ListOrdered, Search, Smile, TrendingUp, Type } from "lucide-react";
 import type { ContentBlockShare, TopicSection } from "@/lib/aio/parseAioContent";
 import { Card, CardContent } from "@/components/ui/card";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Delta, fmtScore, sentimentLabel, Sparkline } from "./kpi-helpers";
 
 interface SerpDistribution {
@@ -84,11 +85,16 @@ export function AiOverviewDashboard({
 
   return (
     <div className="space-y-6">
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* ── Contexto de mercado (superficies de IA) ── */}
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          Contexto de mercado · superficies de IA
+        </h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {/* AIO Presence Rate */}
         <KpiCard
           label="AIO Presence Rate"
+          info="% de tus consultas donde aparece el recuadro AI Overview de Google. Mide cuánto de tu categoría responde ya la IA (contexto de oportunidad, no rendimiento)."
           icon={<Search className="w-4 h-4 text-rose-500" aria-hidden="true" />}
           iconBg="bg-rose-50"
         >
@@ -113,6 +119,7 @@ export function AiOverviewDashboard({
         {/* Average SERP Position */}
         <KpiCard
           label="Avg SERP Position"
+          info="Posición media del bloque AI Overview en la SERP. Secundaria: suele ir arriba por naturaleza."
           icon={<ListOrdered className="w-4 h-4 text-blue-500" aria-hidden="true" />}
           iconBg="bg-blue-50"
         >
@@ -139,6 +146,7 @@ export function AiOverviewDashboard({
         {/* AI Mode Presence Rate */}
         <KpiCard
           label="AI Mode Presence"
+          info="% de consultas donde Google AI Mode (pestaña conversacional tipo ChatGPT) da respuesta. Indicador de futuro; menor alcance hoy."
           icon={<Search className="w-4 h-4 text-violet-500" aria-hidden="true" />}
           iconBg="bg-violet-50"
         >
@@ -163,6 +171,7 @@ export function AiOverviewDashboard({
         {/* AI Mode Position */}
         <KpiCard
           label="AI Mode Position"
+          info="Presencia en AI Mode. Es una respuesta única, no un bloque posicional: por eso #1 cuando apareces. Secundaria."
           icon={<Hash className="w-4 h-4 text-violet-400" aria-hidden="true" />}
           iconBg="bg-violet-50"
         >
@@ -185,10 +194,19 @@ export function AiOverviewDashboard({
             </>
           )}
         </KpiCard>
+        </div>
+      </div>
 
+      {/* ── Rendimiento de tu marca ── */}
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          Rendimiento de tu marca
+        </h3>
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Visibility */}
         <KpiCard
           label="Visibility"
+          info="% de respuestas de IA donde aparece tu marca. Rendimiento: mide si te están citando."
           icon={<Eye className="w-4 h-4 text-indigo-500" aria-hidden="true" />}
           iconBg="bg-indigo-50"
         >
@@ -208,6 +226,7 @@ export function AiOverviewDashboard({
         {/* Share of Voice */}
         <KpiCard
           label="Share of Voice"
+          info="Tu cuota de menciones frente a competidores en las respuestas de IA. La métrica clave: ¿te recomienda la IA a ti o a la competencia?"
           icon={<TrendingUp className="w-4 h-4 text-emerald-500" aria-hidden="true" />}
           iconBg="bg-emerald-50"
         >
@@ -223,6 +242,7 @@ export function AiOverviewDashboard({
         {/* AI Overview Sentiment */}
         <KpiCard
           label="Sentiment"
+          info="Tono con el que la IA menciona tu marca: positivo, neutral o negativo."
           icon={<Smile className="w-4 h-4 text-amber-500" aria-hidden="true" />}
           iconBg="bg-amber-50"
         >
@@ -238,6 +258,7 @@ export function AiOverviewDashboard({
           <p className="text-xs text-slate-400 mt-1">{rangeLabel}</p>
           <p className="text-[11px] text-slate-400 mt-1">Desde menciones del AI Overview</p>
         </KpiCard>
+        </div>
       </div>
 
       {/* ── Lower grid ── */}
@@ -414,18 +435,23 @@ function KpiCard({
   label,
   icon,
   iconBg,
+  info,
   children,
 }: {
   label: string;
   icon: React.ReactNode;
   iconBg: string;
+  info?: string;
   children: React.ReactNode;
 }) {
   return (
     <Card className="border border-slate-200 shadow-sm">
       <CardContent className="p-5">
         <div className="flex items-start justify-between mb-1">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{label}</p>
+          <div className="flex items-center min-w-0">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">{label}</p>
+            {info ? <InfoTooltip content={info} /> : null}
+          </div>
           <div className={`w-8 h-8 rounded-full ${iconBg} flex items-center justify-center shrink-0`}>
             {icon}
           </div>
