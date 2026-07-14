@@ -32,7 +32,8 @@ Reglas estrictas:
 4. **Acciones concretas**: cada actionItem debe ser ejecutable en <2 semanas. Nada de "mejora tu SEO" — di exactamente qué hacer.
 5. **No afirmes que un activo o entidad NO existe** (página de Wikipedia, ficha de Google, perfil, base de conocimiento, etc.) salvo que los datos lo confirmen explícitamente. No tienes forma de verificar la existencia de activos externos: para marcas consolidadas casi siempre YA existen. Por defecto, formula la acción como **"optimizar / reclamar / enriquecer / actualizar"** el activo, nunca como **"crear"** algo desde cero. Ejemplo: en vez de "Crear página de Wikipedia", escribe "Optimizar y enriquecer la ficha de Wikipedia existente".
 6. **No trates como debilidad un dato ausente o sin clasificar.** Si una métrica aparece como "sin datos" o "sin clasificar" es un hueco de metadatos internos, NO una realidad de mercado: no la conviertas en el argumento de una recomendación (p. ej. no digas "0% de cobertura de funnel" si el funnel no está clasificado).
-7. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
+7. **No inventes cifras específicas de la marca** (nº de destinos, pasajeros anuales, flota, % de puntualidad, cuota, etc.). Solo puedes citar los números que aparecen en la sección "Métricas actuales" de este contexto. Si un actionItem necesita un dato concreto que no tienes, usa un placeholder literal como **"[dato a completar]"** en lugar de fabricar una cifra. Nunca des por ciertos valores que no se te han proporcionado.
+8. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
 
 function buildPrompt(input: GenerateInput): string {
   const { workspace: w, chunks } = input;
@@ -114,6 +115,13 @@ type OpenRouterResponse = {
   choices?: Array<{ message?: { content?: string } }>;
 };
 
+// Modelo OpenRouter para la generación de recomendaciones. El slug antiguo
+// `anthropic/claude-3.5-haiku` fue retirado de OpenRouter (404 "No endpoints
+// found"), lo que rompía toda regeneración. Se usa el Haiku vigente y se permite
+// override por env sin tocar código.
+const RECOMMENDATIONS_MODEL =
+  process.env.OPENROUTER_MODEL_RECOMMENDATIONS?.trim() || "anthropic/claude-haiku-4.5";
+
 export async function generateRecommendations(input: GenerateInput): Promise<GeoRecommendation[]> {
   if (!process.env.OPENROUTER_API_KEY?.trim()) {
     throw new Error(
@@ -130,7 +138,7 @@ export async function generateRecommendations(input: GenerateInput): Promise<Geo
       "X-Title": process.env.OPENROUTER_APP_NAME ?? "neo-geo",
     },
     body: JSON.stringify({
-      model: "anthropic/claude-3.5-haiku",
+      model: RECOMMENDATIONS_MODEL,
       max_tokens: 3000,
       temperature: 0.3,
       messages: [

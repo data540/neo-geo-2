@@ -12,6 +12,34 @@ function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/**
+ * Cuenta dominios DISTINTOS citados (no filas de sources). Pagina porque `sources`
+ * puede superar el límite de 1000 filas por request de supabase-js, lo que daría
+ * un recuento truncado.
+ */
+async function countDistinctSourceDomains(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string
+): Promise<number> {
+  const PAGE = 1000;
+  const domains = new Set<string>();
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("sources")
+      .select("domain")
+      .eq("workspace_id", workspaceId)
+      .not("domain", "is", null)
+      .range(offset, offset + PAGE - 1);
+    if (error) throw error;
+    const rows = (data ?? []) as { domain: string | null }[];
+    for (const row of rows) {
+      if (row.domain) domains.add(row.domain);
+    }
+    if (rows.length < PAGE) break;
+  }
+  return domains.size;
+}
+
 async function buildMetrics(supabase: Awaited<ReturnType<typeof createClient>>, workspaceId: string, workspaceCountry: string, brandProfilePositioning: string | null) {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -21,7 +49,7 @@ async function buildMetrics(supabase: Awaited<ReturnType<typeof createClient>>, 
     { data: metrics },
     brandPerformanceMetrics,
     { data: promptMetrics },
-    { count: sourcesCount },
+    sourcesCount,
     { data: promptRows },
     { data: workspace },
   ] = await Promise.all([
@@ -32,8 +60,8 @@ async function buildMetrics(supabase: Awaited<ReturnType<typeof createClient>>, 
       .gte("date", since)
       .order("date", { ascending: false }),
     getWorkspaceBrandPerformanceMetrics({ workspaceId, country: workspaceCountry, days: 7 }),
-    supabase.from("daily_prompt_metrics").select("sov").eq("workspace_id", workspaceId).gte("date", since),
-    supabase.from("sources").select("*", { count: "exact", head: true }).eq("workspace_id", workspaceId),
+    supabase.from("daily_prompt_metrics").select("sov, prompt_id").eq("workspace_id", workspaceId).gte("date", since),
+    countDistinctSourceDomains(supabase, workspaceId),
     supabase.from("prompts").select("funnel_stage").eq("workspace_id", workspaceId).eq("status", "active"),
     supabase.from("workspaces").select("brand_name").eq("id", workspaceId).single(),
   ]);
@@ -43,8 +71,15 @@ async function buildMetrics(supabase: Awaited<ReturnType<typeof createClient>>, 
     ? Math.round((rows.reduce((a, b) => a + (b.brand_consistency ?? 0), 0) / rows.length) * 10) / 10
     : null;
   const totalMentions = rows.reduce((a, b) => a + (b.brand_mentions_count ?? 0), 0);
-  const latestActivePrompts = rows[0]?.active_prompts_count ?? 0;
-  const lowSovCount = (promptMetrics ?? []).filter((p) => (p.sov ?? 0) < 30).length;
+  // Prompts DISTINTOS con SOV bajo, no filas prompt-día (evita cifras infladas tipo "363 prompts").
+  const lowSovCount = new Set(
+    (promptMetrics ?? [])
+      .filter((p) => (p.sov ?? 0) < 30)
+      .map((p) => (p as { prompt_id: string | null }).prompt_id)
+      .filter((id): id is string => typeof id === "string")
+  ).size;
+  // Recuento REAL de prompts activos, no la última fila de daily_workspace_metrics
+  // (que refleja prompts ejecutados ese día, no los configurados como activos).
   const totalPrompts = promptRows?.length ?? 0;
   const topPct = totalPrompts > 0 ? Math.round(((promptRows?.filter((p) => p.funnel_stage === "top").length ?? 0) / totalPrompts) * 100) : 0;
   const midPct = totalPrompts > 0 ? Math.round(((promptRows?.filter((p) => p.funnel_stage === "middle").length ?? 0) / totalPrompts) * 100) : 0;
@@ -58,12 +93,12 @@ async function buildMetrics(supabase: Awaited<ReturnType<typeof createClient>>, 
     avgPosition: brandPerformanceMetrics.current.avgPosition,
     consistencyPct: avgConsistency,
     brandMentionsCount: totalMentions,
-    activePromptsCount: latestActivePrompts,
+    activePromptsCount: totalPrompts,
     topFunnelPct: topPct,
     midFunnelPct: midPct,
     bottomFunnelPct: bottomPct,
     lowSovPromptsCount: lowSovCount,
-    sourcesCount: sourcesCount ?? 0,
+    sourcesCount,
   };
 }
 
