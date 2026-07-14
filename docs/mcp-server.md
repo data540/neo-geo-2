@@ -28,10 +28,20 @@ Cliente LLM (Claude / ChatGPT)
   implementa el protocolo directamente.
 - Se despliega con la app en Vercel — no hay proceso aparte.
 
+> **Visibilidad:** el MCP está **en desarrollo** y su sección en la app (menú
+> lateral **"MCP (beta)"** → `/{workspace}/mcp`) es visible **solo para la cuenta
+> super-admin** (`tester@gmail.com`). El resto de usuarios no lo ven y reciben 404
+> si intentan entrar. El gate está en [`src/lib/auth/superAdmin.ts`](../src/lib/auth/superAdmin.ts).
+
 ## 1. Generar una API key
 
-Cada línea de acceso (un LLM, una persona) debería tener su propia key. Requiere
-`SUPABASE_SERVICE_ROLE_KEY` en `.env.local`:
+Cada línea de acceso (un LLM, una persona) debería tener su propia key.
+
+**Opción A — desde la app (recomendada, solo super-admin):** menú **MCP (beta)** →
+escribe un nombre → **Generar**. La key se muestra una sola vez con un botón de
+copiar y un snippet listo para Claude Code. También puedes listar y revocar keys.
+
+**Opción B — por CLI** (requiere `SUPABASE_SERVICE_ROLE_KEY` en `.env.local`):
 
 ```bash
 pnpm mcp:key <workspace-slug> "Nombre descriptivo"

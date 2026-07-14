@@ -16,9 +16,16 @@ conectarse con la URL del servidor y una **API key** que acota el acceso a un
 - **Auth:** `Authorization: Bearer <api-key>` en cada petición.
 - **Alcance:** solo lectura, acotado al workspace de la API key.
 
+> **Nota:** el MCP está en desarrollo y solo es visible para la cuenta super-admin
+> (`tester@gmail.com`) — en la app aparece como **"MCP (beta)"** en el menú lateral.
+> Los demás usuarios no lo ven.
+
 ## 1. Generar la API key (una por workspace)
 
-En el repo, con `SUPABASE_SERVICE_ROLE_KEY` en `.env.local`:
+**Desde la app (super-admin):** menú **MCP (beta)** → nombre → **Generar**
+(se muestra una vez, con snippet para Claude Code).
+
+**Por CLI** (con `SUPABASE_SERVICE_ROLE_KEY` en `.env.local`):
 
 ```bash
 pnpm mcp:key <workspace-slug> "Nombre descriptivo"

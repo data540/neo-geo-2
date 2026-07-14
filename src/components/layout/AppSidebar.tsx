@@ -12,9 +12,15 @@ interface AppSidebarProps {
   workspaces: Workspace[];
   currentWorkspace: Workspace;
   userRole: WorkspaceMemberRole;
+  isSuperAdmin?: boolean;
 }
 
-export function AppSidebar({ workspaces, currentWorkspace, userRole }: AppSidebarProps) {
+export function AppSidebar({
+  workspaces,
+  currentWorkspace,
+  userRole,
+  isSuperAdmin = false,
+}: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -48,7 +54,12 @@ export function AppSidebar({ workspaces, currentWorkspace, userRole }: AppSideba
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-2">
-        <MainNav workspaceSlug={currentWorkspace.slug} collapsed={collapsed} userRole={userRole} />
+        <MainNav
+          workspaceSlug={currentWorkspace.slug}
+          collapsed={collapsed}
+          userRole={userRole}
+          isSuperAdmin={isSuperAdmin}
+        />
       </nav>
 
       {/* Filters panel */}
