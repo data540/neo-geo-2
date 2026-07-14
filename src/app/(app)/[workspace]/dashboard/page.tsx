@@ -22,6 +22,7 @@ import {
 } from "@/lib/metrics/visibility";
 import { SPAIN_SEARCH_WEIGHTS } from "@/lib/llm/marketWeights";
 import { createClient } from "@/lib/supabase/server";
+import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
 import type {
   LlmComparisonRow,
   LlmProviderKey,
@@ -30,6 +31,7 @@ import type {
   MentionType,
   SourceRankingEntry,
   TopCompetitorEntry,
+  WorkspaceMemberRole,
 } from "@/types";
 
 interface Props {
@@ -146,6 +148,23 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   if (!workspace) notFound();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: membership } = user
+    ? await supabase
+        .from("workspace_members")
+        .select("role")
+        .eq("workspace_id", workspace.id)
+        .eq("user_id", user.id)
+        .single()
+    : { data: null };
+  const countryFilter = resolveWorkspaceCountryFilter({
+    workspaceSlug: slug,
+    requestedCountry: country,
+    userRole: (membership?.role as WorkspaceMemberRole | undefined) ?? null,
+  });
+
   // Resolver provider solo si hay un LLM concreto. "All LLMs" (llmKey === null)
   // agrega métricas de todos los proveedores.
   let providerId: string | null = null;
@@ -197,13 +216,13 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   // ── Current period KPIs ────────────────────────────────────────────────────
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
-    country: country ?? null,
+    country: countryFilter,
     days,
     llmProviderId: providerId,
   });
   const brandVisibilityTrendMetrics = await getWorkspaceBrandVisibilityTrendMetrics({
     workspaceId: workspace.id,
-    country: country ?? null,
+    country: countryFilter,
     days,
     llmProviderId: providerId,
     ownBrandName: workspace.brand_name,
@@ -230,12 +249,12 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   // Filtro de país para sentiment: obtener prompt_ids del país seleccionado
   let sentimentPromptIds: string[] | null = null;
-  if (country) {
+  if (countryFilter) {
     const { data: countryPrompts } = await supabase
       .from("prompts")
       .select("id")
       .eq("workspace_id", workspace.id)
-      .eq("country", country);
+      .eq("country", countryFilter);
     sentimentPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
   }
 
@@ -316,12 +335,16 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   });
 
   // ── Recent runs ────────────────────────────────────────────────────────────
-  const { data: recentRuns } = await supabase
+  let recentRunsQuery = supabase
     .from("prompt_runs")
-    .select("id, status, created_at, completed_at, prompts(text), llm_providers(name)")
+    .select("id, status, created_at, completed_at, prompts!inner(text, country), llm_providers(name)")
     .eq("workspace_id", workspace.id)
     .order("created_at", { ascending: false })
     .limit(10);
+  if (countryFilter) {
+    recentRunsQuery = recentRunsQuery.eq("prompts.country", countryFilter);
+  }
+  const { data: recentRuns } = await recentRunsQuery;
 
   // ── Dashboard analytics (RPC parallel fetch) ──────────────────────────────
   type MarketShareRow = {
@@ -355,23 +378,23 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   };
 
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
-    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: country ?? null }),
-    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: slug,
       days,
       limit_n: 5,
       llm_key: llmKey,
-      p_country_filter: country ?? null,
+      p_country_filter: countryFilter,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: slug,
       days,
       limit_n: 5,
       llm_key: llmKey,
-      p_country_filter: country ?? null,
+      p_country_filter: countryFilter,
     }),
-    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: country ?? null }),
+    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: countryFilter }),
   ]);
 
   const marketShare: MarketShareEntry[] = ((marketShareRes.data ?? []) as MarketShareRow[]).map(

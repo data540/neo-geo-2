@@ -10,6 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  canUseAllCountryFilters,
+  isAirEuropaWorkspace,
+  resolveWorkspaceCountryFilter,
+} from "@/lib/workspace-country";
 import type { WorkspaceMemberRole } from "@/types";
 
 const COUNTRIES = [
@@ -34,7 +39,14 @@ export function FiltersPanel({ workspaceSlug, userRole }: FiltersPanelProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const currentCountry = searchParams.get("country") ?? "all";
+  const lockedToSpain = isAirEuropaWorkspace(workspaceSlug) && !canUseAllCountryFilters(userRole);
+  const currentCountry =
+    resolveWorkspaceCountryFilter({
+      workspaceSlug,
+      userRole,
+      requestedCountry: searchParams.get("country"),
+    }) ?? "all";
+  const countries = lockedToSpain ? COUNTRIES.filter((c) => c.code === "ES") : COUNTRIES;
 
   const handleCountryChange = useCallback(
     (value: string | null) => {
@@ -54,18 +66,23 @@ export function FiltersPanel({ workspaceSlug, userRole }: FiltersPanelProps) {
     <div className="space-y-3">
       <div>
         <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">Filtros</p>
-        <Select value={currentCountry} onValueChange={handleCountryChange}>
+        <Select value={currentCountry} onValueChange={handleCountryChange} disabled={lockedToSpain}>
           <SelectTrigger className="h-8 text-xs border-slate-200">
             <SelectValue placeholder="País" />
           </SelectTrigger>
           <SelectContent>
-            {COUNTRIES.map((c) => (
+            {countries.map((c) => (
               <SelectItem key={c.code} value={c.code} className="text-xs">
                 {c.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        {lockedToSpain && (
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
+            Mercado Espana fijado para este workspace.
+          </p>
+        )}
       </div>
 
       <div>

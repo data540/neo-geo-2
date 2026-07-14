@@ -4,7 +4,8 @@ import { PromptPerformanceCard } from "@/components/prompts/PromptPerformanceCar
 import { PromptsPageHeader } from "@/components/prompts/PromptsPageHeader";
 import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
-import type { PromptPerformanceRow, RunStatus, WorkspaceKpis } from "@/types";
+import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
+import type { PromptPerformanceRow, RunStatus, WorkspaceKpis, WorkspaceMemberRole } from "@/types";
 
 interface EnabledLlm {
   key: string;
@@ -29,6 +30,23 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     .single();
 
   if (!workspace) notFound();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: membership } = user
+    ? await supabase
+        .from("workspace_members")
+        .select("role")
+        .eq("workspace_id", workspace.id)
+        .eq("user_id", user.id)
+        .single()
+    : { data: null };
+  const countryFilter = resolveWorkspaceCountryFilter({
+    workspaceSlug: slug,
+    requestedCountry: country,
+    userRole: (membership?.role as WorkspaceMemberRole | undefined) ?? null,
+  });
 
   // LLMs habilitados del workspace
   const { data: llmConfigs } = await supabase
@@ -58,7 +76,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
   const { data: rows } = await supabase.rpc("get_workspace_prompt_performance", {
     p_workspace_slug: slug,
     p_llm_key: llm ?? null,
-    p_country_filter: country ?? null,
+    p_country_filter: countryFilter,
   });
 
   // KPIs (cross-LLM o filtrados)
@@ -66,12 +84,12 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     supabase.rpc("get_workspace_kpis", {
       p_workspace_slug: slug,
       p_llm_key: llm ?? null,
-      p_country_filter: country ?? null,
+      p_country_filter: countryFilter,
     }),
     getWorkspaceBrandPerformanceMetrics({
       workspaceId: workspace.id,
       days: 7,
-      country: country ?? null,
+      country: countryFilter,
       llmProviderId: focusLlmProviderId,
     }),
   ]);

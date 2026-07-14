@@ -1,5 +1,6 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/inngest/client";
+import { isAirEuropaWorkspace } from "@/lib/workspace-country";
 import type { LlmProviderKey } from "@/types";
 
 function getServiceClient() {
@@ -50,10 +51,18 @@ export const runPromptScheduled = inngest.createFunction(
     const allPrompts = await step.run("fetch-active-prompts", async () => {
       const { data } = await supabase
         .from("prompts")
-        .select("id, workspace_id")
+        .select("id, workspace_id, country")
         .eq("status", "active");
       return data ?? [];
     });
+
+    const restrictedWorkspaceIdList = await step.run("fetch-country-restricted-workspaces", async () => {
+      const { data } = await supabase.from("workspaces").select("id, slug");
+      return (data ?? [])
+        .filter((workspace) => isAirEuropaWorkspace(workspace.slug as string))
+        .map((workspace) => workspace.id as string);
+    });
+    const restrictedWorkspaceIds = new Set(restrictedWorkspaceIdList);
 
     // Runs ya completados hoy por workspace+LLM (evita reejecutar si el CRON se dispara dos veces)
     const todayStart = new Date();
@@ -74,6 +83,9 @@ export const runPromptScheduled = inngest.createFunction(
     const promptsByWorkspace = new Map<string, string[]>();
     for (const p of allPrompts) {
       const wid = p.workspace_id as string;
+      if (restrictedWorkspaceIds.has(wid) && p.country !== "ES") {
+        continue;
+      }
       if (!promptsByWorkspace.has(wid)) {
         promptsByWorkspace.set(wid, []);
       }

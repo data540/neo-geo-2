@@ -4,7 +4,15 @@ import { SourceKpiCards } from "@/components/sources/SourceKpiCards";
 import { SourceRankingsTable } from "@/components/sources/SourceRankingsTable";
 import { getSourceType } from "@/lib/sources/classify";
 import { createClient } from "@/lib/supabase/server";
-import type { LlmProviderKey, RunStatus, SourceCitationRow, SourceKpis, SourceRankingRow } from "@/types";
+import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
+import type {
+  LlmProviderKey,
+  RunStatus,
+  SourceCitationRow,
+  SourceKpis,
+  SourceRankingRow,
+  WorkspaceMemberRole,
+} from "@/types";
 
 interface Props {
   params: Promise<{ workspace: string }>;
@@ -82,19 +90,36 @@ export default async function SourcesPage({ params, searchParams }: Props) {
 
   if (!workspace) notFound();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: membership } = user
+    ? await supabase
+        .from("workspace_members")
+        .select("role")
+        .eq("workspace_id", workspace.id)
+        .eq("user_id", user.id)
+        .single()
+    : { data: null };
+  const countryFilter = resolveWorkspaceCountryFilter({
+    workspaceSlug: slug,
+    requestedCountry: country,
+    userRole: (membership?.role as WorkspaceMemberRole | undefined) ?? null,
+  });
+
   const [{ data: rawRows }, { data: rawKpis }] = await Promise.all([
     supabase.rpc("get_workspace_source_rankings", {
       workspace_slug: slug,
       days,
       llm_key: llm ?? null,
-      p_country_filter: country ?? null,
+      p_country_filter: countryFilter,
       limit_n: 100,
     }),
     supabase.rpc("get_workspace_source_kpis", {
       workspace_slug: slug,
       days,
       llm_key: llm ?? null,
-      p_country_filter: country ?? null,
+      p_country_filter: countryFilter,
     }),
   ]);
 
@@ -134,7 +159,7 @@ export default async function SourcesPage({ params, searchParams }: Props) {
     })
     .filter(({ row, run }) => isWithinDays(run?.created_at ?? row.created_at, days))
     .filter(({ provider }) => !llm || provider?.key === llm)
-    .filter(({ prompt }) => !country || prompt?.country === country);
+    .filter(({ prompt }) => !countryFilter || prompt?.country === countryFilter);
 
   const citationRows: SourceCitationRow[] = sourceRows.map(({ row, run, provider, prompt }) => ({
     id: row.id,
@@ -220,7 +245,7 @@ export default async function SourcesPage({ params, searchParams }: Props) {
             workspaceId={workspace.id}
             days={days}
             llmKey={llm ?? null}
-            country={country ?? null}
+            country={countryFilter}
           />
         )}
 
