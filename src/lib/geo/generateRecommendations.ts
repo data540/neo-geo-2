@@ -30,7 +30,9 @@ Reglas estrictas:
 2. **No inventes tácticas**: si la base de conocimiento no cubre un tema, no des recomendaciones especulativas sobre ese tema.
 3. **Sé específico**: usa los números reales del workspace (visibilidad, SOV, posición, etc.) en las descripciones.
 4. **Acciones concretas**: cada actionItem debe ser ejecutable en <2 semanas. Nada de "mejora tu SEO" — di exactamente qué hacer.
-5. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
+5. **No afirmes que un activo o entidad NO existe** (página de Wikipedia, ficha de Google, perfil, base de conocimiento, etc.) salvo que los datos lo confirmen explícitamente. No tienes forma de verificar la existencia de activos externos: para marcas consolidadas casi siempre YA existen. Por defecto, formula la acción como **"optimizar / reclamar / enriquecer / actualizar"** el activo, nunca como **"crear"** algo desde cero. Ejemplo: en vez de "Crear página de Wikipedia", escribe "Optimizar y enriquecer la ficha de Wikipedia existente".
+6. **No trates como debilidad un dato ausente o sin clasificar.** Si una métrica aparece como "sin datos" o "sin clasificar" es un hueco de metadatos internos, NO una realidad de mercado: no la conviertas en el argumento de una recomendación (p. ej. no digas "0% de cobertura de funnel" si el funnel no está clasificado).
+7. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
 
 function buildPrompt(input: GenerateInput): string {
   const { workspace: w, chunks } = input;
@@ -48,6 +50,17 @@ function buildPrompt(input: GenerateInput): string {
           })
           .join("\n\n---\n\n");
 
+  // El funnel solo es informativo si algún prompt está clasificado. Cuando las tres
+  // etapas son 0 casi siempre significa que funnel_stage no está poblado (hueco de
+  // metadatos), no que la cobertura real sea nula: no debe presentarse como debilidad.
+  const funnelUnknown =
+    w.topFunnelPct === 0 && w.midFunnelPct === 0 && w.bottomFunnelPct === 0;
+  const funnelBlock = funnelUnknown
+    ? `- Cobertura de funnel: sin clasificar (no usar como debilidad — es un hueco de metadatos, no una realidad de mercado)`
+    : `- Cobertura top-funnel: ${w.topFunnelPct}%
+- Cobertura mid-funnel: ${w.midFunnelPct}%
+- Cobertura bottom-funnel: ${w.bottomFunnelPct}%`;
+
   return `# Datos del workspace
 
 Marca: ${w.brandName}
@@ -60,9 +73,7 @@ País: ${w.country}
 - Consistencia: ${w.consistencyPct !== null ? `${w.consistencyPct}%` : "sin datos"}
 - Menciones de marca: ${w.brandMentionsCount}
 - Prompts activos: ${w.activePromptsCount}
-- Cobertura top-funnel: ${w.topFunnelPct}%
-- Cobertura mid-funnel: ${w.midFunnelPct}%
-- Cobertura bottom-funnel: ${w.bottomFunnelPct}%
+${funnelBlock}
 - Prompts con SOV bajo (<30%): ${w.lowSovPromptsCount}
 - Dominios citados por LLMs: ${w.sourcesCount}
 
