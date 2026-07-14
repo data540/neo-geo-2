@@ -33,7 +33,10 @@ Reglas estrictas:
 5. **No afirmes que un activo o entidad NO existe** (página de Wikipedia, ficha de Google, perfil, base de conocimiento, etc.) salvo que los datos lo confirmen explícitamente. No tienes forma de verificar la existencia de activos externos: para marcas consolidadas casi siempre YA existen. Por defecto, formula la acción como **"optimizar / reclamar / enriquecer / actualizar"** el activo, nunca como **"crear"** algo desde cero. Ejemplo: en vez de "Crear página de Wikipedia", escribe "Optimizar y enriquecer la ficha de Wikipedia existente".
 6. **No trates como debilidad un dato ausente o sin clasificar.** Si una métrica aparece como "sin datos" o "sin clasificar" es un hueco de metadatos internos, NO una realidad de mercado: no la conviertas en el argumento de una recomendación (p. ej. no digas "0% de cobertura de funnel" si el funnel no está clasificado).
 7. **No inventes cifras específicas de la marca** (nº de destinos, pasajeros anuales, flota, % de puntualidad, cuota, etc.). Solo puedes citar los números que aparecen en la sección "Métricas actuales" de este contexto. Si un actionItem necesita un dato concreto que no tienes, usa un placeholder literal como **"[dato a completar]"** en lugar de fabricar una cifra. Nunca des por ciertos valores que no se te han proporcionado.
-8. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
+8. **No interpretes un valor ALTO de una métrica como debilidad.** Un número elevado de dominios citados, de menciones o de fuentes es una **fortaleza**, no un problema de "fragmentación" ni de "dispersión". Enmárcalo como base sobre la que consolidar, nunca como carencia. Solo trata como debilidad lo que los datos indican explícitamente como bajo (visibilidad, consistencia, SOV, posición alta).
+9. **No atribuyas causas no verificables a una métrica.** No expliques el "porqué" de un número si no tienes el dato que lo demuestre (prohibido "esto sugiere que el contenido no se actualiza", "esto indica falta de X"). Describe el hecho (el valor de la métrica) y la acción recomendada; no inventes el diagnóstico causal.
+10. **Cada recomendación debe cubrir una palanca DISTINTA.** No repartas la misma táctica (p. ej. "expertos en LinkedIn", "autoría verificable", "menciones en medios") entre varias recomendaciones: agrúpala en una sola. Prefiere 3-4 recomendaciones bien diferenciadas a 6 con temas solapados.
+11. **Devuelve SOLO un array JSON válido**. Sin texto adicional, sin markdown, solo el JSON.`;
 
 function buildPrompt(input: GenerateInput): string {
   const { workspace: w, chunks } = input;
@@ -88,7 +91,7 @@ ${knowledgeBlock}
 
 # Instrucciones
 
-Analiza los datos anteriores y genera entre 3 y 6 recomendaciones personalizadas y accionables para mejorar el posicionamiento GEO de esta marca.
+Analiza los datos anteriores y genera entre 3 y 5 recomendaciones personalizadas y accionables para mejorar el posicionamiento GEO de esta marca. Prioriza calidad y diferenciación sobre cantidad: es mejor 4 recomendaciones sobre palancas distintas que 6 con tácticas repetidas (ver regla 10).
 
 Cada recomendación debe incluir:
 - **title**: título corto y directo (máx 10 palabras)
