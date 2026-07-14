@@ -76,15 +76,6 @@ function formatDate(value: string): string {
   }).format(date);
 }
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toLowerCase();
-}
-
 function SectionTitle({
   icon: Icon,
   title,
@@ -327,8 +318,13 @@ export function CompanyBioForm({
         <CardContent className="p-6">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-center gap-4">
-              <div className="flex size-18 shrink-0 items-center justify-center rounded-2xl bg-blue-700 text-2xl font-bold text-white">
-                {initials(profile.company.name || "ae")}
+              <div className="flex size-18 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white p-2.5">
+                {/* biome-ignore lint/performance/noImgElement: logo local en public/ para Company Bio */}
+                <img
+                  src="/brand-logos/air-europa.png"
+                  alt={`${profile.company.name || "Air Europa"} logo`}
+                  className="size-full object-contain"
+                />
               </div>
               <div className="min-w-0 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
