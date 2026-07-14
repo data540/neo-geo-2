@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Lightbulb,
   MessageSquareText,
+  Plug,
   Search,
   Settings,
   ShieldCheck,
@@ -22,6 +23,7 @@ interface MainNavProps {
   workspaceSlug: string;
   collapsed?: boolean;
   userRole: WorkspaceMemberRole;
+  isSuperAdmin?: boolean;
 }
 
 const getNavItems = (slug: string) => [
@@ -37,14 +39,23 @@ const getNavItems = (slug: string) => [
   // Solo el rol 'owner' ve la administración del workspace.
   { href: `/${slug}/settings`, label: "Settings", icon: Settings, ownerOnly: true },
   { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck, ownerOnly: true },
+  // Feature en desarrollo: solo super-admin (email de plataforma).
+  { href: `/${slug}/mcp`, label: "MCP (beta)", icon: Plug, superAdminOnly: true },
 ];
 
-export function MainNav({ workspaceSlug, collapsed = false, userRole }: MainNavProps) {
+export function MainNav({
+  workspaceSlug,
+  collapsed = false,
+  userRole,
+  isSuperAdmin = false,
+}: MainNavProps) {
   const pathname = usePathname();
 
-  const items = getNavItems(workspaceSlug).filter(
-    (item) => !("ownerOnly" in item && item.ownerOnly) || userRole === "owner"
-  );
+  const items = getNavItems(workspaceSlug).filter((item) => {
+    if ("ownerOnly" in item && item.ownerOnly && userRole !== "owner") return false;
+    if ("superAdminOnly" in item && item.superAdminOnly && !isSuperAdmin) return false;
+    return true;
+  });
 
   return (
     <ul className="space-y-0.5 px-2">

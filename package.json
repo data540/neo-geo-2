@@ -22,7 +22,8 @@
     "kb:stats": "tsx scripts/index-knowledge.ts --stats",
     "backfill:mentions": "tsx scripts/backfill-mention-types.ts",
     "backfill:sentiment": "tsx scripts/backfill-sentiment-llm.ts",
-    "backfill:position": "tsx scripts/backfill-position-llm.ts"
+    "backfill:position": "tsx scripts/backfill-position-llm.ts",
+    "mcp:key": "tsx scripts/generate-mcp-key.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.94.0",
