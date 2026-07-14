@@ -85,34 +85,6 @@ function initials(name: string): string {
     .toLowerCase();
 }
 
-function looksLikeImageUrl(value: string | null): value is string {
-  return !!value && (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("/"));
-}
-
-function CompanyLogo({ name, logoHint }: { name: string; logoHint: string | null }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!failed && looksLikeImageUrl(logoHint)) {
-    return (
-      <div className="flex size-18 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white p-2.5">
-        {/* biome-ignore lint/performance/noImgElement: logo puede venir de un dominio externo o de public/, next/image no aplica aquí */}
-        <img
-          src={logoHint}
-          alt={`${name} logo`}
-          className="size-full object-contain"
-          onError={() => setFailed(true)}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex size-18 shrink-0 items-center justify-center rounded-2xl bg-blue-700 text-2xl font-bold text-white">
-      {initials(name || "ae")}
-    </div>
-  );
-}
-
 function SectionTitle({
   icon: Icon,
   title,
@@ -355,7 +327,9 @@ export function CompanyBioForm({
         <CardContent className="p-6">
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-center gap-4">
-              <CompanyLogo name={profile.company.name} logoHint={profile.company.logoHint} />
+              <div className="flex size-18 shrink-0 items-center justify-center rounded-2xl bg-blue-700 text-2xl font-bold text-white">
+                {initials(profile.company.name || "ae")}
+              </div>
               <div className="min-w-0 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   {editing ? (
