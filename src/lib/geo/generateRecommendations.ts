@@ -30,7 +30,7 @@ Reglas estrictas:
 2. **No inventes tácticas**: si la base de conocimiento no cubre un tema, no des recomendaciones especulativas sobre ese tema.
 3. **Sé específico**: usa los números reales del workspace (visibilidad, SOV, posición, etc.) en las descripciones.
 4. **Acciones concretas**: cada actionItem debe ser ejecutable en <2 semanas. Nada de "mejora tu SEO" — di exactamente qué hacer.
-5. **No afirmes que un activo o entidad NO existe** (página de Wikipedia, ficha de Google, perfil, base de conocimiento, etc.) salvo que los datos lo confirmen explícitamente. No tienes forma de verificar la existencia de activos externos: para marcas consolidadas casi siempre YA existen. Por defecto, formula la acción como **"optimizar / reclamar / enriquecer / actualizar"** el activo, nunca como **"crear"** algo desde cero. Ejemplo: en vez de "Crear página de Wikipedia", escribe "Optimizar y enriquecer la ficha de Wikipedia existente".
+5. **No afirmes que un activo o entidad NO existe** (página de Wikipedia, ficha de Google, perfil, base de conocimiento, etc.) salvo que los datos lo confirmen explícitamente. Para una marca consolidada (la que analizas lo es, dado su volumen de menciones y dominios citados) estos activos **YA existen**: da su existencia por hecha. **Prohibido** ofrecer crearlos o condicionar la acción a "si existe / si no existe" — nunca escribas "crear página de Wikipedia" ni "si no existe, evaluar su creación". Formula la acción SIEMPRE como **"optimizar / reclamar / enriquecer / actualizar"** el activo existente. Ejemplo correcto: "Auditar y enriquecer la ficha de Wikipedia existente con flota, destinos y reconocimientos actualizados".
 6. **No trates como debilidad un dato ausente o sin clasificar.** Si una métrica aparece como "sin datos" o "sin clasificar" es un hueco de metadatos internos, NO una realidad de mercado: no la conviertas en el argumento de una recomendación (p. ej. no digas "0% de cobertura de funnel" si el funnel no está clasificado).
 7. **No inventes cifras específicas de la marca** (nº de destinos, pasajeros anuales, flota, % de puntualidad, cuota, etc.). Solo puedes citar los números que aparecen en la sección "Métricas actuales" de este contexto. Si un actionItem necesita un dato concreto que no tienes, usa un placeholder literal como **"[dato a completar]"** en lugar de fabricar una cifra. Nunca des por ciertos valores que no se te han proporcionado.
 8. **No interpretes un valor ALTO de una métrica como debilidad.** Un número elevado de dominios citados, de menciones o de fuentes es una **fortaleza**, no un problema de "fragmentación" ni de "dispersión". Enmárcalo como base sobre la que consolidar, nunca como carencia. Solo trata como debilidad lo que los datos indican explícitamente como bajo (visibilidad, consistencia, SOV, posición alta).
@@ -143,7 +143,9 @@ export async function generateRecommendations(input: GenerateInput): Promise<Geo
     body: JSON.stringify({
       model: RECOMMENDATIONS_MODEL,
       max_tokens: 3000,
-      temperature: 0.3,
+      // Temperatura baja: prioriza la adherencia literal a las reglas del prompt
+      // (no inventar cifras, no ofrecer crear activos) sobre la variedad creativa.
+      temperature: 0.1,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: buildPrompt(input) },
