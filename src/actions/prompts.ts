@@ -13,6 +13,7 @@ import {
   runPromptSchema,
   togglePromptStatusSchema,
 } from "@/lib/validations/schemas";
+import { canRunPromptForWorkspace } from "@/lib/workspace-country";
 import type {
   ActionResult,
   PromptDetail,
@@ -49,6 +50,16 @@ async function getWorkspaceSlug(workspaceId: string): Promise<string | null> {
   const supabase = await createClient();
   const { data } = await supabase.from("workspaces").select("slug").eq("id", workspaceId).single();
   return data?.slug ?? null;
+}
+
+function isExecutablePrompt(
+  workspaceSlug: string | null,
+  prompt: { country?: string | null }
+): boolean {
+  return canRunPromptForWorkspace({
+    workspaceSlug: workspaceSlug ?? "",
+    promptCountry: prompt.country,
+  });
 }
 
 export async function createPromptAction(
@@ -191,6 +202,24 @@ export async function runPromptNowAction(data: unknown): Promise<ActionResult> {
   }
 
   const supabase = getServiceClient();
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("slug")
+    .eq("id", workspaceId)
+    .single();
+  const { data: prompt } = await supabase
+    .from("prompts")
+    .select("country")
+    .eq("id", promptId)
+    .eq("workspace_id", workspaceId)
+    .single();
+
+  if (!prompt || !isExecutablePrompt(workspace?.slug ?? null, prompt)) {
+    return {
+      success: false,
+      error: "Los prompts de Colombia de Air Europa no se ejecutan automáticamente.",
+    };
+  }
 
   // Cargar todos los LLMs habilitados del workspace
   const { data: llmConfigs } = await supabase
@@ -301,6 +330,10 @@ export async function createPromptsBulkAction(
   let warning: string | undefined;
   if (runAfterImport && insertedPrompts && insertedPrompts.length > 0) {
     const service = getServiceClient();
+    const workspaceSlug = await getWorkspaceSlug(workspaceId);
+    const executablePrompts = insertedPrompts.filter((prompt) =>
+      isExecutablePrompt(workspaceSlug, { ...prompt, country })
+    );
 
     const { data: llmConfigs } = await service
       .from("workspace_llm_config")
@@ -316,8 +349,11 @@ export async function createPromptsBulkAction(
     if (providerIds.length > 0 && remaining <= 0) {
       warning =
         "Los prompts se importaron, pero se alcanzó el límite diario de ejecuciones. Se ejecutarán mañana.";
+    } else if (providerIds.length > 0 && executablePrompts.length === 0) {
+      warning =
+        "Los prompts se importaron, pero no se ejecutaron porque este workspace solo ejecuta prompts de España.";
     } else if (providerIds.length > 0) {
-      const runRows = insertedPrompts
+      const runRows = executablePrompts
         .flatMap((p) =>
           providerIds.map((llmProviderId) => ({
             workspace_id: workspaceId,
@@ -339,7 +375,7 @@ export async function createPromptsBulkAction(
       }
 
       if (!runsError && createdRuns && createdRuns.length > 0) {
-        const events = insertedPrompts
+        const events = executablePrompts
           .map((p) => {
             const promptRunIds = createdRuns
               .filter((r) => r.prompt_id === p.id)
@@ -392,16 +428,28 @@ export async function runAllPromptsNowAction(
   }
 
   const service = getServiceClient();
+  const workspaceSlug = await getWorkspaceSlug(workspaceId);
 
   // Cargar todos los prompts activos del workspace
   const { data: activePrompts } = await service
     .from("prompts")
-    .select("id")
+    .select("id, country")
     .eq("workspace_id", workspaceId)
     .eq("status", "active");
 
   if (!activePrompts || activePrompts.length === 0) {
     return { success: false, error: "No hay prompts activos en este workspace" };
+  }
+
+  const executablePrompts = activePrompts.filter((prompt) =>
+    isExecutablePrompt(workspaceSlug, prompt)
+  );
+
+  if (executablePrompts.length === 0) {
+    return {
+      success: false,
+      error: "No hay prompts ejecutables: Air Europa solo ejecuta prompts de España.",
+    };
   }
 
   // Cargar todos los LLM providers habilitados del workspace
@@ -424,7 +472,7 @@ export async function runAllPromptsNowAction(
   }
 
   // Crear runs: N prompts × M providers, recortado al remanente diario
-  const runRows = activePrompts
+  const runRows = executablePrompts
     .flatMap((p) =>
       providerIds.map((llmProviderId) => ({
         workspace_id: workspaceId,
@@ -445,7 +493,7 @@ export async function runAllPromptsNowAction(
   }
 
   // Disparar un evento prompt/run.multi por cada prompt con runs creados
-  const events = activePrompts
+  const events = executablePrompts
     .map((p) => {
       const promptRunIds = createdRuns
         .filter((r) => r.prompt_id === p.id)
@@ -468,12 +516,11 @@ export async function runAllPromptsNowAction(
     }
   }
 
-  const workspaceSlug = await getWorkspaceSlug(workspaceId);
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
 
   return {
     success: true,
-    data: { prompts: activePrompts.length, runs: createdRuns.length },
+    data: { prompts: executablePrompts.length, runs: createdRuns.length },
   };
 }
 
@@ -492,15 +539,25 @@ export async function runPromptsBulkNowAction(
   }
 
   const service = getServiceClient();
+  const workspaceSlug = await getWorkspaceSlug(workspaceId);
 
   const { data: prompts, error: promptsError } = await service
     .from("prompts")
-    .select("id")
+    .select("id, country")
     .eq("workspace_id", workspaceId)
     .in("id", uniquePromptIds);
 
   if (promptsError || !prompts || prompts.length === 0) {
     return { success: false, error: "No se encontraron prompts válidos para ejecutar" };
+  }
+
+  const executablePrompts = prompts.filter((prompt) => isExecutablePrompt(workspaceSlug, prompt));
+
+  if (executablePrompts.length === 0) {
+    return {
+      success: false,
+      error: "No hay prompts ejecutables: Air Europa solo ejecuta prompts de España.",
+    };
   }
 
   const { data: llmConfigs } = await service
@@ -521,7 +578,7 @@ export async function runPromptsBulkNowAction(
     return { success: false, error: "Límite diario de ejecuciones alcanzado. Inténtalo mañana." };
   }
 
-  const runRows = prompts
+  const runRows = executablePrompts
     .flatMap((prompt) =>
       providerIds.map((llmProviderId) => ({
         workspace_id: workspaceId,
@@ -541,7 +598,7 @@ export async function runPromptsBulkNowAction(
     return { success: false, error: "No se pudieron crear los runs" };
   }
 
-  const events = prompts
+  const events = executablePrompts
     .map((prompt) => {
       const promptRunIds = createdRuns
         .filter((run) => run.prompt_id === prompt.id)
@@ -562,12 +619,11 @@ export async function runPromptsBulkNowAction(
     );
   }
 
-  const workspaceSlug = await getWorkspaceSlug(workspaceId);
   if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
 
   return {
     success: true,
-    data: { prompts: prompts.length, runs: createdRuns.length },
+    data: { prompts: executablePrompts.length, runs: createdRuns.length },
   };
 }
 

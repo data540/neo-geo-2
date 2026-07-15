@@ -9,6 +9,7 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import { canRunPromptForWorkspace } from "../src/lib/workspace-country";
 
 const serpApiClient = await import("../src/lib/aio/serpApiClient");
 const fetchAiOverviewSerp =
@@ -86,6 +87,16 @@ async function main() {
     return;
   }
 
+  const { data: workspaces, error: workspacesError } = await supabase
+    .from("workspaces")
+    .select("id, slug")
+    .in("id", workspaceIds);
+
+  if (workspacesError) throw workspacesError;
+  const workspaceSlugById = new Map(
+    (workspaces ?? []).map((workspace) => [workspace.id as string, workspace.slug as string])
+  );
+
   const { data: prompts, error: promptsError } = await supabase
     .from("prompts")
     .select("id, workspace_id, text, country")
@@ -100,9 +111,15 @@ async function main() {
     text: string;
     country: string | null;
   }>;
+  const executablePrompts = activePrompts.filter((prompt) =>
+    canRunPromptForWorkspace({
+      workspaceSlug: workspaceSlugById.get(prompt.workspace_id) ?? "",
+      promptCountry: prompt.country,
+    })
+  );
 
   const force = process.env.FORCE_SERP_REFRESH === "1";
-  let toFetch = activePrompts;
+  let toFetch = executablePrompts;
 
   if (!force) {
     const since = new Date(Date.now() - CACHE_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -111,13 +128,13 @@ async function main() {
       .select("prompt_id")
       .in(
         "prompt_id",
-        activePrompts.map((prompt) => prompt.id)
+        executablePrompts.map((prompt) => prompt.id)
       )
       .gte("fetched_at", since);
 
     if (recentError) throw recentError;
     const recentIds = new Set((recent ?? []).map((row) => row.prompt_id as string));
-    toFetch = activePrompts.filter((prompt) => !recentIds.has(prompt.id));
+    toFetch = executablePrompts.filter((prompt) => !recentIds.has(prompt.id));
   }
 
   if (searchesLeft !== null && searchesLeft < toFetch.length * 2) {
@@ -126,7 +143,7 @@ async function main() {
     );
   }
 
-  console.log(`Refreshing SERP snapshots for ${toFetch.length}/${activePrompts.length} prompts.`);
+  console.log(`Refreshing SERP snapshots for ${toFetch.length}/${executablePrompts.length} prompts.`);
 
   let fetched = 0;
   let errors = 0;

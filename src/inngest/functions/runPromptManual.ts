@@ -10,6 +10,7 @@ import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
+import { canRunPromptForWorkspace } from "@/lib/workspace-country";
 import type { Brand, LlmProviderKey } from "@/types";
 
 function getServiceClient() {
@@ -93,6 +94,18 @@ export const runPromptManual = inngest.createFunction(
 
     if (!context.prompt || !context.workspace || !context.llmProvider) {
       throw new Error("Datos de contexto no encontrados");
+    }
+
+    if (
+      !canRunPromptForWorkspace({
+        workspaceSlug: context.workspace.slug as string,
+        promptCountry: context.prompt.country as string | null,
+      })
+    ) {
+      return {
+        skipped: true,
+        reason: "Air Europa only runs Spain prompts",
+      };
     }
 
     const ownBrand = context.ownBrands[0] as Brand | undefined;

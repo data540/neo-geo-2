@@ -8,6 +8,7 @@ import { estimateCostForModel } from "@/lib/llm/pricing";
 import { runPrompt } from "@/lib/llm/runner";
 import { calculateConsistency, calculateSOV } from "@/lib/metrics/calculate";
 import { upsertDailyWorkspaceMetrics } from "@/lib/metrics/upsertDailyWorkspaceMetrics";
+import { canRunPromptForWorkspace } from "@/lib/workspace-country";
 import type { Brand, LlmProviderKey } from "@/types";
 
 function getServiceClient() {
@@ -57,6 +58,30 @@ export const runPromptManualMulti = inngest.createFunction(
 
     if (!context.prompt || !context.workspace) {
       throw new Error("Datos de contexto no encontrados");
+    }
+
+    if (
+      !canRunPromptForWorkspace({
+        workspaceSlug: context.workspace.slug as string,
+        promptCountry: context.prompt.country as string | null,
+      })
+    ) {
+      await step.run("mark-runs-blocked-by-country", async () => {
+        await supabase
+          .from("prompt_runs")
+          .update({
+            status: "failed",
+            error_message: "Air Europa only runs Spain prompts",
+            completed_at: new Date().toISOString(),
+          })
+          .in("id", runIds);
+      });
+
+      return {
+        skipped: true,
+        reason: "Air Europa only runs Spain prompts",
+        runIds,
+      };
     }
 
     const ownBrand = context.ownBrands[0] as Brand | undefined;

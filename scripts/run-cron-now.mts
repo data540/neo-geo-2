@@ -6,6 +6,7 @@
 import { config } from "dotenv";
 import { resolve } from "path";
 import { createClient } from "@supabase/supabase-js";
+import { canRunPromptForWorkspace } from "../src/lib/workspace-country";
 
 config({ path: resolve(process.cwd(), ".env.local") });
 
@@ -225,15 +226,8 @@ async function main() {
 
   const { data: allPrompts } = await supabase
     .from("prompts")
-    .select("id, workspace_id, text")
+    .select("id, workspace_id, text, country")
     .eq("status", "active");
-
-  const promptsByWorkspace = new Map<string, Array<{ id: string; text: string }>>();
-  for (const p of allPrompts ?? []) {
-    const wid = p.workspace_id as string;
-    if (!promptsByWorkspace.has(wid)) promptsByWorkspace.set(wid, []);
-    promptsByWorkspace.get(wid)!.push({ id: p.id as string, text: p.text as string });
-  }
 
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
@@ -255,6 +249,21 @@ async function main() {
     .select("id, slug")
     .in("id", workspaceIds);
   const wsMap = new Map((workspaces ?? []).map((w) => [w.id as string, w.slug as string]));
+
+  const promptsByWorkspace = new Map<string, Array<{ id: string; text: string }>>();
+  for (const p of allPrompts ?? []) {
+    const wid = p.workspace_id as string;
+    if (
+      !canRunPromptForWorkspace({
+        workspaceSlug: wsMap.get(wid) ?? "",
+        promptCountry: p.country as string | null,
+      })
+    ) {
+      continue;
+    }
+    if (!promptsByWorkspace.has(wid)) promptsByWorkspace.set(wid, []);
+    promptsByWorkspace.get(wid)!.push({ id: p.id as string, text: p.text as string });
+  }
 
   const { data: brands } = await supabase
     .from("brands")

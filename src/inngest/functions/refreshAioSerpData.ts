@@ -10,6 +10,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { inngest } from "@/inngest/client";
 import { fetchAiOverviewSerp } from "@/lib/aio/serpApiClient";
+import { canRunPromptForWorkspace } from "@/lib/workspace-country";
 
 const CACHE_TTL_DAYS = 7;
 const BATCH_DELAY_MS = 500; // pausa entre llamadas para no saturar SerpAPI
@@ -72,6 +73,11 @@ export const refreshAioSerpData = inngest.createFunction(
       return { fetched: 0, skipped: 0, reason: "no workspaces with gemini enabled" };
     }
 
+    const workspaceSlugById = await step.run("fetch-workspace-slugs", async () => {
+      const { data } = await supabase.from("workspaces").select("id, slug").in("id", workspaces);
+      return Object.fromEntries((data ?? []).map((w) => [w.id as string, w.slug as string]));
+    });
+
     // 3. Prompts activos de esos workspaces con su texto y país
     const prompts = await step.run("fetch-active-prompts", async () => {
       const { data } = await supabase
@@ -86,8 +92,14 @@ export const refreshAioSerpData = inngest.createFunction(
         country: string | null;
       }>;
     });
+    const executablePrompts = prompts.filter((prompt) =>
+      canRunPromptForWorkspace({
+        workspaceSlug: workspaceSlugById[prompt.workspace_id] ?? "",
+        promptCountry: prompt.country,
+      })
+    );
 
-    if (prompts.length === 0) {
+    if (executablePrompts.length === 0) {
       return { fetched: 0, skipped: 0, reason: "no active prompts" };
     }
 
@@ -99,7 +111,7 @@ export const refreshAioSerpData = inngest.createFunction(
         .select("prompt_id")
         .in(
           "prompt_id",
-          prompts.map((p) => p.id)
+          executablePrompts.map((p) => p.id)
         )
         .gte("fetched_at", since);
       return (data ?? []).map((r) => r.prompt_id as string);
@@ -107,10 +119,14 @@ export const refreshAioSerpData = inngest.createFunction(
     const recentIds = new Set(recentIdsList);
 
     // 5. Solo procesar los que no tienen caché reciente
-    const toFetch = prompts.filter((p) => !recentIds.has(p.id));
+    const toFetch = executablePrompts.filter((p) => !recentIds.has(p.id));
 
     if (toFetch.length === 0) {
-      return { fetched: 0, skipped: prompts.length, reason: "all prompts have fresh cache" };
+      return {
+        fetched: 0,
+        skipped: executablePrompts.length,
+        reason: "all prompts have fresh cache",
+      };
     }
 
     let fetched = 0;
@@ -145,7 +161,7 @@ export const refreshAioSerpData = inngest.createFunction(
       fetched,
       skipped: recentIds.size,
       errors,
-      total: prompts.length,
+      total: executablePrompts.length,
     };
   }
 );
