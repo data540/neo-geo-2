@@ -45,6 +45,17 @@ interface Props {
 
 type SectionIcon = LucideIcon;
 
+const WORKSPACE_LOGOS: Record<string, { src: string; altFallback: string }> = {
+  "air-europa": {
+    src: "/brand-logos/air-europa.png",
+    altFallback: "Air Europa",
+  },
+  foodbox: {
+    src: "/brand-logos/foodbox.webp",
+    altFallback: "FoodBox",
+  },
+};
+
 function cloneProfile(profile: CompanyBioProfile): CompanyBioProfile {
   return JSON.parse(JSON.stringify(profile)) as CompanyBioProfile;
 }
@@ -74,6 +85,21 @@ function formatDate(value: string): string {
     month: "long",
     year: "numeric",
   }).format(date);
+}
+
+function getInitials(value: string): string {
+  const words = value
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) return "NG";
+
+  return words
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase();
 }
 
 function SectionTitle({
@@ -277,6 +303,8 @@ export function CompanyBioForm({
   const [isSaving, startSaving] = useTransition();
 
   const busy = isGenerating || isSaving;
+  const workspaceLogo = WORKSPACE_LOGOS[workspaceSlug.toLowerCase()] ?? null;
+  const fallbackInitials = getInitials(profile.company.name);
 
   function update(mutator: (draft: CompanyBioProfile) => void) {
     setProfile((current) => {
@@ -319,12 +347,18 @@ export function CompanyBioForm({
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-center gap-4">
               <div className="flex size-18 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white p-2.5">
-                {/* biome-ignore lint/performance/noImgElement: logo local en public/ para Company Bio */}
-                <img
-                  src="/brand-logos/air-europa.png"
-                  alt={`${profile.company.name || "Air Europa"} logo`}
-                  className="size-full object-contain"
-                />
+                {workspaceLogo ? (
+                  /* biome-ignore lint/performance/noImgElement: logo local en public/ para Company Bio */
+                  <img
+                    src={workspaceLogo.src}
+                    alt={`${profile.company.name || workspaceLogo.altFallback} logo`}
+                    className="size-full object-contain"
+                  />
+                ) : (
+                  <span className="flex size-full items-center justify-center rounded-xl bg-slate-900 text-lg font-bold text-white">
+                    {fallbackInitials}
+                  </span>
+                )}
               </div>
               <div className="min-w-0 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
