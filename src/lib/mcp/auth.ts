@@ -54,8 +54,32 @@ export async function resolveWorkspaceFromAuth(
   if (!token) return null;
 
   const supabase = mcpServiceClient();
-  const keyHash = hashApiKey(token);
 
+  // Access token OAuth (mnt_at_): tabla mcp_oauth_tokens.
+  if (token.startsWith("mnt_at_")) {
+    const tokenHash = hashApiKey(token);
+    const { data: tok } = await supabase
+      .from("mcp_oauth_tokens")
+      .select("id, workspace_id, revoked_at, expires_at")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+
+    if (!tok || tok.revoked_at || new Date(tok.expires_at as string) < new Date()) return null;
+
+    const workspace = await loadWorkspace(supabase, tok.workspace_id as string);
+    if (!workspace) return null;
+
+    void supabase
+      .from("mcp_oauth_tokens")
+      .update({ last_used_at: new Date().toISOString() })
+      .eq("id", tok.id)
+      .then(() => undefined);
+
+    return workspace;
+  }
+
+  // API key manual (mnt_live_): tabla mcp_api_keys (comportamiento existente).
+  const keyHash = hashApiKey(token);
   const { data: keyRow, error } = await supabase
     .from("mcp_api_keys")
     .select("id, workspace_id, revoked_at")
@@ -64,20 +88,30 @@ export async function resolveWorkspaceFromAuth(
 
   if (error || !keyRow || keyRow.revoked_at) return null;
 
-  const { data: workspace } = await supabase
-    .from("workspaces")
-    .select("id, slug, name, brand_name, domain, country")
-    .eq("id", keyRow.workspace_id)
-    .single();
-
+  const workspace = await loadWorkspace(supabase, keyRow.workspace_id as string);
   if (!workspace) return null;
 
-  // best-effort: marca uso reciente sin bloquear
   void supabase
     .from("mcp_api_keys")
     .update({ last_used_at: new Date().toISOString() })
     .eq("id", keyRow.id)
     .then(() => undefined);
+
+  return workspace;
+}
+
+/** Carga y mapea un workspace a ResolvedWorkspace. Compartido por las dos vías de auth. */
+async function loadWorkspace(
+  supabase: SupabaseClient,
+  workspaceId: string
+): Promise<ResolvedWorkspace | null> {
+  const { data: workspace } = await supabase
+    .from("workspaces")
+    .select("id, slug, name, brand_name, domain, country")
+    .eq("id", workspaceId)
+    .single();
+
+  if (!workspace) return null;
 
   return {
     workspaceId: workspace.id as string,
