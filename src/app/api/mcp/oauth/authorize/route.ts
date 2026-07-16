@@ -12,6 +12,15 @@ interface ManageableWorkspace {
   slug: string;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function htmlPage(inner: string): NextResponse {
   return new NextResponse(
     `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Conectar con Mentio</title><style>
@@ -94,14 +103,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const options = workspaces.map((w) => `<option value="${w.id}">${w.name}</option>`).join("");
+  const options = workspaces
+    .map((w) => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.name)}</option>`)
+    .join("");
 
   return htmlPage(`
     <h1>Conectar con Mentio</h1>
-    <p><strong>${client.clientName}</strong> quiere leer los datos GEO (solo lectura) de tu workspace:</p>
+    <p><strong>${escapeHtml(client.clientName)}</strong> quiere leer los datos GEO (solo lectura) de tu workspace:</p>
     <form method="POST">
       ${Array.from(p.entries())
-        .map(([k, v]) => `<input type="hidden" name="${k}" value="${v.replace(/"/g, "&quot;")}">`)
+        .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}">`)
         .join("")}
       <select name="workspace_id">${options}</select>
       <div class="row">
@@ -117,6 +128,7 @@ export async function POST(request: NextRequest) {
   const redirectUri = form.get("redirect_uri") as string | null;
   const state = form.get("state") as string | null;
   const codeChallenge = form.get("code_challenge") as string | null;
+  const codeChallengeMethod = form.get("code_challenge_method") as string | null;
   const workspaceId = form.get("workspace_id") as string | null;
   const decision = form.get("decision") as string | null;
 
@@ -125,6 +137,7 @@ export async function POST(request: NextRequest) {
     return htmlPage(`<h1>Solicitud inválida</h1><p>Cliente o URL de retorno no válidos.</p>`);
   if (decision !== "allow") return redirectError(redirectUri!, state, "access_denied");
   if (!codeChallenge || !workspaceId) return redirectError(redirectUri!, state, "invalid_request");
+  if (codeChallengeMethod !== "S256") return redirectError(redirectUri!, state, "invalid_request");
 
   const supabase = await createClient();
   const {
