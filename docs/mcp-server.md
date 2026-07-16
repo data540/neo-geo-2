@@ -28,16 +28,47 @@ Cliente LLM (Claude / ChatGPT)
   implementa el protocolo directamente.
 - Se despliega con la app en Vercel — no hay proceso aparte.
 
-> **Visibilidad:** el MCP está **en desarrollo** y su sección en la app (menú
-> lateral **"MCP (beta)"** → `/{workspace}/mcp`) es visible **solo para la cuenta
-> super-admin** (`tester@gmail.com`). El resto de usuarios no lo ven y reciben 404
-> si intentan entrar. El gate está en [`src/lib/auth/superAdmin.ts`](../src/lib/auth/superAdmin.ts).
+> **Visibilidad:** la sección MCP en la app (menú lateral **"MCP"** →
+> `/{workspace}/mcp`) es visible para **dueños y administradores del workspace**
+> (mismo nivel de permisos que Settings / Admin). El gate está en
+> [`src/lib/auth/getWorkspaceMember.ts`](../src/lib/auth/getWorkspaceMember.ts).
 
-## 1. Generar una API key
+## 1. Conexión vía OAuth (recomendada para Claude.ai / ChatGPT)
+
+**Sin API key, sin copiar-pegar tokens.** Si eres dueño o admin de un workspace
+en Mentio, puedes conectar directamente desde Claude.ai o ChatGPT con solo la URL
+del servidor MCP — el flujo OAuth se encarga de la identidad y los permisos.
+
+### Cómo funciona
+
+1. En Claude.ai o ChatGPT, ve a **Settings → Connectors → Add custom connector**.
+2. Pega solo la URL: `https://neogeo-three.vercel.app/api/mcp`
+3. Haz clic en **Connect**.
+4. Se abre una ventana: inicia sesión en tu cuenta de Mentio (si no lo estás ya).
+5. Ves una pantalla de **Autorizar** listando los workspace(s) donde eres
+   dueño/admin.
+6. Haz clic en **Autorizar** para conectar.
+7. Listo — las herramientas de Mentio aparecen en el selector de Claude / ChatGPT.
+
+**Requisito:** debes ser **dueño o administrador** de al menos un workspace.
+Si no ves ninguno en la pantalla de consentimiento, contacta con el dueño del
+workspace para que te añada.
+
+### Diferencia vs API keys
+
+- **OAuth:** ideal para usuarios humanos en Claude.ai o ChatGPT. Flujo interactivo,
+  identidad verificada, sin secretos guardados en texto.
+- **API keys** (`mnt_live_…`): ideales para Claude Code (CLI), scripts, y acceso
+  programático. Una key por consumidor, revocable en cualquier momento. Ver
+  apartados 2 a 4 abajo.
+
+---
+
+## 2. Generar una API key
 
 Cada línea de acceso (un LLM, una persona) debería tener su propia key.
 
-**Opción A — desde la app (recomendada, solo super-admin):** menú **MCP (beta)** →
+**Opción A — desde la app (recomendada):** menú **MCP** →
 escribe un nombre → **Generar**. La key se muestra una sola vez con un botón de
 copiar y un snippet listo para Claude Code. También puedes listar y revocar keys.
 
@@ -59,7 +90,7 @@ update public.mcp_api_keys set revoked_at = now()
 where key_prefix = 'mnt_live_xxxxxxxx';   -- el prefijo se ve en la tabla
 ```
 
-## 2. Configuración por cliente
+## 3. Configuración por cliente
 
 ### Claude Code (CLI)
 ```bash
@@ -102,7 +133,7 @@ MCP / servidor remoto):
 > El servidor es stateless y responde en JSON (no SSE), compatible con clientes
 > que hablan Streamable HTTP.
 
-## 3. Herramientas (todas de solo lectura)
+## 4. Herramientas (todas de solo lectura)
 
 | Herramienta | Argumentos | Descripción |
 |---|---|---|
@@ -122,7 +153,7 @@ MCP / servidor remoto):
 - `country` en ISO (`ES`, `CO`). Omitir cualquiera de los dos = agregado global.
 - `days` por defecto 30.
 
-## 4. Verificación manual (curl)
+## 5. Verificación manual (curl)
 
 ```bash
 KEY="mnt_live_TU_KEY"
@@ -141,7 +172,7 @@ curl -s -X POST "$URL" -H "Authorization: Bearer $KEY" -H "Content-Type: applica
   -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_workspace_overview","arguments":{}}}'
 ```
 
-## 5. Seguridad
+## 6. Seguridad
 
 - **Solo lectura.** No hay herramientas que escriban ni disparen ejecuciones/coste.
 - **Aislamiento por workspace.** La key resuelve a un único `workspace_id`; ninguna
@@ -151,12 +182,12 @@ curl -s -X POST "$URL" -H "Authorization: Bearer $KEY" -H "Content-Type: applica
 - **Trata la key como una contraseña.** Da acceso de lectura a todas las métricas
   del workspace. Usa una key por consumidor y revoca las que se filtren.
 
-## 6. Solución de problemas
+## 7. Solución de problemas
 
 | Síntoma | Causa / solución |
 |---|---|
 | `401` en todas las llamadas | Falta o es inválida la cabecera `Authorization: Bearer …`, o la key está revocada. Genera una nueva con `pnpm mcp:key`. |
 | `405` al hacer `GET /api/mcp` | Es lo esperado: el servidor es stateless y solo acepta `POST`. |
 | El cliente no ve herramientas | Confirma que el handshake `initialize` responde 200 y que `tools/list` devuelve 11 herramientas (curl arriba). |
-| `Herramienta desconocida` | El nombre no existe; consulta la tabla de la sección 3. |
+| `Herramienta desconocida` | El nombre no existe; consulta la tabla de la sección 4. |
 | Datos vacíos | El workspace puede no tener datos para ese `days`/`llm_provider`/`country`. Prueba sin filtros. |
