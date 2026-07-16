@@ -23,11 +23,31 @@ export async function POST(request: NextRequest) {
     ? body.redirect_uris.filter((u): u is string => typeof u === "string")
     : [];
 
+  const invalidRedirectUriResponse = NextResponse.json(
+    { error: "invalid_redirect_uri", error_description: "redirect_uris requerido" },
+    { status: 400, headers: CORS }
+  );
+
   if (redirectUris.length === 0) {
-    return NextResponse.json(
-      { error: "invalid_redirect_uri", error_description: "redirect_uris requerido" },
-      { status: 400, headers: CORS }
-    );
+    return invalidRedirectUriResponse;
+  }
+
+  const isValidRedirectUri = (value: string): boolean => {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return false;
+    }
+    if (url.protocol === "https:") return true;
+    if (url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname)) {
+      return true;
+    }
+    return false;
+  };
+
+  if (!redirectUris.every(isValidRedirectUri)) {
+    return invalidRedirectUriResponse;
   }
 
   const clientId = `mcp_${randomUUID().replace(/-/g, "")}`;
