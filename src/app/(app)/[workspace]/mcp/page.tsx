@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
-import { listMcpKeysAction } from "@/actions/mcp";
+import { listMcpConnectionsAction, listMcpKeysAction } from "@/actions/mcp";
 import { McpKeysPanel } from "@/components/workspace/McpKeysPanel";
-import { isSuperAdmin } from "@/lib/auth/superAdmin";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -12,13 +11,6 @@ export default async function McpPage({ params }: Props) {
   const { workspace: slug } = await params;
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Gate estricto: solo super-admin (feature en desarrollo). El resto: 404.
-  if (!user || !isSuperAdmin(user.email)) notFound();
-
   const { data: workspace } = await supabase
     .from("workspaces")
     .select("id, slug, name")
@@ -27,7 +19,15 @@ export default async function McpPage({ params }: Props) {
 
   if (!workspace) notFound();
 
-  const keysResult = await listMcpKeysAction(workspace.id);
+  const { data: canManage } = await supabase.rpc("can_manage_workspace", {
+    p_workspace_id: workspace.id,
+  });
+  if (!canManage) notFound();
+
+  const [keysResult, connectionsResult] = await Promise.all([
+    listMcpKeysAction(workspace.id),
+    listMcpConnectionsAction(workspace.id),
+  ]);
   const base = process.env.MCP_PUBLIC_BASE_URL ?? "https://neogeo-three.vercel.app";
   const serverUrl = `${base.replace(/\/$/, "")}/api/mcp`;
 
@@ -37,8 +37,7 @@ export default async function McpPage({ params }: Props) {
         <div>
           <h1 className="text-xl font-bold text-slate-900">MCP · Model Context Protocol</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Conecta este workspace a Claude o ChatGPT vía MCP (solo lectura). En desarrollo —
-            visible solo para administradores.
+            Conecta este workspace a Claude o ChatGPT vía MCP (solo lectura).
           </p>
         </div>
 
@@ -47,6 +46,7 @@ export default async function McpPage({ params }: Props) {
           workspaceName={workspace.name}
           serverUrl={serverUrl}
           initialKeys={keysResult.data ?? []}
+          initialConnections={connectionsResult.data ?? []}
         />
       </div>
     </div>

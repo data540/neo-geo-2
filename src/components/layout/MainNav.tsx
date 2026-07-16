@@ -39,8 +39,7 @@ const getNavItems = (slug: string) => [
   // Solo el rol 'owner' ve la administración del workspace.
   { href: `/${slug}/settings`, label: "Settings", icon: Settings, ownerOnly: true },
   { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck, ownerOnly: true },
-  // Feature en desarrollo: solo super-admin (email de plataforma).
-  { href: `/${slug}/mcp`, label: "MCP (beta)", icon: Plug, superAdminOnly: true },
+  { href: `/${slug}/mcp`, label: "MCP", icon: Plug, ownerOnly: true },
 ];
 
 export function MainNav({
