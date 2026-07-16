@@ -52,7 +52,7 @@ export async function listMcpKeysAction(workspaceId: string): Promise<ActionResu
 export async function generateMcpKeyAction(
   workspaceId: string,
   name: string
-): Promise<ActionResult<{ key: string; keyPrefix: string }>> {
+): Promise<ActionResult<{ id: string; key: string; keyPrefix: string; createdAt: string }>> {
   const gate = await requireManager(workspaceId);
   if (gate) return { success: false, error: gate.error };
 
@@ -60,15 +60,27 @@ export async function generateMcpKeyAction(
   const { key, keyHash, keyPrefix } = generateApiKey();
 
   const service = mcpServiceClient();
-  const { error } = await service.from("mcp_api_keys").insert({
-    workspace_id: workspaceId,
-    name: cleanName,
-    key_prefix: keyPrefix,
-    key_hash: keyHash,
-  });
-  if (error) return { success: false, error: error.message };
+  const { data, error } = await service
+    .from("mcp_api_keys")
+    .insert({
+      workspace_id: workspaceId,
+      name: cleanName,
+      key_prefix: keyPrefix,
+      key_hash: keyHash,
+    })
+    .select("id, created_at")
+    .single();
+  if (error || !data) return { success: false, error: error?.message ?? "No se pudo crear la key" };
 
-  return { success: true, data: { key, keyPrefix } };
+  return {
+    success: true,
+    data: {
+      id: data.id as string,
+      key,
+      keyPrefix,
+      createdAt: data.created_at as string,
+    },
+  };
 }
 
 export async function revokeMcpKeyAction(keyId: string): Promise<ActionResult<{ id: string }>> {

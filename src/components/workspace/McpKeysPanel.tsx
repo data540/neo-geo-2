@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, KeyRound, Loader2, Plug, ShieldAlert, Trash2 } from "lucide-react";
+import { Bot, Check, Copy, KeyRound, Loader2, Plug, ShieldAlert, Trash2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
@@ -83,14 +83,14 @@ export function McpKeysPanel({
         toast.error(result.error ?? "No se pudo generar la key");
         return;
       }
-      const { key, keyPrefix } = result.data;
+      const { id, key, keyPrefix, createdAt } = result.data;
       setFreshKey(key);
       setKeys((prev) => [
         {
-          id: crypto.randomUUID(),
+          id,
           name: name.trim() || "default",
           keyPrefix,
-          createdAt: new Date().toISOString(),
+          createdAt,
           lastUsedAt: null,
           revokedAt: null,
         },
@@ -136,6 +136,34 @@ export function McpKeysPanel({
   }
 
   const claudeSnippet = `claude mcp add --transport http mentio ${serverUrl} \\\n  --header "Authorization: Bearer ${freshKey ?? "mnt_live_TU_KEY"}"`;
+  const llmInstructions = `Conectate al servidor MCP de Mentio para consultar datos GEO del workspace "${workspaceName}".
+
+Servidor MCP:
+${serverUrl}
+
+Autenticacion:
+Usa siempre esta cabecera HTTP en cada peticion:
+Authorization: Bearer ${freshKey ?? "mnt_live_TU_API_KEY"}
+
+Transporte y protocolo:
+- Transporte: Streamable HTTP / JSON-RPC 2.0 sobre POST.
+- El servidor es stateless: no uses SSE ni mantengas una sesion persistente.
+- Content-Type: application/json.
+- Todas las herramientas son de solo lectura.
+- El token ya esta acotado a un unico workspace; no pidas ni envies workspace_id.
+
+Secuencia recomendada:
+1. Llama a initialize con protocolVersion "2025-06-18".
+2. Llama a tools/list para descubrir las herramientas disponibles.
+3. Llama primero a get_workspace_overview para entender la marca, pais, dominio, competidores y prompts activos.
+4. Para analisis de negocio, usa despues get_dashboard_kpis, get_market_share, get_top_competitors, get_top_sources, get_mention_breakdown, get_llm_comparison, get_prompt_performance, list_prompts, get_recommendations y get_company_bio.
+
+Reglas de uso:
+- No inventes datos: usa solo respuestas del MCP.
+- Cuando resumas resultados, menciona filtros usados como days, country y llm_provider.
+- Si el usuario pide competidores, cuota de mercado o visibilidad, usa por defecto days=30 salvo que indique otra ventana.
+- Si el usuario pide datos por pais, usa codigos ISO como ES o CO.
+- Si una herramienta devuelve pocos datos, explicalo y prueba con menos filtros antes de concluir.`;
 
   return (
     <div className="space-y-6">
@@ -220,6 +248,28 @@ export function McpKeysPanel({
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-xl border-slate-200 bg-white shadow-sm">
+        <CardHeader className="border-b border-slate-200 bg-slate-50/60">
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+            <Bot className="size-4 text-indigo-600" aria-hidden="true" />
+            Instrucciones para pegar en un LLM
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 p-5">
+          <p className="text-xs text-slate-500">
+            Copia este bloque y pegalo en Claude, ChatGPT, Cursor, un agente CLI o cualquier modelo
+            que pueda configurar servidores MCP. Si acabas de generar una API key, el bloque ya la
+            incluye; si no, sustituye <code>mnt_live_TU_API_KEY</code>.
+          </p>
+          <div className="flex items-start gap-2">
+            <pre className="max-h-96 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800">
+              {llmInstructions}
+            </pre>
+            <CopyButton value={llmInstructions} label="Instrucciones" />
+          </div>
         </CardContent>
       </Card>
 
