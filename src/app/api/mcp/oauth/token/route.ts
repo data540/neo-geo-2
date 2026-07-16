@@ -30,7 +30,7 @@ async function issueTokens(params: {
   const access = generateOpaqueToken(ACCESS_PREFIX);
   const refresh = generateOpaqueToken(REFRESH_PREFIX);
   const service = mcpServiceClient();
-  await service.from("mcp_oauth_tokens").insert({
+  const { error: insertError } = await service.from("mcp_oauth_tokens").insert({
     token_hash: access.hash,
     refresh_hash: refresh.hash,
     client_id: params.clientId,
@@ -39,6 +39,7 @@ async function issueTokens(params: {
     client_name: params.clientName,
     expires_at: new Date(Date.now() + ACCESS_TTL_SECONDS * 1000).toISOString(),
   });
+  if (insertError) return oauthError("server_error", 500);
   return NextResponse.json(
     {
       access_token: access.token,
@@ -78,10 +79,14 @@ export async function POST(request: NextRequest) {
     if (!verifyPkceS256(codeVerifier, row.code_challenge as string))
       return oauthError("invalid_grant");
 
-    await service
+    const { data: consumedRows, error: consumeError } = await service
       .from("mcp_oauth_codes")
       .update({ consumed_at: new Date().toISOString() })
-      .eq("id", row.id);
+      .eq("id", row.id)
+      .is("consumed_at", null)
+      .select("id");
+    if (consumeError || !consumedRows || consumedRows.length === 0)
+      return oauthError("invalid_grant");
 
     const { data: client } = await service
       .from("mcp_oauth_clients")
@@ -110,10 +115,13 @@ export async function POST(request: NextRequest) {
     if (!row || row.revoked_at) return oauthError("invalid_grant");
 
     // Rotación: revoca el token viejo y emite uno nuevo.
-    await service
+    const { data: revokedRows, error: revokeError } = await service
       .from("mcp_oauth_tokens")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("id", row.id);
+      .eq("id", row.id)
+      .is("revoked_at", null)
+      .select("id");
+    if (revokeError || !revokedRows || revokedRows.length === 0) return oauthError("invalid_grant");
 
     return issueTokens({
       clientId: row.client_id as string,
