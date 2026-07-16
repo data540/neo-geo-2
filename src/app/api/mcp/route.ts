@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { mcpServiceClient, resolveWorkspaceFromAuth } from "@/lib/mcp/auth";
+import { oauthBaseUrl } from "@/lib/mcp/oauth";
 import { MCP_TOOLS, MCP_TOOLS_BY_NAME, type ToolContext } from "@/lib/mcp/tools";
 
 export const runtime = "nodejs";
@@ -16,7 +17,8 @@ const INSTRUCTIONS =
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version",
+  "Access-Control-Allow-Headers":
+    "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version",
 };
 
 type JsonRpcId = string | number | null;
@@ -34,16 +36,14 @@ function error(id: JsonRpcId, code: number, message: string) {
   return { jsonrpc: "2.0" as const, id, error: { code, message } };
 }
 
-async function dispatch(
-  msg: JsonRpcRequest,
-  ctx: ToolContext
-): Promise<object | null> {
+async function dispatch(msg: JsonRpcRequest, ctx: ToolContext): Promise<object | null> {
   const id = (msg.id ?? null) as JsonRpcId;
   const isNotification = !("id" in msg) || msg.id === undefined;
 
   switch (msg.method) {
     case "initialize": {
-      const clientProtocol = (msg.params?.protocolVersion as string | undefined) ?? DEFAULT_PROTOCOL;
+      const clientProtocol =
+        (msg.params?.protocolVersion as string | undefined) ?? DEFAULT_PROTOCOL;
       return result(id, {
         protocolVersion: clientProtocol,
         capabilities: { tools: { listChanged: false } },
@@ -96,9 +96,20 @@ async function dispatch(
 export async function POST(request: NextRequest) {
   const workspace = await resolveWorkspaceFromAuth(request.headers.get("authorization"));
   if (!workspace) {
+    const resourceMeta = `${oauthBaseUrl()}/.well-known/oauth-protected-resource`;
     return NextResponse.json(
-      error(null, -32001, "No autorizado: falta o es inválida la API key (Authorization: Bearer <key>)."),
-      { status: 401, headers: { ...CORS_HEADERS, "WWW-Authenticate": "Bearer" } }
+      error(
+        null,
+        -32001,
+        "No autorizado: se requiere un token válido (Authorization: Bearer <token>)."
+      ),
+      {
+        status: 401,
+        headers: {
+          ...CORS_HEADERS,
+          "WWW-Authenticate": `Bearer resource_metadata="${resourceMeta}"`,
+        },
+      }
     );
   }
 
