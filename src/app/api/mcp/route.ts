@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { mcpServiceClient, resolveWorkspaceFromAuth } from "@/lib/mcp/auth";
 import { oauthBaseUrl } from "@/lib/mcp/oauth";
@@ -19,6 +20,7 @@ const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
   "Access-Control-Allow-Headers":
     "Content-Type, Authorization, Mcp-Session-Id, Mcp-Protocol-Version",
+  "Access-Control-Expose-Headers": "Mcp-Session-Id",
 };
 
 type JsonRpcId = string | number | null;
@@ -113,6 +115,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const sessionId = request.headers.get("mcp-session-id") ?? randomUUID();
+
   let body: unknown;
   try {
     body = await request.json();
@@ -139,10 +143,15 @@ export async function POST(request: NextRequest) {
 
   // Solo había notificaciones → 202 sin cuerpo.
   if (responses.length === 0) {
-    return new NextResponse(null, { status: 202, headers: CORS_HEADERS });
+    return new NextResponse(null, {
+      status: 202,
+      headers: { ...CORS_HEADERS, "Mcp-Session-Id": sessionId },
+    });
   }
 
-  return NextResponse.json(isBatch ? responses : responses[0], { headers: CORS_HEADERS });
+  return NextResponse.json(isBatch ? responses : responses[0], {
+    headers: { ...CORS_HEADERS, "Mcp-Session-Id": sessionId },
+  });
 }
 
 // Modo stateless: no ofrecemos stream SSE iniciado por el servidor.
