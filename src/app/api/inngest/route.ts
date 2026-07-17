@@ -3,6 +3,7 @@ import { inngest } from "@/inngest/client";
 import { aggregateDailyMetrics } from "@/inngest/functions/aggregateDailyMetrics";
 import { extractCompetitorsFromPromptRunsDaily } from "@/inngest/functions/extractCompetitorsFromPromptRunsDaily";
 import { geoResearchPipeline } from "@/inngest/functions/geoResearchPipeline";
+import { mcpOauthCleanup } from "@/inngest/functions/mcpOauthCleanup";
 import { pipelineCacheCleanup } from "@/inngest/functions/pipelineCacheCleanup";
 import { refreshAioSerpData } from "@/inngest/functions/refreshAioSerpData";
 import { refreshGoogleAnalytics } from "@/inngest/functions/refreshGoogleAnalytics";
@@ -19,6 +20,7 @@ export const { GET, POST, PUT } = serve({
     aggregateDailyMetrics,
     extractCompetitorsFromPromptRunsDaily,
     geoResearchPipeline,
+    mcpOauthCleanup,
     pipelineCacheCleanup,
     refreshAioSerpData,
     refreshGoogleAnalytics,
