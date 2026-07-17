@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
 import { mcpServiceClient } from "@/lib/mcp/auth";
 import { CODE_PREFIX, CODE_TTL_SECONDS, generateOpaqueToken, oauthBaseUrl } from "@/lib/mcp/oauth";
@@ -5,6 +6,26 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const CSRF_COOKIE = "mcp_oauth_csrf";
+
+function withCsrfCookie(response: NextResponse, token: string): NextResponse {
+  response.cookies.set(CSRF_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/api/mcp/oauth/authorize",
+    maxAge: 600,
+  });
+  return response;
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
 
 interface ManageableWorkspace {
   id: string;
@@ -107,10 +128,13 @@ export async function GET(request: NextRequest) {
     .map((w) => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.name)}</option>`)
     .join("");
 
-  return htmlPage(`
+  const csrfToken = randomBytes(24).toString("hex");
+
+  const response = htmlPage(`
     <h1>Conectar con Mentio</h1>
     <p><strong>${escapeHtml(client.clientName)}</strong> quiere leer los datos GEO (solo lectura) de tu workspace:</p>
     <form method="POST">
+      <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
       ${Array.from(p.entries())
         .map(([k, v]) => `<input type="hidden" name="${escapeHtml(k)}" value="${escapeHtml(v)}">`)
         .join("")}
@@ -120,6 +144,7 @@ export async function GET(request: NextRequest) {
         <button type="submit" name="decision" value="allow" class="primary">Autorizar</button>
       </div>
     </form>`);
+  return withCsrfCookie(response, csrfToken);
 }
 
 export async function POST(request: NextRequest) {
@@ -135,6 +160,13 @@ export async function POST(request: NextRequest) {
   const client = await validateClient(clientId, redirectUri);
   if (!client)
     return htmlPage(`<h1>Solicitud inválida</h1><p>Cliente o URL de retorno no válidos.</p>`);
+
+  const csrfToken = form.get("csrf_token") as string | null;
+  const csrfCookie = request.cookies.get(CSRF_COOKIE)?.value ?? null;
+  if (!csrfToken || !csrfCookie || !safeEqual(csrfToken, csrfCookie)) {
+    return redirectError(redirectUri!, state, "access_denied");
+  }
+
   if (decision !== "allow") return redirectError(redirectUri!, state, "access_denied");
   if (!codeChallenge || !workspaceId) return redirectError(redirectUri!, state, "invalid_request");
   if (codeChallengeMethod !== "S256") return redirectError(redirectUri!, state, "invalid_request");
