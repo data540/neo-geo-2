@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { type NextRequest, NextResponse } from "next/server";
 import { hashApiKey, mcpServiceClient } from "@/lib/mcp/auth";
 import {
@@ -19,6 +20,28 @@ const CORS = {
 
 function oauthError(err: string, status = 400) {
   return NextResponse.json({ error: err }, { status, headers: CORS });
+}
+
+/**
+ * Comprueba si el usuario sigue siendo owner/admin del workspace en el
+ * momento del refresh. A diferencia de can_manage_workspace (RPC que lee
+ * auth.uid() de la sesión actual), este endpoint no tiene sesión de usuario
+ * — solo un refresh token opaco — así que se consulta workspace_members
+ * directamente con service role para el user_id/workspace_id guardados.
+ */
+async function isStillManager(
+  service: SupabaseClient,
+  workspaceId: string,
+  userId: string
+): Promise<boolean> {
+  const { data } = await service
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .in("role", ["owner", "admin"])
+    .maybeSingle();
+  return !!data;
 }
 
 async function issueTokens(params: {
@@ -113,6 +136,22 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (!row || row.revoked_at) return oauthError("invalid_grant");
+
+    const stillManager = await isStillManager(
+      service,
+      row.workspace_id as string,
+      row.user_id as string
+    );
+    if (!stillManager) {
+      // El usuario ya no es owner/admin de este workspace: revoca el token
+      // de una vez y no permitas más refrescos, en vez de solo negar éste.
+      await service
+        .from("mcp_oauth_tokens")
+        .update({ revoked_at: new Date().toISOString() })
+        .eq("id", row.id)
+        .is("revoked_at", null);
+      return oauthError("invalid_grant");
+    }
 
     // Rotación: revoca el token viejo y emite uno nuevo.
     const { data: revokedRows, error: revokeError } = await service
