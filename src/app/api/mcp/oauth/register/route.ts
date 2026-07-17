@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type NextRequest, NextResponse } from "next/server";
-import { mcpServiceClient } from "@/lib/mcp/auth";
+import { hashApiKey, mcpServiceClient } from "@/lib/mcp/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,38 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+const RATE_LIMIT_WINDOW_MINUTES = 60;
+const RATE_LIMIT_MAX_ATTEMPTS = 20;
+
+function getClientIp(request: NextRequest): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  const ip = forwarded?.split(",")[0]?.trim();
+  return ip || "unknown";
+}
+
+async function isRateLimited(ipHash: string): Promise<boolean> {
+  const service = mcpServiceClient();
+  const since = new Date(Date.now() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000).toISOString();
+  const { count } = await service
+    .from("mcp_oauth_register_attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("ip_hash", ipHash)
+    .gte("created_at", since);
+  return (count ?? 0) >= RATE_LIMIT_MAX_ATTEMPTS;
+}
+
 export async function POST(request: NextRequest) {
+  const ipHash = hashApiKey(getClientIp(request));
+  if (await isRateLimited(ipHash)) {
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        error_description: "Demasiados registros desde esta IP. Intenta más tarde.",
+      },
+      { status: 429, headers: CORS }
+    );
+  }
+
   let body: { client_name?: string; redirect_uris?: unknown };
   try {
     body = await request.json();
@@ -62,6 +93,8 @@ export async function POST(request: NextRequest) {
   if (error) {
     return NextResponse.json({ error: "server_error" }, { status: 500, headers: CORS });
   }
+
+  await service.from("mcp_oauth_register_attempts").insert({ ip_hash: ipHash });
 
   return NextResponse.json(
     {
