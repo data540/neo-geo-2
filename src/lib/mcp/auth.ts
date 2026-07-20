@@ -38,6 +38,7 @@ export interface ResolvedWorkspace {
   brandName: string | null;
   domain: string | null;
   country: string | null;
+  scopes: string[];
 }
 
 /**
@@ -60,13 +61,14 @@ export async function resolveWorkspaceFromAuth(
     const tokenHash = hashApiKey(token);
     const { data: tok } = await supabase
       .from("mcp_oauth_tokens")
-      .select("id, workspace_id, revoked_at, expires_at")
+      .select("id, workspace_id, revoked_at, expires_at, scope")
       .eq("token_hash", tokenHash)
       .maybeSingle();
 
     if (!tok || tok.revoked_at || new Date(tok.expires_at as string) < new Date()) return null;
 
-    const workspace = await loadWorkspace(supabase, tok.workspace_id as string);
+    const scopes = ((tok.scope as string | null) ?? "mcp:read").split(" ").filter(Boolean);
+    const workspace = await loadWorkspace(supabase, tok.workspace_id as string, scopes);
     if (!workspace) return null;
 
     void supabase
@@ -88,7 +90,7 @@ export async function resolveWorkspaceFromAuth(
 
   if (error || !keyRow || keyRow.revoked_at) return null;
 
-  const workspace = await loadWorkspace(supabase, keyRow.workspace_id as string);
+  const workspace = await loadWorkspace(supabase, keyRow.workspace_id as string, ["mcp:read"]);
   if (!workspace) return null;
 
   void supabase
@@ -103,7 +105,8 @@ export async function resolveWorkspaceFromAuth(
 /** Carga y mapea un workspace a ResolvedWorkspace. Compartido por las dos vías de auth. */
 async function loadWorkspace(
   supabase: SupabaseClient,
-  workspaceId: string
+  workspaceId: string,
+  scopes: string[]
 ): Promise<ResolvedWorkspace | null> {
   const { data: workspace } = await supabase
     .from("workspaces")
@@ -120,5 +123,6 @@ async function loadWorkspace(
     brandName: (workspace.brand_name as string | null) ?? null,
     domain: (workspace.domain as string | null) ?? null,
     country: (workspace.country as string | null) ?? null,
+    scopes,
   };
 }
