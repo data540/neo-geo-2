@@ -8,6 +8,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const CSRF_COOKIE = "mcp_oauth_csrf";
+// El scope se fija en el servidor, nunca lo propone el cliente — toda
+// conexión OAuth nueva recibe ambos permisos juntos (sin selector granular).
+const GRANTED_SCOPE = "mcp:read mcp:write";
 
 function withCsrfCookie(response: NextResponse, token: string): NextResponse {
   response.cookies.set(CSRF_COOKIE, token, {
@@ -132,7 +135,11 @@ export async function GET(request: NextRequest) {
 
   const response = htmlPage(`
     <h1>Conectar con Mentio</h1>
-    <p><strong>${escapeHtml(client.clientName)}</strong> quiere leer los datos GEO (solo lectura) de tu workspace:</p>
+    <p><strong>${escapeHtml(client.clientName)}</strong> solicita estos permisos sobre tu workspace:</p>
+    <ul style="margin:0 0 4px;padding-left:20px;font-size:14px;color:#475569;">
+      <li>Leer tus datos GEO (visibilidad, competidores, prompts, recomendaciones).</li>
+      <li>Crear prompts nuevos (quedan en pausa hasta que los actives tú en la app).</li>
+    </ul>
     <form method="POST">
       <input type="hidden" name="csrf_token" value="${escapeHtml(csrfToken)}">
       ${Array.from(p.entries())
@@ -193,7 +200,7 @@ export async function POST(request: NextRequest) {
     redirect_uri: redirectUri,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
-    scope: "mcp:read",
+    scope: GRANTED_SCOPE,
     expires_at: new Date(Date.now() + CODE_TTL_SECONDS * 1000).toISOString(),
   });
   if (error) return redirectError(redirectUri!, state, "server_error");
