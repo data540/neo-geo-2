@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createPromptSchema } from "@/lib/validations/schemas";
 import type { ResolvedWorkspace } from "./auth";
 
 export interface ToolContext {
@@ -10,6 +11,10 @@ export interface McpTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** Si se define, la tool solo aparece en tools/list y solo se ejecuta si
+   * ctx.workspace.scopes incluye este valor. Ausente = disponible para
+   * cualquier scope (incluido solo-lectura). */
+  requiredScope?: string;
   handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;
 }
 
@@ -291,6 +296,46 @@ export const MCP_TOOLS: McpTool[] = [
         .maybeSingle();
       if (!data) return null;
       return { profile: data.profile_data, analyzedAt: data.analyzed_at };
+    },
+  },
+  {
+    name: "create_prompt",
+    description:
+      "Crea un prompt nuevo para monitorizar en este workspace. Se crea en pausa " +
+      "(status 'paused') — no se ejecuta ni genera coste hasta que un humano lo " +
+      "active manualmente en la app (/prompts). Requiere el alcance mcp:write.",
+    requiredScope: "mcp:write",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "Texto del prompt a monitorizar (entre 10 y 500 caracteres).",
+        },
+        country: {
+          type: "string",
+          description: "Código de país ISO de 2 letras (default 'ES').",
+        },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    },
+    async handler(args, { supabase, workspace }) {
+      const parsed = createPromptSchema.omit({ workspaceId: true }).safeParse({
+        text: str(args, "text") ?? "",
+        country: str(args, "country") ?? "ES",
+      });
+      if (!parsed.success) {
+        throw new Error(parsed.error.issues[0]?.message ?? "Datos inválidos");
+      }
+      const { text, country } = parsed.data;
+      const { data, error } = await supabase
+        .from("prompts")
+        .insert({ workspace_id: workspace.workspaceId, text, country, status: "paused" })
+        .select("id")
+        .single();
+      if (error || !data) throw new Error(error?.message ?? "No se pudo crear el prompt");
+      return { id: data.id, status: "paused" };
     },
   },
 ];
