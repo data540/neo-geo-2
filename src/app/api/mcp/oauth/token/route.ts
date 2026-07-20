@@ -49,6 +49,7 @@ async function issueTokens(params: {
   workspaceId: string;
   userId: string;
   clientName: string | null;
+  scope: string;
 }) {
   const access = generateOpaqueToken(ACCESS_PREFIX);
   const refresh = generateOpaqueToken(REFRESH_PREFIX);
@@ -60,6 +61,7 @@ async function issueTokens(params: {
     workspace_id: params.workspaceId,
     user_id: params.userId,
     client_name: params.clientName,
+    scope: params.scope,
     expires_at: new Date(Date.now() + ACCESS_TTL_SECONDS * 1000).toISOString(),
   });
   if (insertError) return oauthError("server_error", 500);
@@ -69,7 +71,7 @@ async function issueTokens(params: {
       token_type: "Bearer",
       expires_in: ACCESS_TTL_SECONDS,
       refresh_token: refresh.token,
-      scope: "mcp:read",
+      scope: params.scope,
     },
     { headers: CORS }
   );
@@ -90,7 +92,7 @@ export async function POST(request: NextRequest) {
     const { data: row } = await service
       .from("mcp_oauth_codes")
       .select(
-        "id, client_id, workspace_id, user_id, redirect_uri, code_challenge, expires_at, consumed_at"
+        "id, client_id, workspace_id, user_id, redirect_uri, code_challenge, expires_at, consumed_at, scope"
       )
       .eq("code_hash", hashApiKey(code))
       .maybeSingle();
@@ -122,6 +124,7 @@ export async function POST(request: NextRequest) {
       workspaceId: row.workspace_id as string,
       userId: row.user_id as string,
       clientName: (client?.client_name as string | null) ?? null,
+      scope: row.scope as string,
     });
   }
 
@@ -131,7 +134,7 @@ export async function POST(request: NextRequest) {
 
     const { data: row } = await service
       .from("mcp_oauth_tokens")
-      .select("id, client_id, workspace_id, user_id, client_name, revoked_at")
+      .select("id, client_id, workspace_id, user_id, client_name, revoked_at, scope")
       .eq("refresh_hash", hashApiKey(refreshToken))
       .maybeSingle();
 
@@ -167,6 +170,7 @@ export async function POST(request: NextRequest) {
       workspaceId: row.workspace_id as string,
       userId: row.user_id as string,
       clientName: (row.client_name as string | null) ?? null,
+      scope: row.scope as string,
     });
   }
 
