@@ -13,6 +13,7 @@ interface AppSidebarProps {
   currentWorkspace: Workspace;
   userRole: WorkspaceMemberRole;
   isSuperAdmin?: boolean;
+  hideMcp?: boolean;
 }
 
 export function AppSidebar({
@@ -20,6 +21,7 @@ export function AppSidebar({
   currentWorkspace,
   userRole,
   isSuperAdmin = false,
+  hideMcp = false,
 }: AppSidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -59,6 +61,7 @@ export function AppSidebar({
           collapsed={collapsed}
           userRole={userRole}
           isSuperAdmin={isSuperAdmin}
+          hideMcp={hideMcp}
         />
       </nav>
 

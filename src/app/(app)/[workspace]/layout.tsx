@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { LlmSwitcher } from "@/components/layout/LlmSwitcher";
+import { isMcpBlocked } from "@/lib/auth/mcpAccess";
 import { isSuperAdmin } from "@/lib/auth/superAdmin";
 import { createClient } from "@/lib/supabase/server";
 import type { Workspace, WorkspaceMemberRole } from "@/types";
@@ -60,6 +61,7 @@ export default async function WorkspaceLayout({ children, params }: WorkspaceLay
         currentWorkspace={workspace as Workspace}
         userRole={membership.role as WorkspaceMemberRole}
         isSuperAdmin={isSuperAdmin(user.email)}
+        hideMcp={isMcpBlocked(user.email)}
       />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="h-14 bg-white border-b border-slate-200 flex items-center px-4 gap-3 shrink-0">

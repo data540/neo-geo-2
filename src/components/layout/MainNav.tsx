@@ -24,6 +24,7 @@ interface MainNavProps {
   collapsed?: boolean;
   userRole: WorkspaceMemberRole;
   isSuperAdmin?: boolean;
+  hideMcp?: boolean;
 }
 
 const getNavItems = (slug: string) => [
@@ -48,6 +49,7 @@ export function MainNav({
   collapsed = false,
   userRole,
   isSuperAdmin = false,
+  hideMcp = false,
 }: MainNavProps) {
   const pathname = usePathname();
 
@@ -56,6 +58,8 @@ export function MainNav({
     if ("managerOnly" in item && item.managerOnly && userRole !== "owner" && userRole !== "admin")
       return false;
     if ("superAdminOnly" in item && item.superAdminOnly && !isSuperAdmin) return false;
+    // Bloqueo temporal por email (ver src/lib/auth/mcpAccess.ts), independiente del rol.
+    if (item.href.endsWith("/mcp") && hideMcp) return false;
     return true;
   });
 

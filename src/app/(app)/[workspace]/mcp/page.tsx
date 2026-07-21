@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { listMcpConnectionsAction, listMcpKeysAction } from "@/actions/mcp";
 import { McpKeysPanel } from "@/components/workspace/McpKeysPanel";
+import { isMcpBlocked } from "@/lib/auth/mcpAccess";
 import { createClient } from "@/lib/supabase/server";
 
 interface Props {
@@ -10,6 +11,11 @@ interface Props {
 export default async function McpPage({ params }: Props) {
   const { workspace: slug } = await params;
   const supabase = await createClient();
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (isMcpBlocked(session?.user.email)) notFound();
 
   const { data: workspace } = await supabase
     .from("workspaces")
