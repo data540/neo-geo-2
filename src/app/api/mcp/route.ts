@@ -9,11 +9,20 @@ export const dynamic = "force-dynamic";
 
 const SERVER_INFO = { name: "mentio-geo", version: "1.0.0" };
 const DEFAULT_PROTOCOL = "2025-06-18";
-const INSTRUCTIONS =
-  "Servidor MCP de Mentio (monitorización GEO / visibilidad de marca en LLMs). " +
-  "La API key acota todas las respuestas a un único workspace. Empieza por get_workspace_overview " +
-  "para orientarte y luego usa get_dashboard_kpis, get_market_share, get_top_competitors, etc. " +
-  "Todas las herramientas son de solo lectura.";
+function buildInstructions(scopes: string[]): string {
+  const base =
+    "Servidor MCP de Mentio (monitorización GEO / visibilidad de marca en LLMs). " +
+    "La API key acota todas las respuestas a un único workspace. Empieza por get_workspace_overview " +
+    "para orientarte y luego usa get_dashboard_kpis, get_market_share, get_top_competitors, etc.";
+  if (scopes.includes("mcp:write")) {
+    return (
+      base +
+      " La mayoría de herramientas son de solo lectura; create_prompt es la excepción: " +
+      "crea un prompt en pausa, sin ejecutarlo ni generar coste, hasta que un humano lo active."
+    );
+  }
+  return base + " Todas las herramientas son de solo lectura.";
+}
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -50,14 +59,16 @@ async function dispatch(msg: JsonRpcRequest, ctx: ToolContext): Promise<object |
         protocolVersion: clientProtocol,
         capabilities: { tools: { listChanged: false } },
         serverInfo: SERVER_INFO,
-        instructions: INSTRUCTIONS,
+        instructions: buildInstructions(ctx.workspace.scopes),
       });
     }
     case "ping":
       return result(id, {});
     case "tools/list":
       return result(id, {
-        tools: MCP_TOOLS.map((t) => ({
+        tools: MCP_TOOLS.filter(
+          (t) => !t.requiredScope || ctx.workspace.scopes.includes(t.requiredScope)
+        ).map((t) => ({
           name: t.name,
           description: t.description,
           inputSchema: t.inputSchema,
@@ -68,6 +79,13 @@ async function dispatch(msg: JsonRpcRequest, ctx: ToolContext): Promise<object |
       const args = (msg.params?.arguments as Record<string, unknown> | undefined) ?? {};
       const tool = name ? MCP_TOOLS_BY_NAME.get(name) : undefined;
       if (!tool) return error(id, -32602, `Herramienta desconocida: ${name}`);
+      if (tool.requiredScope && !ctx.workspace.scopes.includes(tool.requiredScope)) {
+        return error(
+          id,
+          -32602,
+          `Herramienta no disponible con el alcance actual de este token: ${name}`
+        );
+      }
       try {
         const data = await tool.handler(args, ctx);
         return result(id, {
