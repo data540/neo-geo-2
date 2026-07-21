@@ -39,7 +39,8 @@ const getNavItems = (slug: string) => [
   // Solo el rol 'owner' ve la administración del workspace.
   { href: `/${slug}/settings`, label: "Settings", icon: Settings, ownerOnly: true },
   { href: `/${slug}/admin`, label: "Admin", icon: ShieldCheck, ownerOnly: true },
-  { href: `/${slug}/mcp`, label: "MCP", icon: Plug, ownerOnly: true },
+  // MCP: visible para owner y admin (coincide con can_manage_workspace en el backend).
+  { href: `/${slug}/mcp`, label: "MCP", icon: Plug, managerOnly: true },
 ];
 
 export function MainNav({
@@ -52,6 +53,8 @@ export function MainNav({
 
   const items = getNavItems(workspaceSlug).filter((item) => {
     if ("ownerOnly" in item && item.ownerOnly && userRole !== "owner") return false;
+    if ("managerOnly" in item && item.managerOnly && userRole !== "owner" && userRole !== "admin")
+      return false;
     if ("superAdminOnly" in item && item.superAdminOnly && !isSuperAdmin) return false;
     return true;
   });
