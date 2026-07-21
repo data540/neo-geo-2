@@ -1,14 +1,23 @@
 # Servidor MCP de Mentio
 
 Mentio expone los datos de monitorización GEO de cada workspace como un
-**servidor MCP (Model Context Protocol) remoto y de solo lectura**, para que
-cualquier LLM compatible —Claude (Desktop, web, Code) o ChatGPT— pueda
-consultarlos en lenguaje natural.
+**servidor MCP (Model Context Protocol) remoto**, para que cualquier LLM
+compatible —Claude (Desktop, web, Code) o ChatGPT— pueda consultarlos en
+lenguaje natural. Es **de solo lectura por defecto**; las conexiones OAuth
+pueden además obtener el alcance opcional `mcp:write`, que solo habilita
+`create_prompt` (ver sección 4).
 
 - **Endpoint:** `https://neogeo-three.vercel.app/api/mcp`
 - **Transporte:** Streamable HTTP — JSON-RPC 2.0 sobre `POST`, stateless (sin sesión, sin SSE).
 - **Autenticación:** `Authorization: Bearer <api-key>` en **cada** petición.
-- **Alcance:** solo lectura, acotado al workspace al que pertenece la API key.
+- **Alcance:** acotado al workspace al que pertenece la key/token.
+  - **API keys manuales** (`mnt_live_…`): siempre `mcp:read`, solo lectura. Nunca ganan escritura.
+  - **Conexiones OAuth**: reciben ambos permisos juntos, `mcp:read` y `mcp:write`
+    (sin selector granular), mostrados explícitamente en la pantalla de
+    consentimiento. Las conexiones OAuth autorizadas **antes** de que se
+    introdujera `mcp:write` quedan fijas en `mcp:read` — el usuario debe
+    reautorizar la conexión (desconectar y volver a conectar) para obtener el
+    nuevo permiso.
 
 ## Arquitectura
 
@@ -46,7 +55,8 @@ del servidor MCP — el flujo OAuth se encarga de la identidad y los permisos.
 3. Haz clic en **Connect**.
 4. Se abre una ventana: inicia sesión en tu cuenta de Mentio (si no lo estás ya).
 5. Ves una pantalla de **Autorizar** listando los workspace(s) donde eres
-   dueño/admin.
+   dueño/admin y los dos permisos solicitados: leer los datos GEO y crear
+   prompts nuevos (en pausa, sin ejecución automática).
 6. Haz clic en **Autorizar** para conectar.
 7. Listo — las herramientas de Mentio aparecen en el selector de Claude / ChatGPT.
 
@@ -133,7 +143,9 @@ MCP / servidor remoto):
 > El servidor es stateless y responde en JSON (no SSE), compatible con clientes
 > que hablan Streamable HTTP.
 
-## 4. Herramientas (todas de solo lectura)
+## 4. Herramientas
+
+### Lectura (disponibles con `mcp:read`, cualquier tipo de credencial)
 
 | Herramienta | Argumentos | Descripción |
 |---|---|---|
@@ -152,6 +164,16 @@ MCP / servidor remoto):
 - `llm_provider` ∈ `chatgpt` · `gemini` (AI Overviews) · `perplexity`.
 - `country` en ISO (`ES`, `CO`). Omitir cualquiera de los dos = agregado global.
 - `days` por defecto 30.
+
+### Escritura (requiere `mcp:write` — solo conexiones OAuth reautorizadas)
+
+| Herramienta | Argumentos | Descripción |
+|---|---|---|
+| `create_prompt` | `text` (10–500 car., obligatorio), `country?` (ISO, default `ES`) | Crea un prompt nuevo en `status: "paused"` — no se ejecuta ni genera coste hasta que un humano lo active manualmente en `/prompts`. |
+
+Si el token conectado no tiene `mcp:write` (API key manual, o conexión OAuth
+antigua sin reautorizar), `create_prompt` **no aparece** en `tools/list` y
+`tools/call create_prompt` devuelve el error JSON-RPC `-32602` sin crear nada.
 
 ## 5. Verificación manual (curl)
 
@@ -174,9 +196,14 @@ curl -s -X POST "$URL" -H "Authorization: Bearer $KEY" -H "Content-Type: applica
 
 ## 6. Seguridad
 
-- **Solo lectura.** No hay herramientas que escriban ni disparen ejecuciones/coste.
-- **Aislamiento por workspace.** La key resuelve a un único `workspace_id`; ninguna
-  herramienta acepta un workspace como parámetro.
+- **Solo lectura por defecto.** La única excepción es `create_prompt` (scope
+  `mcp:write`, solo OAuth), que crea el prompt **en pausa** — nunca dispara
+  ejecuciones ni coste automáticamente.
+- **El scope lo fija el servidor, nunca el cliente.** `/authorize` concede
+  siempre el mismo par de permisos; no hay forma de que un cliente OAuth
+  solicite `mcp:write` por separado o amplíe el alcance de un token existente.
+- **Aislamiento por workspace.** La key/token resuelve a un único `workspace_id`;
+  ninguna herramienta acepta un workspace como parámetro.
 - **Sin secretos en claro en BD.** Solo se guarda el hash sha256; revoca con
   `revoked_at`.
 - **Trata la key como una contraseña.** Da acceso de lectura a todas las métricas
@@ -188,6 +215,6 @@ curl -s -X POST "$URL" -H "Authorization: Bearer $KEY" -H "Content-Type: applica
 |---|---|
 | `401` en todas las llamadas | Falta o es inválida la cabecera `Authorization: Bearer …`, o la key está revocada. Genera una nueva con `pnpm mcp:key`. |
 | `405` al hacer `GET /api/mcp` | Es lo esperado: el servidor es stateless y solo acepta `POST`. |
-| El cliente no ve herramientas | Confirma que el handshake `initialize` responde 200 y que `tools/list` devuelve 11 herramientas (curl arriba). |
+| El cliente no ve herramientas | Confirma que el handshake `initialize` responde 200 y que `tools/list` devuelve 11 herramientas de lectura (12 si el token tiene `mcp:write`) (curl arriba). |
 | `Herramienta desconocida` | El nombre no existe; consulta la tabla de la sección 4. |
 | Datos vacíos | El workspace puede no tener datos para ese `days`/`llm_provider`/`country`. Prueba sin filtros. |
