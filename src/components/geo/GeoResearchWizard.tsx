@@ -202,7 +202,14 @@ export function GeoResearchWizard({
       return;
     }
 
-    toast.success("¡Prompts activados correctamente!");
+    const skipped = result.data?.skipped ?? 0;
+    if (skipped > 0) {
+      toast.success(
+        `Prompts activados. Se omitieron ${skipped} que mencionaban otras marcas (este workspace solo permite tu propia marca).`
+      );
+    } else {
+      toast.success("¡Prompts activados correctamente!");
+    }
     router.push(`/${workspaceSlug}/prompts`);
   }
 

@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  firstBlockedBrandInText,
+  isBrandRestrictedWorkspace,
+  loadBlockedBrands,
+} from "@/lib/prompts/brandGuardrail";
 import { createPromptSchema } from "@/lib/validations/schemas";
 import type { ResolvedWorkspace } from "./auth";
 
@@ -329,6 +334,19 @@ export const MCP_TOOLS: McpTool[] = [
         throw new Error(parsed.error.issues[0]?.message ?? "Datos inválidos");
       }
       const { text, country } = parsed.data;
+
+      // Guardrail de marca: en workspaces restringidos, bloquear prompts que
+      // mencionen marcas competidoras (solo se permite la marca propia).
+      if (isBrandRestrictedWorkspace(workspace.slug)) {
+        const blocked = await loadBlockedBrands(supabase, workspace.workspaceId);
+        const brand = firstBlockedBrandInText(text, blocked);
+        if (brand) {
+          throw new Error(
+            `No puedes crear prompts que mencionen «${brand}». Este workspace solo permite monitorizar tu propia marca.`
+          );
+        }
+      }
+
       const { data, error } = await supabase
         .from("prompts")
         .insert({ workspace_id: workspace.workspaceId, text, country, status: "paused" })

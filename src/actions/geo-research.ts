@@ -10,6 +10,11 @@ import {
   retrievePhaseKnowledge,
 } from "@/lib/geo/promptResearchSkill";
 import { inngest } from "@/inngest/client";
+import {
+  filterBlockedTexts,
+  isBrandRestrictedWorkspace,
+  loadBlockedBrands,
+} from "@/lib/prompts/brandGuardrail";
 import { createClient } from "@/lib/supabase/server";
 import { acceptPromptsSchema, geoResearchInputSchema } from "@/lib/validations/schemas";
 import type {
@@ -229,7 +234,9 @@ export async function prioritizePromptsAction(
   return { success: true, data: prioritized };
 }
 
-export async function acceptPromptsAction(data: unknown): Promise<ActionResult> {
+export async function acceptPromptsAction(
+  data: unknown
+): Promise<ActionResult<{ activated: number; skipped: number }>> {
   const parsed = acceptPromptsSchema.safeParse(data);
   if (!parsed.success) {
     return { success: false, error: "Datos inválidos" };
@@ -259,9 +266,30 @@ export async function acceptPromptsAction(data: unknown): Promise<ActionResult> 
     .eq("id", workspaceId)
     .single();
 
+  // Guardrail de marca: en workspaces restringidos, omitir los candidatos que
+  // mencionen marcas competidoras y activar solo el resto.
+  let acceptedCandidates = candidates as PromptCandidate[];
+  let skipped = 0;
+  if (workspace?.slug && isBrandRestrictedWorkspace(workspace.slug)) {
+    const blockedBrands = await loadBlockedBrands(supabase, workspaceId);
+    acceptedCandidates = acceptedCandidates.filter(
+      (c) => filterBlockedTexts([c.prompt], blockedBrands).allowed.length > 0
+    );
+    skipped = candidates.length - acceptedCandidates.length;
+    if (acceptedCandidates.length === 0) {
+      return {
+        success: false,
+        error:
+          "Todos los prompts seleccionados mencionaban otras marcas. Este workspace solo permite monitorizar tu propia marca.",
+      };
+    }
+  }
+
+  const acceptedIds = acceptedCandidates.map((c) => c.id);
+
   // Insertar en tabla prompts
   await supabase.from("prompts").insert(
-    (candidates as PromptCandidate[]).map((c) => ({
+    acceptedCandidates.map((c) => ({
       workspace_id: workspaceId,
       text: c.prompt,
       country: c.country || workspace?.country || "ES",
@@ -280,19 +308,19 @@ export async function acceptPromptsAction(data: unknown): Promise<ActionResult> 
     }))
   );
 
-  // Marcar candidatos como activados
+  // Marcar candidatos activados (solo los aceptados)
   await supabase
     .from("prompt_candidates")
     .update({ activated: true })
     .eq("session_id", sessionId)
-    .in("id", selectedIds);
+    .in("id", acceptedIds);
 
   if (workspace?.slug) {
     revalidatePath(`/${workspace.slug}/prompts`);
     revalidatePath(`/${workspace.slug}/prompt-research`);
   }
 
-  return { success: true };
+  return { success: true, data: { activated: acceptedCandidates.length, skipped } };
 }
 
 export async function getInitialContextAction(

@@ -20,6 +20,7 @@
     "run-prompts": "tsx scripts/run-all-prompts.ts",
     "kb:index": "tsx scripts/index-knowledge.ts",
     "kb:stats": "tsx scripts/index-knowledge.ts --stats",
+    "pause:foodbox": "tsx scripts/pause-foodbox-forbidden-prompts.ts",
     "backfill:mentions": "tsx scripts/backfill-mention-types.ts",
     "backfill:sentiment": "tsx scripts/backfill-sentiment-llm.ts",
     "backfill:position": "tsx scripts/backfill-position-llm.ts",

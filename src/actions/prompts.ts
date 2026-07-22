@@ -5,6 +5,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { inngest } from "@/inngest/client";
 import { remainingRunsToday } from "@/lib/llm/dailyCap";
+import {
+  filterBlockedTexts,
+  firstBlockedBrandInText,
+  isBrandRestrictedWorkspace,
+  loadBlockedBrands,
+} from "@/lib/prompts/brandGuardrail";
 import { splitPromptLines } from "@/lib/prompts/parsePromptLines";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -73,6 +79,21 @@ export async function createPromptAction(
   }
 
   const supabase = await createClient();
+
+  // Guardrail de marca: en workspaces restringidos, bloquear prompts que
+  // mencionen marcas competidoras (solo se permite la marca propia).
+  const guardSlug = await getWorkspaceSlug(workspaceId);
+  if (guardSlug && isBrandRestrictedWorkspace(guardSlug)) {
+    const blocked = await loadBlockedBrands(supabase, workspaceId);
+    const brand = firstBlockedBrandInText(text, blocked);
+    if (brand) {
+      return {
+        success: false,
+        error: `No puedes crear prompts que mencionen «${brand}». Este workspace solo permite monitorizar tu propia marca.`,
+      };
+    }
+  }
+
   const { data, error } = await supabase
     .from("prompts")
     .insert({ workspace_id: workspaceId, text, country, status: "active" })
@@ -281,10 +302,32 @@ export async function createPromptsBulkAction(
   }
 
   const supabase = await createClient();
+
+  // Guardrail de marca: en workspaces restringidos, omitir los prompts que
+  // mencionen marcas competidoras y crear el resto.
+  let promptsToInsert = normalizedPrompts;
+  let blockedWarning: string | undefined;
+  const guardSlug = await getWorkspaceSlug(workspaceId);
+  if (guardSlug && isBrandRestrictedWorkspace(guardSlug)) {
+    const blockedBrands = await loadBlockedBrands(supabase, workspaceId);
+    const { allowed, blocked } = filterBlockedTexts(normalizedPrompts, blockedBrands);
+    promptsToInsert = allowed;
+    if (blocked.length > 0) {
+      blockedWarning = `Se omitieron ${blocked.length} prompt(s) que mencionaban otras marcas. Este workspace solo permite monitorizar tu propia marca.`;
+    }
+    if (promptsToInsert.length === 0) {
+      return {
+        success: false,
+        error:
+          "Todos los prompts mencionaban otras marcas. Este workspace solo permite monitorizar tu propia marca.",
+      };
+    }
+  }
+
   const { data: insertedPrompts, error } = await supabase
     .from("prompts")
     .insert(
-      normalizedPrompts.map((text) => ({
+      promptsToInsert.map((text) => ({
         workspace_id: workspaceId,
         text,
         country,
@@ -298,7 +341,7 @@ export async function createPromptsBulkAction(
   }
 
   let queued = 0;
-  let warning: string | undefined;
+  let runWarning: string | undefined;
   if (runAfterImport && insertedPrompts && insertedPrompts.length > 0) {
     const service = getServiceClient();
 
@@ -314,7 +357,7 @@ export async function createPromptsBulkAction(
     const remaining = providerIds.length > 0 ? (unlimitedBulk ? 999_999 : await remainingRunsToday(service, workspaceId)) : 0;
 
     if (providerIds.length > 0 && remaining <= 0) {
-      warning =
+      runWarning =
         "Los prompts se importaron, pero se alcanzó el límite diario de ejecuciones. Se ejecutarán mañana.";
     } else if (providerIds.length > 0) {
       const runRows = insertedPrompts
@@ -334,7 +377,7 @@ export async function createPromptsBulkAction(
         .select("id, prompt_id");
 
       if (runsError) {
-        warning =
+        runWarning =
           "Los prompts se importaron, pero no se pudieron crear las ejecuciones automáticas.";
       }
 
@@ -357,7 +400,7 @@ export async function createPromptsBulkAction(
             queued = createdRuns.length;
           } catch (error) {
             const message = error instanceof Error ? error.message : "Error desconocido";
-            warning =
+            runWarning =
               "Los prompts se importaron, pero no se pudieron encolar en Inngest. Comprueba que Inngest dev esté arrancado o desactiva la ejecución automática al importar.";
 
             await service
@@ -373,14 +416,14 @@ export async function createPromptsBulkAction(
         }
       }
     } else {
-      warning = "Los prompts se importaron, pero no hay LLMs habilitados para ejecutarlos.";
+      runWarning = "Los prompts se importaron, pero no hay LLMs habilitados para ejecutarlos.";
     }
   }
 
-  const workspaceSlug = await getWorkspaceSlug(workspaceId);
-  if (workspaceSlug) revalidatePath(`/${workspaceSlug}/prompts`);
+  if (guardSlug) revalidatePath(`/${guardSlug}/prompts`);
 
-  return { success: true, data: { created: normalizedPrompts.length, queued, warning } };
+  const warning = [blockedWarning, runWarning].filter(Boolean).join(" ") || undefined;
+  return { success: true, data: { created: promptsToInsert.length, queued, warning } };
 }
 
 export async function runAllPromptsNowAction(
