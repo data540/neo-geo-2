@@ -1,11 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { revalidatePath } from "next/cache";
 import {
   firstBlockedBrandInText,
   isBrandRestrictedWorkspace,
   loadBlockedBrands,
 } from "@/lib/prompts/brandGuardrail";
 import { createPromptSchema } from "@/lib/validations/schemas";
+import { num, rpcOrThrow, str } from "./args";
 import type { ResolvedWorkspace } from "./auth";
+import { PROMPT_TOOLS } from "./promptTools";
 
 export interface ToolContext {
   supabase: SupabaseClient;
@@ -21,23 +24,6 @@ export interface McpTool {
    * cualquier scope (incluido solo-lectura). */
   requiredScope?: string;
   handler: (args: Record<string, unknown>, ctx: ToolContext) => Promise<unknown>;
-}
-
-// ── helpers de argumentos ────────────────────────────────────────────────────
-function num(args: Record<string, unknown>, key: string, def: number): number {
-  const v = args[key];
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
-  return def;
-}
-function str(args: Record<string, unknown>, key: string): string | null {
-  const v = args[key];
-  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
-}
-
-function rpcOrThrow<T>(res: { data: T; error: { message: string } | null }): T {
-  if (res.error) throw new Error(res.error.message);
-  return res.data;
 }
 
 const LLM_ENUM = ["chatgpt", "gemini", "perplexity"];
@@ -306,9 +292,10 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "create_prompt",
     description:
-      "Crea un prompt nuevo para monitorizar en este workspace. Se crea en pausa " +
-      "(status 'paused') — no se ejecuta ni genera coste hasta que un humano lo " +
-      "active manualmente en la app (/prompts). Requiere el alcance mcp:write.",
+      "Crea un prompt nuevo para monitorizar en este workspace. Por defecto se crea en " +
+      "pausa (status 'paused'): no entra en el cron diario ni genera coste hasta que se " +
+      "active (set_prompt_status) o se ejecute (run_prompts). Pasa status 'active' para " +
+      "activarlo directamente. Para varios a la vez usa create_prompts_bulk. Requiere mcp:write.",
     requiredScope: "mcp:write",
     inputSchema: {
       type: "object",
@@ -320,6 +307,11 @@ export const MCP_TOOLS: McpTool[] = [
         country: {
           type: "string",
           description: "Código de país ISO de 2 letras (default 'ES').",
+        },
+        status: {
+          type: "string",
+          enum: ["paused", "active"],
+          description: "Estado inicial (default 'paused').",
         },
       },
       required: ["text"],
@@ -347,15 +339,18 @@ export const MCP_TOOLS: McpTool[] = [
         }
       }
 
+      const status = str(args, "status") === "active" ? "active" : "paused";
       const { data, error } = await supabase
         .from("prompts")
-        .insert({ workspace_id: workspace.workspaceId, text, country, status: "paused" })
+        .insert({ workspace_id: workspace.workspaceId, text, country, status })
         .select("id")
         .single();
       if (error || !data) throw new Error(error?.message ?? "No se pudo crear el prompt");
-      return { id: data.id, status: "paused" };
+      revalidatePath(`/${workspace.slug}/prompts`);
+      return { id: data.id, status };
     },
   },
+  ...PROMPT_TOOLS,
 ];
 
 export const MCP_TOOLS_BY_NAME = new Map(MCP_TOOLS.map((t) => [t.name, t]));
