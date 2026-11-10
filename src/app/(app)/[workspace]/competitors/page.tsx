@@ -4,6 +4,7 @@ import {
   bestRankedPositionsByRun,
   getPeriodWindow,
   getWorkspaceBrandPerformanceMetrics,
+  getWorkspaceTimeZone,
 } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
@@ -111,13 +112,12 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
   const llmKey = llm ?? null;
 
   // ── Ventana temporal: misma definición que el Dashboard ────────────────────
-  // "Yesterday" = últimas 24 h (igual que "Ayer" en el Dashboard). Se cargan
+  // Días naturales cerrados (igual que el Dashboard): "Yesterday" = ayer. Se cargan
   // dos periodos: el actual para KPIs/tabla y el anterior solo para deltas.
   const isYesterday = range === "yesterday";
   const PERIOD_DAYS = isYesterday ? 1 : range === "7" ? 7 : range === "90" ? 90 : 30;
   const BUCKET_DAYS = isYesterday ? 1 : range === "7" ? 1 : range === "90" ? 15 : 5;
   const TOTAL_BUCKETS = 7;
-  const { now, currentStart, previousStart } = getPeriodWindow(PERIOD_DAYS);
 
   const supabase = await createClient();
 
@@ -145,6 +145,11 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
     requestedCountry: country,
     userRole: (membership?.role as WorkspaceMemberRole | undefined) ?? null,
   });
+  const { now, currentStart, previousStart } = getPeriodWindow(
+    PERIOD_DAYS,
+    new Date(),
+    getWorkspaceTimeZone(countryFilter)
+  );
 
   const { data: competitorsData } = await supabase
     .from("brands")
@@ -647,7 +652,7 @@ export default async function CompetitorsPage({ params, searchParams }: Props) {
             .join("&")}`}
           totalRuns={totalRuns}
           llm={llm ?? "All LLMs"}
-          rangeLabel={isYesterday ? "últimas 24 horas" : `últimos ${PERIOD_DAYS} días`}
+          rangeLabel={isYesterday ? "ayer" : `últimos ${PERIOD_DAYS} días`}
         />
 
         <AddCompetitorForm workspaceId={workspace.id} />

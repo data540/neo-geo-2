@@ -4,6 +4,7 @@ import { generateRecommendations } from "@/lib/geo/generateRecommendations";
 import { buildRetrievalQueries, retrieveRelevantKnowledge } from "@/lib/geo/knowledgeRetrieval";
 import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
+import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
 import type { ActionResult, GeoRecommendation, RetrievedChunk } from "@/types";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -40,37 +41,35 @@ async function countDistinctSourceDomains(
   return domains.size;
 }
 
-async function buildMetrics(supabase: Awaited<ReturnType<typeof createClient>>, workspaceId: string, workspaceCountry: string, brandProfilePositioning: string | null) {
+async function buildMetrics(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+  workspaceCountry: string,
+  brandProfilePositioning: string | null,
+  /** Mismo filtro de país que el Dashboard para que las cifras coincidan. */
+  countryFilter: string | null
+) {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
   const since = sevenDaysAgo.toISOString().slice(0, 10);
 
   const [
-    { data: metrics },
     brandPerformanceMetrics,
     { data: promptMetrics },
     sourcesCount,
     { data: promptRows },
     { data: workspace },
   ] = await Promise.all([
-    supabase
-      .from("daily_workspace_metrics")
-      .select("avg_sov, avg_position, brand_consistency, brand_mentions_count, active_prompts_count")
-      .eq("workspace_id", workspaceId)
-      .gte("date", since)
-      .order("date", { ascending: false }),
-    getWorkspaceBrandPerformanceMetrics({ workspaceId, country: workspaceCountry, days: 7 }),
+    getWorkspaceBrandPerformanceMetrics({ workspaceId, country: countryFilter, days: 7 }),
     supabase.from("daily_prompt_metrics").select("sov, prompt_id").eq("workspace_id", workspaceId).gte("date", since),
     countDistinctSourceDomains(supabase, workspaceId),
     supabase.from("prompts").select("funnel_stage").eq("workspace_id", workspaceId).eq("status", "active"),
     supabase.from("workspaces").select("brand_name").eq("id", workspaceId).single(),
   ]);
 
-  const rows = metrics ?? [];
-  const avgConsistency = rows.length > 0
-    ? Math.round((rows.reduce((a, b) => a + (b.brand_consistency ?? 0), 0) / rows.length) * 10) / 10
-    : null;
-  const totalMentions = rows.reduce((a, b) => a + (b.brand_mentions_count ?? 0), 0);
+  // Mismas cifras que el Dashboard (últimos 7 días cerrados, cálculo en vivo).
+  const avgConsistency = brandPerformanceMetrics.current.consistencyPct;
+  const totalMentions = brandPerformanceMetrics.current.runsWithOwnBrand;
   // Prompts DISTINTOS con SOV bajo, no filas prompt-día (evita cifras infladas tipo "363 prompts").
   const lowSovCount = new Set(
     (promptMetrics ?? [])
@@ -154,7 +153,7 @@ export async function generateRecommendationsAction(
 
   const { data: workspace } = await supabase
     .from("workspaces")
-    .select("id, brand_name, country")
+    .select("id, slug, brand_name, country")
     .eq("id", workspaceId)
     .single();
   if (!workspace) return { success: false, error: "Workspace not found" };
@@ -191,7 +190,8 @@ export async function generateRecommendationsAction(
     supabase,
     workspaceId,
     workspace.country,
-    brandProfile?.positioning ?? null
+    brandProfile?.positioning ?? null,
+    resolveWorkspaceCountryFilter({ workspaceSlug: workspace.slug })
   );
   // Sobreescribir brandName con el valor correcto del workspace
   metricsForRetrieval.brandName = workspace.brand_name;
