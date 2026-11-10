@@ -7,7 +7,7 @@ import "./globals.css";
 const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Mentio — AI Brand Visibility",
+  title: "Mentio - AI Visibility",
   description:
     "Monitoriza cómo aparece tu marca en respuestas de ChatGPT, Claude, Gemini y Perplexity",
 };
