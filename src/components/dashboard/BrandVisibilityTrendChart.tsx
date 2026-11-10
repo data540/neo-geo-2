@@ -21,6 +21,8 @@ type ChartRow = {
   completedRuns: number;
 } & Record<string, number | string | null>;
 
+const ZOOMED_Y_MAX = 40;
+
 function formatPercent(value: number | null): string {
   return value !== null ? `${value.toFixed(1)}%` : "-";
 }
@@ -99,6 +101,19 @@ export function BrandVisibilityTrendChart({ data }: Props) {
   const latestDelta = formatDelta(data.latestDeltaPct);
   const hasData = chartData.some((point) => point.completedRuns > 0);
 
+  // Si todas las marcas están por debajo del 40%, el eje se limita a 0-40%
+  // para que las diferencias entre líneas se aprecien.
+  const maxValue = Math.max(
+    0,
+    ...chartData.flatMap((row) =>
+      metricKeys
+        .map((brand) => row[brand.dataKey])
+        .filter((value): value is number => typeof value === "number")
+    )
+  );
+  const yMax = maxValue < ZOOMED_Y_MAX ? ZOOMED_Y_MAX : 100;
+  const yTicks = yMax === ZOOMED_Y_MAX ? [0, 10, 20, 30, 40] : [0, 25, 50, 75, 100];
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-4">
       <div className="px-5 py-4 border-b border-slate-100 flex flex-col lg:flex-row lg:items-start gap-4 justify-between">
@@ -137,7 +152,8 @@ export function BrandVisibilityTrendChart({ data }: Props) {
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  domain={[0, 100]}
+                  domain={[0, yMax]}
+                  ticks={yTicks}
                   tick={{ fontSize: 11, fill: "#94a3b8" }}
                   axisLine={false}
                   tickLine={false}
