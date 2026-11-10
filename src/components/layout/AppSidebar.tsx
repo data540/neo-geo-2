@@ -35,16 +35,13 @@ export function AppSidebar({
       {/* Logo */}
       <div className="h-20 flex items-center px-4 border-b border-slate-200 shrink-0">
         {collapsed ? (
-          <img src="/mentio-icon.png" alt="Mentio" className="w-9 h-9 shrink-0" />
+          <img src="/mentio-icon.png" alt="Mentio" className="w-9 h-9 shrink-0 object-contain" />
         ) : (
-          <div className="flex items-center gap-2.5 min-w-0">
-            <img src="/mentio-icon.png" alt="" aria-hidden="true" className="w-11 h-11 shrink-0" />
-            <img
-              src="/mentio-logo.jpg"
-              alt="Mentio — AI-Powered Brand Visibility Ranking"
-              className="h-12 w-auto min-w-0 max-w-full object-contain"
-            />
-          </div>
+          <img
+            src="/mentio-logo.png"
+            alt="Mentio — AI Visibility"
+            className="h-12 w-auto max-w-full object-contain"
+          />
         )}
       </div>
 
