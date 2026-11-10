@@ -13,6 +13,13 @@ import type { WorkspaceBrandVisibilityTrendMetrics } from "@/lib/metrics/visibil
 
 type Props = {
   data: WorkspaceBrandVisibilityTrendMetrics;
+  /** Cifra de cabecera. Si se pasa, sustituye al "último día completo" para
+   * que coincida con la tarjeta Visibility del mismo periodo. */
+  summary?: {
+    visibilityPct: number | null;
+    deltaPct: number | null;
+    label: string;
+  };
 };
 
 type ChartRow = {
@@ -80,7 +87,7 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
-export function BrandVisibilityTrendChart({ data }: Props) {
+export function BrandVisibilityTrendChart({ data, summary }: Props) {
   const metricKeys = data.brands.map((brand, index) => ({
     ...brand,
     dataKey: `brand_${index}`,
@@ -98,7 +105,9 @@ export function BrandVisibilityTrendChart({ data }: Props) {
 
     return row;
   });
-  const latestDelta = formatDelta(data.latestDeltaPct);
+  const headlinePct = summary ? summary.visibilityPct : data.latestOwnVisibilityPct;
+  const headlineLabel = summary ? summary.label : data.latestLabel;
+  const latestDelta = formatDelta(summary ? summary.deltaPct : data.latestDeltaPct);
   const hasData = chartData.some((point) => point.completedRuns > 0);
 
   // Si todas las marcas están por debajo del 40%, el eje se limita a 0-40%
@@ -124,13 +133,13 @@ export function BrandVisibilityTrendChart({ data }: Props) {
         <div className="text-left lg:text-right">
           <div className="flex items-baseline gap-2 lg:justify-end">
             <p className="text-3xl font-bold text-slate-900">
-              {formatPercent(data.latestOwnVisibilityPct)}
+              {formatPercent(headlinePct)}
             </p>
             <span className={`text-sm font-medium ${latestDelta.className}`}>
               {latestDelta.label}
             </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">{data.latestLabel}</p>
+          <p className="text-xs text-slate-500 mt-1">{headlineLabel}</p>
         </div>
       </div>
 
