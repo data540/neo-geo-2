@@ -25,7 +25,7 @@ export function CompetitorKpiCards({ kpis }: Props) {
               {kpis.visibility.toFixed(1)}
               <span className="text-base font-normal text-slate-400">%</span>
             </p>
-            <p className="text-xs text-slate-400 mt-1">prompts que mencionan tu marca</p>
+            <p className="text-xs text-slate-400 mt-1">respuestas IA que mencionan tu marca</p>
           </div>
           <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
             <Eye className="w-4.5 h-4.5 text-blue-600" />
