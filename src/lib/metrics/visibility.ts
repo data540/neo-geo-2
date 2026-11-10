@@ -3,16 +3,27 @@ import { createClient } from "@/lib/supabase/server";
 const PAGE_SIZE = 1000;
 const IN_BATCH_SIZE = 100;
 
+/** Cliente Supabase: el de cookies (RLS) por defecto, o uno de servicio (MCP). */
+export type MetricsDbClient = Awaited<ReturnType<typeof createClient>>;
+
+/** Un prompt tiene "presencia estable" si la marca aparece en ≥70% de sus respuestas. */
+export const CONSISTENCY_THRESHOLD_PCT = 70;
+
 type CompletedRunRow = {
   id: string;
+  prompt_id: string | null;
   completed_at: string | null;
 };
 
-type OwnMentionRow = {
+type RunMentionRow = {
   id: string;
   prompt_run_id: string | null;
+  brand_id: string | null;
+  brand_type: "own" | "competitor" | null;
   position: number | null;
   position_source: string | null;
+  sentiment: string | null;
+  sentiment_score: number | null;
 };
 
 type BrandMentionRow = {
@@ -39,6 +50,22 @@ export type BrandPerformancePeriodMetrics = VisibilityPeriodMetrics & {
   avgPosition: number | null;
   minPosition: number | null;
   maxPosition: number | null;
+  /** Menciones de la marca propia (con brand_id) en las respuestas del periodo. */
+  ownMentions: number;
+  /** Menciones propias + de competidores (con brand_id). */
+  totalMentions: number;
+  /** SOV = menciones propias ÷ menciones totales (misma regla que el donut). */
+  sovPct: number | null;
+  /** Sentimiento medio de las menciones propias, de -1 a 1. */
+  avgSentiment: number | null;
+  sentimentMentions: number;
+  /** Prompts con al menos una respuesta en el periodo. */
+  promptsWithRuns: number;
+  /** Prompts con al menos una respuesta que menciona la marca. */
+  promptsWithOwnBrand: number;
+  /** Prompts donde la marca aparece en ≥70% de sus respuestas. */
+  consistentPrompts: number;
+  consistencyPct: number | null;
 };
 
 export type DailyVisibilityMetric = VisibilityPeriodMetrics & {
@@ -91,9 +118,25 @@ export type WorkspaceBrandVisibilityTrendMetrics = {
 };
 
 type OwnBrandRunMentions = {
+  /** Runs con al menos una mención propia (cualquier posición). */
   runIds: Set<string>;
   bestPositions: Map<string, number>;
+  ownCount: Map<string, number>;
+  competitorCount: Map<string, number>;
+  sentimentSum: Map<string, number>;
+  sentimentCount: Map<string, number>;
 };
+
+function addTo(map: Map<string, number>, key: string, value: number) {
+  map.set(key, (map.get(key) ?? 0) + value);
+}
+
+function sentimentValue(row: { sentiment: string | null; sentiment_score: number | null }): number {
+  if (row.sentiment_score !== null) return Number(row.sentiment_score);
+  if (row.sentiment === "positive") return 1;
+  if (row.sentiment === "negative") return -1;
+  return 0;
+}
 
 type TrendBucket = {
   key: string;
@@ -343,24 +386,69 @@ function trendLatestLabel(days: number): string {
 
 function summarizeRuns(
   runs: CompletedRunRow[],
-  ownMentions: OwnBrandRunMentions
+  stats: OwnBrandRunMentions
 ): BrandPerformancePeriodMetrics {
-  const completedRuns = runs.length;
-  const runsWithOwnBrand = runs.filter((run) => ownMentions.runIds.has(run.id)).length;
-  const positions = runs
-    .map((run) => ownMentions.bestPositions.get(run.id))
-    .filter((position): position is number => typeof position === "number");
+  let runsWithOwnBrand = 0;
+  let ownMentions = 0;
+  let totalMentions = 0;
+  let sentimentSum = 0;
+  let sentimentMentions = 0;
+  let positionSum = 0;
+  let positionCount = 0;
+  let minPosition: number | null = null;
+  let maxPosition: number | null = null;
+  const byPrompt = new Map<string, { runs: number; withBrand: number }>();
+
+  for (const run of runs) {
+    const hasOwn = stats.runIds.has(run.id);
+    if (hasOwn) runsWithOwnBrand += 1;
+
+    const position = stats.bestPositions.get(run.id);
+    if (position !== undefined) {
+      positionSum += position;
+      positionCount += 1;
+      minPosition = minPosition === null ? position : Math.min(minPosition, position);
+      maxPosition = maxPosition === null ? position : Math.max(maxPosition, position);
+    }
+
+    const own = stats.ownCount.get(run.id) ?? 0;
+    ownMentions += own;
+    totalMentions += own + (stats.competitorCount.get(run.id) ?? 0);
+    sentimentSum += stats.sentimentSum.get(run.id) ?? 0;
+    sentimentMentions += stats.sentimentCount.get(run.id) ?? 0;
+
+    if (run.prompt_id) {
+      const prompt = byPrompt.get(run.prompt_id) ?? { runs: 0, withBrand: 0 };
+      prompt.runs += 1;
+      if (hasOwn) prompt.withBrand += 1;
+      byPrompt.set(run.prompt_id, prompt);
+    }
+  }
+
+  let promptsWithOwnBrand = 0;
+  let consistentPrompts = 0;
+  for (const prompt of byPrompt.values()) {
+    if (prompt.withBrand > 0) promptsWithOwnBrand += 1;
+    if ((prompt.withBrand / prompt.runs) * 100 >= CONSISTENCY_THRESHOLD_PCT) consistentPrompts += 1;
+  }
 
   return {
-    completedRuns,
+    completedRuns: runs.length,
     runsWithOwnBrand,
-    visibilityPct: pct(runsWithOwnBrand, completedRuns),
-    avgPosition:
-      positions.length > 0
-        ? round1(positions.reduce((sum, position) => sum + position, 0) / positions.length)
-        : null,
-    minPosition: positions.length > 0 ? Math.min(...positions) : null,
-    maxPosition: positions.length > 0 ? Math.max(...positions) : null,
+    visibilityPct: pct(runsWithOwnBrand, runs.length),
+    avgPosition: positionCount > 0 ? round1(positionSum / positionCount) : null,
+    minPosition,
+    maxPosition,
+    ownMentions,
+    totalMentions,
+    sovPct: pct(ownMentions, totalMentions),
+    avgSentiment:
+      sentimentMentions > 0 ? Math.round((sentimentSum / sentimentMentions) * 100) / 100 : null,
+    sentimentMentions,
+    promptsWithRuns: byPrompt.size,
+    promptsWithOwnBrand,
+    consistentPrompts,
+    consistencyPct: pct(consistentPrompts, byPrompt.size),
   };
 }
 
@@ -385,44 +473,21 @@ function buildDailyMetrics(
     keys.add(formatDateKey(currentEnd, timeZone));
   }
 
-  const byDate = new Map<
-    string,
-    { completedRuns: number; runsWithOwnBrand: number; positions: number[] }
-  >();
+  const runsByDate = new Map<string, CompletedRunRow[]>();
 
   for (const run of runs) {
     if (!run.completed_at) continue;
     const date = formatDateKey(run.completed_at, timeZone);
     keys.add(date);
-    const current = byDate.get(date) ?? {
-      completedRuns: 0,
-      runsWithOwnBrand: 0,
-      positions: [],
-    };
-    current.completedRuns += 1;
-    if (ownMentions.runIds.has(run.id)) current.runsWithOwnBrand += 1;
-    const position = ownMentions.bestPositions.get(run.id);
-    if (typeof position === "number") current.positions.push(position);
-    byDate.set(date, current);
+    const bucket = runsByDate.get(date);
+    if (bucket) bucket.push(run);
+    else runsByDate.set(date, [run]);
   }
 
-  return [...keys].sort().map((date) => {
-    const row = byDate.get(date) ?? { completedRuns: 0, runsWithOwnBrand: 0, positions: [] };
-    return {
-      date,
-      completedRuns: row.completedRuns,
-      runsWithOwnBrand: row.runsWithOwnBrand,
-      visibilityPct: pct(row.runsWithOwnBrand, row.completedRuns),
-      avgPosition:
-        row.positions.length > 0
-          ? round1(
-              row.positions.reduce((sum, position) => sum + position, 0) / row.positions.length
-            )
-          : null,
-      minPosition: row.positions.length > 0 ? Math.min(...row.positions) : null,
-      maxPosition: row.positions.length > 0 ? Math.max(...row.positions) : null,
-    };
-  });
+  return [...keys].sort().map((date) => ({
+    date,
+    ...summarizeRuns(runsByDate.get(date) ?? [], ownMentions),
+  }));
 }
 
 async function fetchCompletedRuns(params: {
@@ -431,8 +496,9 @@ async function fetchCompletedRuns(params: {
   sinceIso?: string | null;
   untilIso?: string | null;
   country?: string | null;
+  client?: MetricsDbClient;
 }): Promise<CompletedRunRow[]> {
-  const supabase = await createClient();
+  const supabase = params.client ?? (await createClient());
   const rows: CompletedRunRow[] = [];
 
   // Filtro de país: obtener prompt_ids del país indicado
@@ -450,7 +516,7 @@ async function fetchCompletedRuns(params: {
   for (let offset = 0; ; offset += PAGE_SIZE) {
     let query = supabase
       .from("prompt_runs")
-      .select("id, completed_at")
+      .select("id, prompt_id, completed_at")
       .eq("workspace_id", params.workspaceId)
       .eq("status", "completed")
       .not("completed_at", "is", null)
@@ -546,10 +612,17 @@ async function fetchBrandsById(params: {
 async function fetchOwnMentionRunIds(params: {
   workspaceId: string;
   runIds: string[];
+  client?: MetricsDbClient;
 }): Promise<OwnBrandRunMentions> {
-  const supabase = await createClient();
-  const ownMentionRunIds = new Set<string>();
-  const bestPositions = new Map<string, number>();
+  const supabase = params.client ?? (await createClient());
+  const stats: OwnBrandRunMentions = {
+    runIds: new Set<string>(),
+    bestPositions: new Map<string, number>(),
+    ownCount: new Map<string, number>(),
+    competitorCount: new Map<string, number>(),
+    sentimentSum: new Map<string, number>(),
+    sentimentCount: new Map<string, number>(),
+  };
 
   for (let start = 0; start < params.runIds.length; start += IN_BATCH_SIZE) {
     const batch = params.runIds.slice(start, start + IN_BATCH_SIZE);
@@ -557,25 +630,38 @@ async function fetchOwnMentionRunIds(params: {
     for (let offset = 0; ; offset += PAGE_SIZE) {
       const { data, error } = await supabase
         .from("mentions")
-        .select("id, prompt_run_id, position, position_source")
+        .select(
+          "id, prompt_run_id, brand_id, brand_type, position, position_source, sentiment, sentiment_score"
+        )
         .eq("workspace_id", params.workspaceId)
-        .eq("brand_type", "own")
+        .in("brand_type", ["own", "competitor"])
         .in("prompt_run_id", batch)
         .order("id", { ascending: true })
         .range(offset, offset + PAGE_SIZE - 1);
 
       if (error) throw error;
 
-      const page = (data ?? []) as OwnMentionRow[];
+      const page = (data ?? []) as RunMentionRow[];
       for (const row of page) {
-        if (!row.prompt_run_id) continue;
-        ownMentionRunIds.add(row.prompt_run_id); // visibilidad % cuenta cualquier mención
+        const runId = row.prompt_run_id;
+        if (!runId) continue;
+
+        if (row.brand_type === "competitor") {
+          // SOV: solo menciones atribuidas a una marca registrada (igual que el donut)
+          if (row.brand_id) addTo(stats.competitorCount, runId, 1);
+          continue;
+        }
+
+        stats.runIds.add(runId); // visibilidad % cuenta cualquier mención propia
+        if (row.brand_id) addTo(stats.ownCount, runId, 1);
+        addTo(stats.sentimentSum, runId, sentimentValue(row));
+        addTo(stats.sentimentCount, runId, 1);
 
         // AVG POSITION solo cuenta posiciones de listas reales o LLM — no orden textual
         if (isRankedPosition(row.position_source, row.position)) {
-          const current = bestPositions.get(row.prompt_run_id);
+          const current = stats.bestPositions.get(runId);
           if (current === undefined || row.position < current) {
-            bestPositions.set(row.prompt_run_id, row.position);
+            stats.bestPositions.set(runId, row.position);
           }
         }
       }
@@ -583,7 +669,7 @@ async function fetchOwnMentionRunIds(params: {
     }
   }
 
-  return { runIds: ownMentionRunIds, bestPositions };
+  return stats;
 }
 
 export async function getWorkspaceBrandPerformanceMetrics(params: {
@@ -591,6 +677,8 @@ export async function getWorkspaceBrandPerformanceMetrics(params: {
   country?: string | null;
   days: number;
   llmProviderId?: string | null;
+  /** Cliente alternativo (p. ej. service role en el MCP). Por defecto, cookies. */
+  client?: MetricsDbClient;
 }): Promise<WorkspaceBrandPerformanceMetrics> {
   const { now, currentStart, previousStart } = getPeriodWindow(params.days);
 
@@ -600,11 +688,13 @@ export async function getWorkspaceBrandPerformanceMetrics(params: {
     sinceIso: previousStart.toISOString(),
     untilIso: now.toISOString(),
     country: params.country ?? null,
+    client: params.client,
   });
 
   const ownMentions = await fetchOwnMentionRunIds({
     workspaceId: params.workspaceId,
     runIds: runs.map((run) => run.id),
+    client: params.client,
   });
 
   const currentRuns = runs.filter((run) => {

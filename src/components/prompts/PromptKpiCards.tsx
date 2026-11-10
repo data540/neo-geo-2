@@ -1,4 +1,4 @@
-import { BarChart3, Eye, Target, Layers } from "lucide-react";
+import { BarChart3, Eye, Layers, Target } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { WorkspaceKpis } from "@/types";
 
@@ -23,6 +23,7 @@ interface Props {
 
 export function PromptKpiCards({ kpis, enabledLlms = [], usagePct = 100 }: Props) {
   const consistencyPct = Math.round(kpis.brandConsistency);
+  const periodLabel = "últimos 7 días";
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -39,7 +40,9 @@ export function PromptKpiCards({ kpis, enabledLlms = [], usagePct = 100 }: Props
                   / {kpis.activePromptsCount}
                 </span>
               </p>
-              <p className="text-xs text-slate-400 mt-1">prompts activos</p>
+              <p className="text-xs text-slate-400 mt-1">
+                prompts con mención / ejecutados · {periodLabel}
+              </p>
             </div>
             <div className="w-9 h-9 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
               <Eye className="w-4 h-4 text-green-600" aria-hidden="true" />
@@ -57,12 +60,12 @@ export function PromptKpiCards({ kpis, enabledLlms = [], usagePct = 100 }: Props
               </p>
               <p className="text-3xl font-bold text-slate-900 mt-1.5">
                 {kpis.avgPosition !== null ? (
-                  <>#{Math.round(kpis.avgPosition)}</>
+                  <>#{kpis.avgPosition.toFixed(1)}</>
                 ) : (
                   <span className="text-slate-400">—</span>
                 )}
               </p>
-              <p className="text-xs text-slate-400 mt-1">en respuestas de IA</p>
+              <p className="text-xs text-slate-400 mt-1">en respuestas de IA · {periodLabel}</p>
             </div>
             <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
               <Target className="w-4 h-4 text-indigo-600" aria-hidden="true" />
@@ -82,7 +85,9 @@ export function PromptKpiCards({ kpis, enabledLlms = [], usagePct = 100 }: Props
                 {consistencyPct}
                 <span className="text-base font-normal text-slate-400">%</span>
               </p>
-              <p className="text-xs text-slate-400 mt-1">prompts con presencia estable</p>
+              <p className="text-xs text-slate-400 mt-1">
+                prompts con marca en ≥70% de respuestas · {periodLabel}
+              </p>
             </div>
             <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
               <BarChart3 className="w-4 h-4 text-purple-600" aria-hidden="true" />

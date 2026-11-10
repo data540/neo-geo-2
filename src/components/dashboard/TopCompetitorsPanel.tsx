@@ -3,6 +3,7 @@ import type { TopCompetitorEntry } from "@/types";
 
 interface Props {
   data: TopCompetitorEntry[];
+  badgeLabel?: string;
 }
 
 function initials(name: string): string {
@@ -28,13 +29,15 @@ function fgFromName(name: string): string {
   return `hsl(${hue}, 50%, 35%)`;
 }
 
-export function TopCompetitorsPanel({ data }: Props) {
+export function TopCompetitorsPanel({ data, badgeLabel = "Últimos 30D" }: Props) {
   if (data.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="mb-3">
           <h3 className="text-sm font-semibold text-slate-900">Top Competidores</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Por menciones en LLMs</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            % sobre el total de menciones (igual que el SOV)
+          </p>
         </div>
         <p className="text-center text-xs text-slate-400 py-12">Aún sin datos.</p>
       </div>
@@ -48,10 +51,12 @@ export function TopCompetitorsPanel({ data }: Props) {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">Top Competidores</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Por menciones en LLMs</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            % sobre el total de menciones (igual que el SOV)
+          </p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
-          Últimos 30D
+          {badgeLabel}
         </span>
       </div>
 

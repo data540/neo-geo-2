@@ -17,6 +17,8 @@ interface Props {
   searchParams: Promise<{ llm?: string; country?: string }>;
 }
 
+const KPI_PERIOD_DAYS = 7;
+
 export default async function PromptsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
   const { llm, country } = await searchParams;
@@ -79,20 +81,13 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     p_country_filter: countryFilter,
   });
 
-  // KPIs (cross-LLM o filtrados)
-  const [{ data: kpis }, brandMetrics] = await Promise.all([
-    supabase.rpc("get_workspace_kpis", {
-      p_workspace_slug: slug,
-      p_llm_key: llm ?? null,
-      p_country_filter: countryFilter,
-    }),
-    getWorkspaceBrandPerformanceMetrics({
-      workspaceId: workspace.id,
-      days: 7,
-      country: countryFilter,
-      llmProviderId: focusLlmProviderId,
-    }),
-  ]);
+  // KPIs: mismas reglas y misma ventana (7 días) que el Dashboard.
+  const brandMetrics = await getWorkspaceBrandPerformanceMetrics({
+    workspaceId: workspace.id,
+    days: KPI_PERIOD_DAYS,
+    country: countryFilter,
+    llmProviderId: focusLlmProviderId,
+  });
 
   // Tags disponibles
   const { data: allTags } = await supabase
@@ -148,45 +143,13 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     }
   }
 
-  const defaultKpis: WorkspaceKpis = {
-    activePromptsCount: 0,
-    brandMentionsCount: 0,
-    avgPosition: null,
-    brandConsistency: 0,
-    avgSov: null,
+  const workspaceKpis: WorkspaceKpis = {
+    activePromptsCount: brandMetrics.current.promptsWithRuns,
+    brandMentionsCount: brandMetrics.current.promptsWithOwnBrand,
+    avgPosition: brandMetrics.current.avgPosition,
+    brandConsistency: brandMetrics.current.consistencyPct ?? 0,
+    avgSov: brandMetrics.current.sovPct,
   };
-
-  const rawKpisData = Array.isArray(kpis) ? kpis[0] : kpis;
-  const rawKpis = (rawKpisData ?? null) as {
-    activePromptsCount?: number;
-    brandMentionsCount?: number;
-    avgPosition?: number | null;
-    brandConsistency?: number;
-    avgSov?: number | null;
-    active_prompts_count?: number;
-    brand_mentions_count?: number;
-    avg_position?: number | null;
-    brand_consistency?: number;
-    avg_sov?: number | null;
-  } | null;
-
-  // Brand Consistency: prompts con appearance rate ≥ 70% / total prompts × 100
-  const brandConsistencyScore =
-    promptRows.length > 0
-      ? Math.round(
-          (promptRows.filter((r) => r.consistency_score >= 70).length / promptRows.length) * 100
-        )
-      : 0;
-
-  const workspaceKpis: WorkspaceKpis = rawKpis
-    ? {
-        activePromptsCount: rawKpis.activePromptsCount ?? rawKpis.active_prompts_count ?? 0,
-        brandMentionsCount: rawKpis.brandMentionsCount ?? rawKpis.brand_mentions_count ?? 0,
-        avgPosition: brandMetrics.current.avgPosition,
-        brandConsistency: brandConsistencyScore,
-        avgSov: rawKpis.avgSov ?? rawKpis.avg_sov ?? null,
-      }
-    : defaultKpis;
 
   const activeCount = promptRows.filter((r) => r.prompt_status === "active").length;
 

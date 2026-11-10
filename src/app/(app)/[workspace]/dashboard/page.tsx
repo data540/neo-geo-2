@@ -20,7 +20,6 @@ import {
   getWorkspaceBrandPerformanceMetrics,
   getWorkspaceBrandVisibilityTrendMetrics,
 } from "@/lib/metrics/visibility";
-import { SPAIN_SEARCH_WEIGHTS } from "@/lib/llm/marketWeights";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
 import type {
@@ -37,77 +36,6 @@ import type {
 interface Props {
   params: Promise<{ workspace: string }>;
   searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
-}
-
-function calcAvgSentiment(
-  mentions: Array<{ sentiment: string | null; sentiment_score: number | null }>
-): number | null {
-  if (mentions.length === 0) return null;
-  const sum = mentions.reduce((acc, m) => {
-    if (m.sentiment_score !== null) return acc + m.sentiment_score;
-    if (m.sentiment === "positive") return acc + 1;
-    if (m.sentiment === "negative") return acc - 1;
-    return acc;
-  }, 0);
-  return Math.round((sum / mentions.length) * 100) / 100;
-}
-
-// Colapsa filas de daily_workspace_metrics (una por proveedor y fecha) en una
-// sola fila por fecha, promediando los campos numéricos. Se usa en "All LLMs".
-type DailyMetricRow = {
-  date: string;
-  llm_provider_id?: string | null;
-  active_prompts_count: number | null;
-  brand_mentions_count: number | null;
-  avg_position: number | null;
-  brand_consistency: number | null;
-  avg_sov: number | null;
-};
-
-function avgOf(values: (number | null)[]): number | null {
-  const nums = values.filter((v): v is number => typeof v === "number");
-  if (nums.length === 0) return null;
-  return Math.round((nums.reduce((s, v) => s + v, 0) / nums.length) * 10) / 10;
-}
-
-function weightedAvgOf(pairs: Array<{ value: number | null; weight: number }>): number | null {
-  const valid = pairs.filter((p): p is { value: number; weight: number } =>
-    typeof p.value === "number"
-  );
-  if (valid.length === 0) return null;
-  const totalW = valid.reduce((s, p) => s + p.weight, 0);
-  if (totalW === 0) return null;
-  return Math.round((valid.reduce((s, p) => s + p.value * p.weight, 0) / totalW) * 10) / 10;
-}
-
-function aggregateMetricsByDate(
-  rows: DailyMetricRow[],
-  weightByProviderId: Record<string, number> = {}
-): DailyMetricRow[] {
-  const hasWeights = Object.keys(weightByProviderId).length > 0;
-  const byDate = new Map<string, DailyMetricRow[]>();
-  for (const row of rows) {
-    const bucket = byDate.get(row.date);
-    if (bucket) bucket.push(row);
-    else byDate.set(row.date, [row]);
-  }
-  return Array.from(byDate.entries())
-    .map(([date, group]) => {
-      const pairs = (field: "avg_position" | "brand_consistency" | "avg_sov") =>
-        group.map((g) => ({
-          value: g[field],
-          weight: (g.llm_provider_id ? weightByProviderId[g.llm_provider_id] : null) ?? 1,
-        }));
-      return {
-        date,
-        active_prompts_count: avgOf(group.map((g) => g.active_prompts_count)),
-        brand_mentions_count: group.reduce((s, g) => s + (g.brand_mentions_count ?? 0), 0),
-        avg_position:      hasWeights ? weightedAvgOf(pairs("avg_position"))      : avgOf(group.map((g) => g.avg_position)),
-        brand_consistency: hasWeights ? weightedAvgOf(pairs("brand_consistency")) : avgOf(group.map((g) => g.brand_consistency)),
-        avg_sov:           hasWeights ? weightedAvgOf(pairs("avg_sov"))           : avgOf(group.map((g) => g.avg_sov)),
-      };
-    })
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 // ── Range config ───────────────────────────────────────────────────────────────
@@ -179,40 +107,6 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     providerId = provider.id;
   }
 
-  // ── Load 2× period for delta calculation ──────────────────────────────────
-  let metricsQuery = supabase
-    .from("daily_workspace_metrics")
-    .select(
-      "date, llm_provider_id, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
-    )
-    .eq("workspace_id", workspace.id)
-    .order("date", { ascending: false })
-    // En "All LLMs" hay una fila por proveedor y fecha: ampliamos el límite.
-    .limit(providerId ? days * 2 : days * 2 * 4);
-  if (providerId) metricsQuery = metricsQuery.eq("llm_provider_id", providerId);
-  const { data: allMetricRowsRaw } = await metricsQuery;
-
-  // En "All LLMs" colapsamos a una fila por fecha usando promedios ponderados
-  // por cuota de mercado española (chatgpt ~68%, gemini ~26%, perplexity ~6%).
-  let weightByProviderId: Record<string, number> = {};
-  if (!providerId) {
-    const { data: activeProviders } = await supabase
-      .from("llm_providers")
-      .select("id, key")
-      .eq("enabled", true);
-    const providers = activeProviders ?? [];
-    const totalRaw = providers.reduce((s, p) => s + (SPAIN_SEARCH_WEIGHTS[p.key] ?? 1), 0);
-    weightByProviderId = Object.fromEntries(
-      providers.map((p) => [p.id, (SPAIN_SEARCH_WEIGHTS[p.key] ?? 1) / totalRaw])
-    );
-  }
-
-  const allMetricRows = providerId
-    ? (allMetricRowsRaw ?? [])
-    : aggregateMetricsByDate(allMetricRowsRaw ?? [], weightByProviderId);
-
-  const rows = allMetricRows.slice(0, days);
-
   // ── Current period KPIs ────────────────────────────────────────────────────
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
@@ -241,70 +135,12 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const mentionsDelta =
     mentionsTotal > 0 || prevMentionsTotal > 0 ? mentionsTotal - prevMentionsTotal : null;
 
-  // ── Sentiment from mentions ────────────────────────────────────────────────
+  // ── Sentiment (mismas respuestas y ventana que el resto de KPIs) ────────────
   const periodStart = new Date();
   periodStart.setDate(periodStart.getDate() - days);
-  const prevPeriodStart = new Date(periodStart);
-  prevPeriodStart.setDate(prevPeriodStart.getDate() - days);
 
-  // Filtro de país para sentiment: obtener prompt_ids del país seleccionado
-  let sentimentPromptIds: string[] | null = null;
-  if (countryFilter) {
-    const { data: countryPrompts } = await supabase
-      .from("prompts")
-      .select("id")
-      .eq("workspace_id", workspace.id)
-      .eq("country", countryFilter);
-    sentimentPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
-  }
-
-  let sentimentQuery = supabase
-    .from("mentions")
-    .select("sentiment, sentiment_score, created_at, prompt_run_id")
-    .eq("workspace_id", workspace.id)
-    .eq("brand_type", "own")
-    .gte("created_at", prevPeriodStart.toISOString())
-    .order("created_at", { ascending: false });
-
-  const { data: sentimentMentionsRaw } = await sentimentQuery;
-
-  // Filtrar client-side por país y/o LLM (via prompt_run lookup). El sentiment
-  // así respeta el filtro de proveedor igual que el resto de KPIs.
-  let sentimentRunIds: Set<string> | null = null;
-  if (sentimentPromptIds !== null || providerId) {
-    let runsFilterQuery = supabase
-      .from("prompt_runs")
-      .select("id")
-      .eq("workspace_id", workspace.id)
-      .gte("created_at", prevPeriodStart.toISOString())
-      .limit(20000);
-    if (sentimentPromptIds !== null) {
-      runsFilterQuery = runsFilterQuery.in(
-        "prompt_id",
-        sentimentPromptIds.length > 0 ? sentimentPromptIds : ["__none__"]
-      );
-    }
-    if (providerId) {
-      runsFilterQuery = runsFilterQuery.eq("llm_provider_id", providerId);
-    }
-    const { data: filteredRuns } = await runsFilterQuery;
-    sentimentRunIds = new Set((filteredRuns ?? []).map((r) => r.id as string));
-  }
-
-  const { data: sentimentMentions } = { data: sentimentRunIds
-    ? (sentimentMentionsRaw ?? []).filter((m) => sentimentRunIds!.has((m as { prompt_run_id: string }).prompt_run_id))
-    : sentimentMentionsRaw };
-
-  const allSentimentMentions = sentimentMentions ?? [];
-  const currSentimentMentions = allSentimentMentions.filter(
-    (m) => new Date(m.created_at) >= periodStart
-  );
-  const prevSentimentMentions = allSentimentMentions.filter(
-    (m) => new Date(m.created_at) < periodStart
-  );
-
-  const avgSentiment = calcAvgSentiment(currSentimentMentions);
-  const prevAvgSentiment = calcAvgSentiment(prevSentimentMentions);
+  const avgSentiment = brandPerformanceMetrics.current.avgSentiment;
+  const prevAvgSentiment = brandPerformanceMetrics.previous.avgSentiment;
   const sentimentDelta =
     avgSentiment !== null && prevAvgSentiment !== null
       ? Math.round((avgSentiment - prevAvgSentiment) * 100) / 100
@@ -320,19 +156,17 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     .filter((position): position is number => typeof position === "number");
   // Sentiment series: normalize -1..1 → 0..100
   const sentimentSeries =
-    currSentimentMentions.length > 0 ? [Math.round(((avgSentiment ?? 0) + 1) * 50)] : [50];
+    brandPerformanceMetrics.current.sentimentMentions > 0
+      ? [Math.round(((avgSentiment ?? 0) + 1) * 50)]
+      : [50];
 
-  const metricsByDate = new Map(rows.map((r) => [r.date, r]));
-  const chartData = brandPerformanceMetrics.daily.map((r) => {
-    const metric = metricsByDate.get(r.date);
-    return {
-      date: r.date,
-      menciones: r.runsWithOwnBrand,
-      visibilidad: r.visibilityPct,
-      posicion: r.avgPosition,
-      consistencia: metric?.brand_consistency ?? null,
-    };
-  });
+  const chartData = brandPerformanceMetrics.daily.map((r) => ({
+    date: r.date,
+    menciones: r.runsWithOwnBrand,
+    visibilidad: r.visibilityPct,
+    posicion: r.avgPosition,
+    consistencia: r.consistencyPct,
+  }));
 
   // ── Recent runs ────────────────────────────────────────────────────────────
   let recentRunsQuery = supabase
@@ -760,7 +594,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         <CompetitorShareTrendsChart data={brandVisibilityTrendMetrics} badgeLabel={badgeLabel} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <TopCompetitorsPanel data={topCompetitors} />
+          <TopCompetitorsPanel data={topCompetitors} badgeLabel={badgeLabel} />
           <SourcePowerRanking data={topSources} badgeLabel={badgeLabel} />
         </div>
 
@@ -779,8 +613,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
               Tendencia diaria ({dailyRangeLabel})
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Visibilidad y posicion media calculadas desde runs completados; SOV medio viene de las
-              metricas diarias.
+              Todas las columnas se calculan en vivo desde las respuestas completadas de cada día. SOV:
+              menciones de tu marca ÷ menciones totales. Consistencia: % de prompts donde tu marca aparece
+              en ≥70% de sus respuestas del día.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -800,7 +635,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                     Visibilidad
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
-                    SOV medio
+                    SOV
                   </th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">
                     Posicion media
@@ -819,8 +654,6 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                   </tr>
                 ) : (
                   brandPerformanceMetrics.daily.map((r) => {
-                    const metric = metricsByDate.get(r.date);
-
                     return (
                       <tr key={r.date} className="hover:bg-slate-50/60">
                         <td className="px-4 py-3 text-slate-700">
@@ -838,13 +671,13 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                           {r.visibilityPct != null ? `${r.visibilityPct}%` : "-"}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-700">
-                          {metric?.avg_sov != null ? `${metric.avg_sov}%` : "-"}
+                          {r.sovPct != null ? `${r.sovPct}%` : "-"}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-700">
                           {r.avgPosition != null ? `#${r.avgPosition}` : "-"}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-700">
-                          {metric?.brand_consistency != null ? `${metric.brand_consistency}%` : "-"}
+                          {r.consistencyPct != null ? `${r.consistencyPct}%` : "-"}
                         </td>
                       </tr>
                     );
