@@ -55,24 +55,54 @@ export default async function AnalyticsPage({ params, searchParams }: Props) {
   const periodStartIso = periodStart.toISOString();
 
   // ── Fetch en paralelo ──────────────────────────────────────────────────────
+  // Coste GEO por LLM: paginado (Supabase devuelve como máximo 1.000 filas por
+  // consulta y un workspace activo supera ese número de ejecuciones).
+  const fetchRunCosts = async () => {
+    const rows: Array<{ llm_provider_id: string; cost_usd: number | null }> = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("prompt_runs")
+        .select("llm_provider_id, cost_usd")
+        .eq("workspace_id", workspace.id)
+        .eq("status", "completed")
+        .gte("created_at", periodStartIso)
+        .order("id", { ascending: true })
+        .range(offset, offset + 999);
+      if (error) throw error;
+      rows.push(...((data ?? []) as typeof rows));
+      if ((data ?? []).length < 1000) break;
+    }
+    return { data: rows };
+  };
+
+  // GSC: una fila por día y query, también supera fácilmente las 1.000 filas.
+  const fetchGscRows = async () => {
+    const rows: unknown[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supabase
+        .from("workspace_gsc_cache")
+        .select("data_date, query, clicks, impressions, ctr, position")
+        .eq("workspace_id", workspace.id)
+        .gte("data_date", periodStartDate)
+        .order("data_date", { ascending: true })
+        .order("query", { ascending: true })
+        .range(offset, offset + 999);
+      if (error) throw error;
+      rows.push(...(data ?? []));
+      if ((data ?? []).length < 1000) break;
+    }
+    return { data: rows };
+  };
+
   const [gscRes, ga4Res, promptsRes, runsRes, providersRes] = await Promise.all([
-    supabase
-      .from("workspace_gsc_cache")
-      .select("data_date, query, clicks, impressions, ctr, position")
-      .eq("workspace_id", workspace.id)
-      .gte("data_date", periodStartDate),
+    fetchGscRows(),
     supabase
       .from("workspace_ga4_llm_cache")
       .select("llm_key, conversions, sessions")
       .eq("workspace_id", workspace.id)
       .gte("data_date", periodStartDate),
     supabase.from("prompts").select("text").eq("workspace_id", workspace.id).eq("status", "active"),
-    supabase
-      .from("prompt_runs")
-      .select("llm_provider_id, cost_usd")
-      .eq("workspace_id", workspace.id)
-      .eq("status", "completed")
-      .gte("created_at", periodStartIso),
+    fetchRunCosts(),
     supabase.from("llm_providers").select("id, key, name"),
   ]);
 
