@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import {
+  getWorkspaceBrandPerformanceMetrics,
+  type MetricsDbClient,
+} from "@/lib/metrics/visibility";
+import {
   firstBlockedBrandInText,
   isBrandRestrictedWorkspace,
   loadBlockedBrands,
@@ -86,20 +90,65 @@ export const MCP_TOOLS: McpTool[] = [
   {
     name: "get_dashboard_kpis",
     description:
-      "KPIs principales del dashboard GEO: visibilidad, share of voice, sentiment y posición media de la marca en respuestas de IA.",
+      "KPIs principales del dashboard GEO (mismo cálculo que la web): visibilidad, posición media, share of voice, consistencia y sentiment de la marca en respuestas de IA, con el periodo anterior para comparar. Sin llm_provider = agregado de todos los LLMs.",
     inputSchema: {
       type: "object",
-      properties: { ...llmProp, ...countryProp },
+      properties: {
+        days: {
+          type: "integer",
+          description: "Ventana en días (default 7, como el Dashboard).",
+          default: 7,
+        },
+        ...llmProp,
+        ...countryProp,
+      },
       additionalProperties: false,
     },
     async handler(args, { supabase, workspace }) {
-      return rpcOrThrow(
-        await supabase.rpc("get_workspace_kpis", {
-          p_workspace_slug: workspace.slug,
-          p_llm_key: str(args, "llm_provider") ?? "chatgpt",
-          p_country_filter: str(args, "country"),
-        })
-      );
+      const llmKey = str(args, "llm_provider");
+      let llmProviderId: string | null = null;
+      if (llmKey) {
+        const { data: provider, error } = await supabase
+          .from("llm_providers")
+          .select("id")
+          .eq("key", llmKey)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!provider) throw new Error(`Proveedor LLM desconocido: ${llmKey}`);
+        llmProviderId = provider.id as string;
+      }
+
+      const days = num(args, "days", 7);
+      const metrics = await getWorkspaceBrandPerformanceMetrics({
+        workspaceId: workspace.workspaceId,
+        country: str(args, "country"),
+        days,
+        llmProviderId,
+        client: supabase as MetricsDbClient,
+      });
+
+      const summarize = (m: typeof metrics.current) => ({
+        completed_runs: m.completedRuns,
+        runs_with_brand: m.runsWithOwnBrand,
+        visibility_pct: m.visibilityPct,
+        avg_position: m.avgPosition,
+        sov_pct: m.sovPct,
+        own_mentions: m.ownMentions,
+        total_mentions: m.totalMentions,
+        prompts_with_runs: m.promptsWithRuns,
+        prompts_with_brand: m.promptsWithOwnBrand,
+        brand_consistency_pct: m.consistencyPct,
+        avg_sentiment: m.avgSentiment,
+      });
+
+      return {
+        days,
+        llm_provider: llmKey ?? "all",
+        current: summarize(metrics.current),
+        previous: summarize(metrics.previous),
+        visibility_delta_pct: metrics.visibilityDeltaPct,
+        avg_position_delta: metrics.avgPositionDelta,
+      };
     },
   },
   {

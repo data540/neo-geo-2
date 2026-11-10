@@ -3,6 +3,10 @@ import { revalidatePath } from "next/cache";
 import { inngest } from "@/inngest/client";
 import { remainingRunsToday } from "@/lib/llm/dailyCap";
 import {
+  getWorkspaceBrandPerformanceMetrics,
+  type MetricsDbClient,
+} from "@/lib/metrics/visibility";
+import {
   filterBlockedTexts,
   isBrandRestrictedWorkspace,
   loadBlockedBrands,
@@ -557,8 +561,9 @@ export const PROMPT_TOOLS: McpTool[] = [
   {
     name: "get_daily_trend",
     description:
-      "Serie diaria de métricas del workspace (prompts activos, menciones de la marca, " +
-      "posición media, consistencia y SOV medio) por proveedor LLM, para gráficos de tendencia.",
+      "Serie diaria de métricas de la marca (mismo cálculo que la tabla diaria del Dashboard): " +
+      "respuestas completadas, respuestas con marca, visibilidad, posición media, SOV, " +
+      "consistencia y sentiment. Sin llm_provider = agregado de todos los LLMs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -570,28 +575,48 @@ export const PROMPT_TOOLS: McpTool[] = [
         llm_provider: {
           type: "string",
           enum: ["chatgpt", "gemini", "perplexity"],
-          description: "Filtra por proveedor. Omitir para todos (una fila por día y LLM).",
+          description: "Filtra por proveedor. Omitir para el agregado de todos.",
+        },
+        country: {
+          type: "string",
+          description: "Código de país ISO para filtrar (p. ej. 'ES'). Omitir para todos.",
         },
       },
       additionalProperties: false,
     },
     async handler(args, { supabase, workspace }) {
       const days = Math.min(Math.max(num(args, "days", 30), 1), 365);
-      const from = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
-      let query = supabase
-        .from("daily_workspace_metrics")
-        .select(
-          "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov, llm_providers!inner(key)"
-        )
-        .eq("workspace_id", workspace.workspaceId)
-        .gte("date", from)
-        .order("date", { ascending: true });
       const llm = str(args, "llm_provider");
-      if (llm) query = query.eq("llm_providers.key", llm);
-      const rows = rpcOrThrow(await query) ?? [];
-      return rows.map(({ llm_providers, ...r }) => ({
-        ...r,
-        llm: (llm_providers as unknown as { key: string } | null)?.key ?? null,
+      let llmProviderId: string | null = null;
+      if (llm) {
+        const { data: provider, error } = await supabase
+          .from("llm_providers")
+          .select("id")
+          .eq("key", llm)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!provider) throw new Error(`Proveedor LLM desconocido: ${llm}`);
+        llmProviderId = provider.id as string;
+      }
+
+      const metrics = await getWorkspaceBrandPerformanceMetrics({
+        workspaceId: workspace.workspaceId,
+        country: str(args, "country"),
+        days,
+        llmProviderId,
+        client: supabase as MetricsDbClient,
+      });
+
+      return metrics.daily.map((d) => ({
+        date: d.date,
+        llm: llm ?? "all",
+        completed_runs: d.completedRuns,
+        runs_with_brand: d.runsWithOwnBrand,
+        visibility_pct: d.visibilityPct,
+        avg_position: d.avgPosition,
+        sov_pct: d.sovPct,
+        brand_consistency_pct: d.consistencyPct,
+        avg_sentiment: d.avgSentiment,
       }));
     },
   },

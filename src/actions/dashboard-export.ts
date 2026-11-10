@@ -3,20 +3,12 @@
 import * as XLSX from "xlsx";
 import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
-import type { ActionResult } from "@/types";
+import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
+import type { ActionResult, WorkspaceMemberRole } from "@/types";
 
 interface ExportResult {
   filename: string;
   base64: string;
-}
-
-interface DailyMetricRow {
-  date: string;
-  active_prompts_count: number | null;
-  brand_mentions_count: number | null;
-  avg_position: number | null;
-  brand_consistency: number | null;
-  avg_sov: number | null;
 }
 
 export async function exportDashboardAction(
@@ -49,65 +41,68 @@ export async function exportDashboardAction(
   const { data: provider } = llmKey
     ? await supabase.from("llm_providers").select("id").eq("key", llmKey).single()
     : { data: null };
+  // Mismo filtro de país que el Dashboard para que el Excel coincida con la pantalla.
+  const countryFilter = resolveWorkspaceCountryFilter({
+    workspaceSlug,
+    userRole: (membership.role as WorkspaceMemberRole | undefined) ?? null,
+  });
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
-    country: workspace.country,
+    country: countryFilter,
     days,
     llmProviderId: provider?.id ?? null,
   });
-  let dailyMetricsQuery = supabase
-    .from("daily_workspace_metrics")
-    .select(
-      "date, active_prompts_count, brand_mentions_count, avg_position, brand_consistency, avg_sov"
-    )
-    .eq("workspace_id", workspace.id)
-    .order("date", { ascending: false })
-    .limit(days);
-
-  if (provider?.id) {
-    dailyMetricsQuery = dailyMetricsQuery.eq("llm_provider_id", provider.id);
-  }
-
   // Cargar todos los datasets en paralelo
-  const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes, dailyRes] =
-    await Promise.all([
-      supabase.rpc("get_workspace_market_share", {
-        workspace_slug: workspaceSlug,
-        days,
-        llm_key: llmKey,
-      }),
-      supabase.rpc("get_workspace_mention_breakdown", {
-        workspace_slug: workspaceSlug,
-        days,
-        llm_key: llmKey,
-      }),
-      supabase.rpc("get_workspace_top_competitors", {
-        workspace_slug: workspaceSlug,
-        days,
-        limit_n: 10,
-        llm_key: llmKey,
-      }),
-      supabase.rpc("get_workspace_top_sources", {
-        workspace_slug: workspaceSlug,
-        days,
-        limit_n: 10,
-        llm_key: llmKey,
-      }),
-      supabase.rpc("get_workspace_llm_comparison", {
-        workspace_slug: workspaceSlug,
-        days,
-      }),
-      dailyMetricsQuery,
-    ]);
+  const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
+    supabase.rpc("get_workspace_market_share", {
+      workspace_slug: workspaceSlug,
+      days,
+      llm_key: llmKey,
+      p_country_filter: countryFilter,
+    }),
+    supabase.rpc("get_workspace_mention_breakdown", {
+      workspace_slug: workspaceSlug,
+      days,
+      llm_key: llmKey,
+      p_country_filter: countryFilter,
+    }),
+    supabase.rpc("get_workspace_top_competitors", {
+      workspace_slug: workspaceSlug,
+      days,
+      limit_n: 10,
+      llm_key: llmKey,
+      p_country_filter: countryFilter,
+    }),
+    supabase.rpc("get_workspace_top_sources", {
+      workspace_slug: workspaceSlug,
+      days,
+      limit_n: 10,
+      llm_key: llmKey,
+      p_country_filter: countryFilter,
+    }),
+    supabase.rpc("get_workspace_llm_comparison", {
+      workspace_slug: workspaceSlug,
+      days,
+      p_country_filter: countryFilter,
+    }),
+  ]);
 
   // Hoja KPIs (resumen)
-  const dailyRows = (dailyRes.data ?? []) as DailyMetricRow[];
+  const current = brandPerformanceMetrics.current;
   const kpisData = [
     {
       Workspace: workspace.name,
       Marca: workspace.brand_name,
       Rango: `Últimos ${days} días`,
       LLM: llmKey ?? "Todos",
+      País: countryFilter ?? "Todos",
+      "Queries completadas": current.completedRuns,
+      "Queries con marca": current.runsWithOwnBrand,
+      "Visibilidad (%)": current.visibilityPct ?? "",
+      "Posición media": current.avgPosition ?? "",
+      "SOV (%)": current.sovPct ?? "",
+      "Consistencia (%)": current.consistencyPct ?? "",
+      Sentimiento: current.avgSentiment ?? "",
       "Generado el": new Date().toLocaleString("es-ES"),
     },
   ];
@@ -197,21 +192,15 @@ export async function exportDashboardAction(
   }));
 
   // Hoja Daily Metrics
-  const dailyRowsByDate = new Map(dailyRows.map((d) => [d.date, d]));
-  const dailySheet = brandPerformanceMetrics.daily.map((d) => {
-    const metric = dailyRowsByDate.get(d.date);
-
-    return {
-      Fecha: d.date,
-      "Queries completadas": d.completedRuns,
-      "Queries con marca": d.runsWithOwnBrand,
-      "Visibilidad (%)": d.visibilityPct ?? "",
-      "SOV medio (%)": metric?.avg_sov ?? "",
-      "Posicion media": d.avgPosition ?? "",
-      "Posicion media diaria historica": metric?.avg_position ?? "",
-      "Consistencia (%)": metric?.brand_consistency ?? "",
-    };
-  });
+  const dailySheet = brandPerformanceMetrics.daily.map((d) => ({
+    Fecha: d.date,
+    "Queries completadas": d.completedRuns,
+    "Queries con marca": d.runsWithOwnBrand,
+    "Visibilidad (%)": d.visibilityPct ?? "",
+    "SOV (%)": d.sovPct ?? "",
+    "Posición media": d.avgPosition ?? "",
+    "Consistencia (%)": d.consistencyPct ?? "",
+  }));
 
   // Construir workbook
   const wb = XLSX.utils.book_new();

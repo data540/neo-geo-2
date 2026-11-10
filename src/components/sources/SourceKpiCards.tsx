@@ -34,9 +34,7 @@ export function SourceKpiCards({ kpis }: Props) {
             <Layers className="w-4 h-4 text-violet-500" aria-hidden="true" />
           </div>
         </div>
-        <p className="text-3xl font-bold text-slate-900 tabular-nums">
-          {kpis.sourceTypeCount}
-        </p>
+        <p className="text-3xl font-bold text-slate-900 tabular-nums">{kpis.sourceTypeCount}</p>
         <p className="text-xs text-slate-400 mt-1">Different source categories</p>
       </div>
 
@@ -56,7 +54,7 @@ export function SourceKpiCards({ kpis }: Props) {
               {kpis.mostInfluentialDomain}
             </p>
             <p className="text-xs text-slate-400 mt-1">
-              {kpis.mostInfluentialCount} citations found
+              {kpis.mostInfluentialCount} respuestas IA la citan
             </p>
           </>
         ) : (
