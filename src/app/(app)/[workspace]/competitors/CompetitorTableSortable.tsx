@@ -424,7 +424,7 @@ export function CompetitorTableSortable({
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="% de prompts unicos donde aparece la marca."
+                tooltip="% de respuestas IA donde aparece la marca (mismo cálculo que tu visibilidad)."
               />
               <SortableHeader
                 label="AVG POS"
@@ -432,7 +432,7 @@ export function CompetitorTableSortable({
                 activeSortKey={sortKey}
                 activeSortDir={sortDir}
                 onSort={handleSort}
-                tooltip="Posicion promedio cuando es mencionado (1 = primero)."
+                tooltip="Posición media en los rankings de las respuestas: la mejor posición por respuesta (1 = primero)."
               />
               <SortableHeader
                 label="SOV"

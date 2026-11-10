@@ -128,6 +128,62 @@ function round1(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
+// ── Reglas compartidas de métricas de marca ──────────────────────────────────
+// Dashboard y Competitors deben usar exactamente estas reglas para que sus
+// KPIs coincidan: misma ventana temporal y misma definición de posición.
+
+/** Solo cuenta como posición la de un ranking real dentro de la respuesta. */
+const RANKED_POSITION_SOURCES = new Set(["numbered_list", "bullet_list", "llm"]);
+
+export function isRankedPosition(
+  positionSource: string | null | undefined,
+  position: number | null | undefined
+): position is number {
+  return (
+    !!positionSource &&
+    RANKED_POSITION_SOURCES.has(positionSource) &&
+    typeof position === "number" &&
+    Number.isFinite(position)
+  );
+}
+
+/** Mejor posición rankeada de la marca en cada respuesta (una por run). */
+export function bestRankedPositionsByRun(
+  rows: Iterable<{
+    prompt_run_id: string | null;
+    position: number | null;
+    position_source: string | null;
+  }>
+): Map<string, number> {
+  const best = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.prompt_run_id || !isRankedPosition(row.position_source, row.position)) continue;
+    const current = best.get(row.prompt_run_id);
+    if (current === undefined || row.position < current) best.set(row.prompt_run_id, row.position);
+  }
+  return best;
+}
+
+/** Media de la mejor posición por respuesta, redondeada a 1 decimal. */
+export function averagePosition(bestByRun: Map<string, number>): number | null {
+  if (bestByRun.size === 0) return null;
+  let sum = 0;
+  for (const position of bestByRun.values()) sum += position;
+  return round1(sum / bestByRun.size);
+}
+
+/** Ventana actual [currentStart, now) y anterior [previousStart, currentStart). */
+export function getPeriodWindow(
+  days: number,
+  now: Date = new Date()
+): { now: Date; currentStart: Date; previousStart: Date } {
+  const currentStart = new Date(now);
+  currentStart.setDate(currentStart.getDate() - days);
+  const previousStart = new Date(currentStart);
+  previousStart.setDate(previousStart.getDate() - days);
+  return { now, currentStart, previousStart };
+}
+
 function pct(part: number, total: number): number | null {
   return total > 0 ? round1((part / total) * 100) : null;
 }
@@ -516,16 +572,7 @@ async function fetchOwnMentionRunIds(params: {
         ownMentionRunIds.add(row.prompt_run_id); // visibilidad % cuenta cualquier mención
 
         // AVG POSITION solo cuenta posiciones de listas reales o LLM — no orden textual
-        const isRankedPosition =
-          row.position_source === "numbered_list" ||
-          row.position_source === "bullet_list" ||
-          row.position_source === "llm";
-
-        if (
-          isRankedPosition &&
-          typeof row.position === "number" &&
-          Number.isFinite(row.position)
-        ) {
+        if (isRankedPosition(row.position_source, row.position)) {
           const current = bestPositions.get(row.prompt_run_id);
           if (current === undefined || row.position < current) {
             bestPositions.set(row.prompt_run_id, row.position);
@@ -545,11 +592,7 @@ export async function getWorkspaceBrandPerformanceMetrics(params: {
   days: number;
   llmProviderId?: string | null;
 }): Promise<WorkspaceBrandPerformanceMetrics> {
-  const now = new Date();
-  const currentStart = new Date(now);
-  currentStart.setDate(currentStart.getDate() - params.days);
-  const previousStart = new Date(currentStart);
-  previousStart.setDate(previousStart.getDate() - params.days);
+  const { now, currentStart, previousStart } = getPeriodWindow(params.days);
 
   const runs = await fetchCompletedRuns({
     workspaceId: params.workspaceId,
