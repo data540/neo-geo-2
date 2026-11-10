@@ -734,7 +734,10 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         </div>
 
         {/* ── Brand Visibility Evolution ── */}
-        <BrandVisibilityTrendChart data={brandVisibilityTrendMetrics} />
+        <BrandVisibilityTrendChart
+          data={brandVisibilityTrendMetrics}
+          summary={{ visibilityPct: visibility, deltaPct: visibilityDelta, label: rangeLabel }}
+        />
 
         {/* ── Analytics panels ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
