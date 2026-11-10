@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { SourceCitationsTable } from "@/components/sources/SourceCitationsTable";
 import { SourceKpiCards } from "@/components/sources/SourceKpiCards";
 import { SourceRankingsTable } from "@/components/sources/SourceRankingsTable";
+import { getPeriodWindow, getWorkspaceTimeZone } from "@/lib/metrics/visibility";
 import { getSourceType } from "@/lib/sources/classify";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
@@ -63,12 +64,7 @@ interface RawSourceRow {
     | null;
 }
 
-function isWithinDays(dateValue: string | null | undefined, days: number): boolean {
-  if (!dateValue) return false;
-  const time = new Date(dateValue).getTime();
-  if (Number.isNaN(time)) return false;
-  return time >= Date.now() - days * 24 * 60 * 60 * 1000;
-}
+const CITATION_TABLE_LIMIT = 1000;
 
 function firstOrNull<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -141,14 +137,28 @@ export default async function SourcesPage({ params, searchParams }: Props) {
     })
   );
 
-  const { data: rawSourceRows } = await supabase
+  // Tabla de citas: las más recientes DENTRO del periodo (misma ventana de días
+  // naturales que el ranking y las RPCs). Los contadores salen de la RPC.
+  const { now: periodEnd, currentStart: periodStart } = getPeriodWindow(
+    days,
+    new Date(),
+    getWorkspaceTimeZone(countryFilter)
+  );
+  let citationsQuery = supabase
     .from("sources")
     .select(
-      "id, url, domain, title, cited_by_llm, created_at, prompt_run_id, prompt_runs(id, status, created_at, llm_providers(key, name), prompts(id, text, country))"
+      "id, url, domain, title, cited_by_llm, created_at, prompt_run_id, prompt_runs!inner(id, status, created_at, completed_at, llm_providers!inner(key, name), prompts!inner(id, text, country))"
     )
     .eq("workspace_id", workspace.id)
+    .eq("cited_by_llm", true)
+    .eq("prompt_runs.status", "completed")
+    .gte("prompt_runs.completed_at", periodStart.toISOString())
+    .lt("prompt_runs.completed_at", periodEnd.toISOString())
     .order("created_at", { ascending: false })
-    .range(0, 999);
+    .range(0, CITATION_TABLE_LIMIT - 1);
+  if (llm) citationsQuery = citationsQuery.eq("prompt_runs.llm_providers.key", llm);
+  if (countryFilter) citationsQuery = citationsQuery.eq("prompt_runs.prompts.country", countryFilter);
+  const { data: rawSourceRows } = await citationsQuery;
 
   const sourceRows = ((rawSourceRows ?? []) as unknown as RawSourceRow[])
     .map((row) => {
@@ -157,7 +167,6 @@ export default async function SourcesPage({ params, searchParams }: Props) {
       const prompt = firstOrNull(run?.prompts);
       return { row, run, provider, prompt };
     })
-    .filter(({ row, run }) => isWithinDays(run?.created_at ?? row.created_at, days))
     .filter(({ provider }) => !llm || provider?.key === llm)
     .filter(({ prompt }) => !countryFilter || prompt?.country === countryFilter);
 
@@ -180,6 +189,11 @@ export default async function SourcesPage({ params, searchParams }: Props) {
     brand_citing_urls?: number;
     most_influential_domain?: string | null;
     most_influential_count?: number;
+    citations_count?: number;
+    domains_count?: number;
+    urls_count?: number;
+    prompts_count?: number;
+    llms_count?: number;
   } | null;
 
   const sourceTypeCount = new Set(rankingRows.map((r) => getSourceType(r.domain))).size;
@@ -191,10 +205,17 @@ export default async function SourcesPage({ params, searchParams }: Props) {
     sourceTypeCount,
   };
 
-  const domainsCount = new Set(citationRows.map((row) => row.domain).filter(Boolean)).size;
-  const urlsCount = new Set(citationRows.map((row) => row.url).filter(Boolean)).size;
-  const promptsCount = new Set(citationRows.map((row) => row.promptText).filter(Boolean)).size;
-  const llmsCount = new Set(citationRows.map((row) => row.llmKey).filter(Boolean)).size;
+  // Contadores del periodo completo (RPC), no de las filas cargadas en la tabla.
+  const domainsCount =
+    kpisRaw?.domains_count ?? new Set(citationRows.map((row) => row.domain).filter(Boolean)).size;
+  const citationsCount = kpisRaw?.citations_count ?? citationRows.length;
+  const urlsCount =
+    kpisRaw?.urls_count ?? new Set(citationRows.map((row) => row.url).filter(Boolean)).size;
+  const promptsCount =
+    kpisRaw?.prompts_count ??
+    new Set(citationRows.map((row) => row.promptText).filter(Boolean)).size;
+  const llmsCount =
+    kpisRaw?.llms_count ?? new Set(citationRows.map((row) => row.llmKey).filter(Boolean)).size;
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -214,13 +235,17 @@ export default async function SourcesPage({ params, searchParams }: Props) {
           />
           <SummaryCard
             label="Citas guardadas"
-            value={citationRows.length}
-            hint="Filas reales en sources"
+            value={citationsCount}
+            hint={
+              citationsCount > citationRows.length
+                ? `La tabla muestra las ${citationRows.length.toLocaleString("es-ES")} más recientes`
+                : "Filas reales en sources"
+            }
           />
           <SummaryCard
             label="URLs únicas"
             value={urlsCount}
-            hint="Incluye URLs repetidas por runs"
+            hint="Sin repetir la misma URL"
           />
           <SummaryCard
             label="Prompts con fuente"

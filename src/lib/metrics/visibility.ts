@@ -105,7 +105,10 @@ export type BrandVisibilityTrendPoint = {
   date: string;
   label: string;
   completedRuns: number;
+  /** Visibilidad: % de respuestas del periodo que mencionan la marca. */
   values: Record<string, number | null>;
+  /** SOV: menciones de la marca ÷ menciones totales (propias + competidores). */
+  shareValues: Record<string, number | null>;
 };
 
 export type WorkspaceBrandVisibilityTrendMetrics = {
@@ -854,11 +857,21 @@ export async function getWorkspaceBrandVisibilityTrendMetrics(params: {
   });
   const accumulators = new Map<string, TrendBrandAccumulator>();
   const seenRunBrandPairs = new Set<string>();
+  // SOV por bucket: misma regla que el donut (solo menciones con brand_id).
+  const mentionsByBucketBrand = new Map<string, number>();
+  const totalMentionsByBucket = new Map<string, number>();
 
   for (const mention of mentions) {
     if (!mention.prompt_run_id || !mention.brand_type) continue;
     const bucketKey = runBucket.get(mention.prompt_run_id);
     if (!bucketKey) continue;
+
+    if (mention.brand_id) {
+      const sovKey =
+        mention.brand_type === "own" ? OWN_BRAND_KEY : `competitor:${mention.brand_id}`;
+      addTo(totalMentionsByBucket, bucketKey, 1);
+      addTo(mentionsByBucketBrand, `${bucketKey}|${sovKey}`, 1);
+    }
 
     const catalogBrand = mention.brand_id ? brandsById.get(mention.brand_id) : undefined;
     const brandType = mention.brand_type === "own" ? "own" : "competitor";
@@ -937,11 +950,20 @@ export async function getWorkspaceBrandVisibilityTrendMetrics(params: {
       })
     );
 
+    const totalMentions = totalMentionsByBucket.get(bucket.key) ?? 0;
+    const shareValues = Object.fromEntries(
+      selectedBrands.map(([key]) => [
+        key,
+        pct(mentionsByBucketBrand.get(`${bucket.key}|${key}`) ?? 0, totalMentions),
+      ])
+    );
+
     return {
       date: bucket.key,
       label: bucket.label,
       completedRuns,
       values,
+      shareValues,
     };
   });
   const latestPoint =

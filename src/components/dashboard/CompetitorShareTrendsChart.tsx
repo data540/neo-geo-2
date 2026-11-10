@@ -61,10 +61,9 @@ export function CompetitorShareTrendsChart({ data, badgeLabel }: Props) {
     dataKey: `brand_${index}`,
   }));
 
+  // SOV real por periodo: menciones de la marca ÷ menciones totales de todas
+  // las marcas (no solo las 5 que se dibujan), igual que el donut y la tabla diaria.
   const chartData: ChartRow[] = data.series.map((point) => {
-    const rawValues = metricKeys.map((b) => point.values[b.key] ?? 0);
-    const total = rawValues.reduce((sum, v) => sum + v, 0);
-
     const row: ChartRow = {
       date: point.date,
       label: point.label,
@@ -72,9 +71,7 @@ export function CompetitorShareTrendsChart({ data, badgeLabel }: Props) {
     };
 
     for (const brand of metricKeys) {
-      const raw = point.values[brand.key] ?? null;
-      row[brand.dataKey] =
-        raw !== null && total > 0 ? Math.round((raw / total) * 1000) / 10 : null;
+      row[brand.dataKey] = point.completedRuns > 0 ? (point.shareValues[brand.key] ?? 0) : null;
     }
 
     return row;
@@ -87,7 +84,9 @@ export function CompetitorShareTrendsChart({ data, badgeLabel }: Props) {
       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-slate-900">Competitor Share Trends</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Share of Voice over time vs top competitors</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Share of Voice over time vs top competitors (% of all brand mentions)
+          </p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-medium uppercase tracking-wide">
           {badgeLabel ?? "Last 7 days"}

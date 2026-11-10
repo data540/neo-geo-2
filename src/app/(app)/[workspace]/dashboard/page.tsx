@@ -17,8 +17,10 @@ import { Delta, fmtScore, sentimentLabel, Sparkline } from "@/components/dashboa
 import { Card, CardContent } from "@/components/ui/card";
 import { parseAioContent } from "@/lib/aio/parseAioContent";
 import {
+  getPeriodWindow,
   getWorkspaceBrandPerformanceMetrics,
   getWorkspaceBrandVisibilityTrendMetrics,
+  getWorkspaceTimeZone,
 } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
@@ -136,9 +138,6 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     mentionsTotal > 0 || prevMentionsTotal > 0 ? mentionsTotal - prevMentionsTotal : null;
 
   // ── Sentiment (mismas respuestas y ventana que el resto de KPIs) ────────────
-  const periodStart = new Date();
-  periodStart.setDate(periodStart.getDate() - days);
-
   const avgSentiment = brandPerformanceMetrics.current.avgSentiment;
   const prevAvgSentiment = brandPerformanceMetrics.previous.avgSentiment;
   const sentimentDelta =
@@ -304,17 +303,30 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   if (isAiOverview && providerId) {
     // Datos del texto del modelo (sin coste SERP)
-    const { data: aioRuns } = await supabase
-      .from("prompt_runs")
-      .select("raw_response")
-      .eq("workspace_id", workspace.id)
-      .eq("llm_provider_id", providerId)
-      .eq("status", "completed")
-      .gte("created_at", periodStart.toISOString())
-      .limit(5000);
-    const rawResponses = (aioRuns ?? [])
-      .map((r) => (r as { raw_response: string | null }).raw_response)
-      .filter((r): r is string => typeof r === "string" && r.length > 0);
+    // Mismas respuestas que la tarjeta de visibilidad: días naturales cerrados,
+    // filtro de país y paginación (Supabase devuelve como máximo 1.000 filas).
+    const aioWindow = getPeriodWindow(days, new Date(), getWorkspaceTimeZone(countryFilter));
+    const rawResponses: string[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      let aioQuery = supabase
+        .from("prompt_runs")
+        .select("raw_response, prompts!inner(country)")
+        .eq("workspace_id", workspace.id)
+        .eq("llm_provider_id", providerId)
+        .eq("status", "completed")
+        .gte("completed_at", aioWindow.currentStart.toISOString())
+        .lt("completed_at", aioWindow.now.toISOString())
+        .order("completed_at", { ascending: true })
+        .range(offset, offset + 999);
+      if (countryFilter) aioQuery = aioQuery.eq("prompts.country", countryFilter);
+      const { data: aioRuns, error: aioError } = await aioQuery;
+      if (aioError) throw aioError;
+      for (const r of aioRuns ?? []) {
+        const raw = (r as { raw_response: string | null }).raw_response;
+        if (typeof raw === "string" && raw.length > 0) rawResponses.push(raw);
+      }
+      if ((aioRuns ?? []).length < 1000) break;
+    }
     aio = parseAioContent(rawResponses);
 
     // Datos SERP reales de la caché semanal (se generan por el CRON de Inngest).
