@@ -4,9 +4,9 @@ export default function AuthLayout({ children }: { readonly children: React.Reac
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">
           <img
-            src="/mentio-logo.jpg"
-            alt="Mentio — AI-Powered Brand Visibility Ranking"
-            className="w-[520px] max-w-full h-auto object-contain"
+            src="/mentio-logo.png"
+            alt="Mentio — AI Visibility"
+            className="w-[360px] max-w-full h-auto object-contain"
           />
         </div>
         {children}
