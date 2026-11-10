@@ -215,23 +215,65 @@ export function averagePosition(bestByRun: Map<string, number>): number | null {
   return round1(sum / bestByRun.size);
 }
 
-/** Ventana actual [currentStart, now) y anterior [previousStart, currentStart). */
+/** Desfase en minutos de una zona horaria respecto a UTC en un instante dado. */
+function timeZoneOffsetMinutes(date: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const asUtc = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour"),
+    get("minute"),
+    get("second")
+  );
+  return Math.round((asUtc - date.getTime()) / 60000);
+}
+
+/** Instante UTC de la medianoche local de `dateKey` (YYYY-MM-DD) en `timeZone`. */
+function zonedMidnight(dateKey: string, timeZone: string): Date {
+  const utcMidnight = new Date(`${dateKey}T00:00:00.000Z`);
+  const offset = timeZoneOffsetMinutes(utcMidnight, timeZone);
+  const guess = new Date(utcMidnight.getTime() - offset * 60000);
+  // Reajuste por si el cambio de hora cae entre medias.
+  const offset2 = timeZoneOffsetMinutes(guess, timeZone);
+  return offset2 === offset ? guess : new Date(utcMidnight.getTime() - offset2 * 60000);
+}
+
+/**
+ * Ventana de días naturales cerrados en la zona horaria del workspace:
+ * actual [currentStart, now) y anterior [previousStart, currentStart), donde
+ * `now` es la medianoche de hoy. Así "7D" son los 7 últimos días completos y
+ * "Ayer" es exactamente el día de ayer, igual que el gráfico de tendencia.
+ * Las RPCs SQL usan la misma regla (metrics_window).
+ */
 export function getPeriodWindow(
   days: number,
-  now: Date = new Date()
+  reference: Date = new Date(),
+  timeZone: string = getWorkspaceTimeZone(null)
 ): { now: Date; currentStart: Date; previousStart: Date } {
-  const currentStart = new Date(now);
-  currentStart.setDate(currentStart.getDate() - days);
-  const previousStart = new Date(currentStart);
-  previousStart.setDate(previousStart.getDate() - days);
-  return { now, currentStart, previousStart };
+  const todayKey = formatDateKey(reference, timeZone);
+  return {
+    now: zonedMidnight(todayKey, timeZone),
+    currentStart: zonedMidnight(shiftDateKey(todayKey, -days), timeZone),
+    previousStart: zonedMidnight(shiftDateKey(todayKey, -2 * days), timeZone),
+  };
 }
 
 function pct(part: number, total: number): number | null {
   return total > 0 ? round1((part / total) * 100) : null;
 }
 
-function getWorkspaceTimeZone(country?: string | null): string {
+export function getWorkspaceTimeZone(country?: string | null): string {
   return country === "CO" ? "America/Bogota" : "Europe/Madrid";
 }
 
@@ -466,11 +508,14 @@ function buildDailyMetrics(
     const cursor = new Date(currentStart);
     cursor.setUTCHours(12, 0, 0, 0);
 
-    while (cursor <= currentEnd) {
-      keys.add(formatDateKey(cursor, timeZone));
+    // currentEnd es exclusivo (medianoche de hoy): el último día es ayer.
+    const lastKey = formatDateKey(new Date(currentEnd.getTime() - 1), timeZone);
+    while (cursor < currentEnd) {
+      const key = formatDateKey(cursor, timeZone);
+      if (key <= lastKey) keys.add(key);
       cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
-    keys.add(formatDateKey(currentEnd, timeZone));
+    keys.add(lastKey);
   }
 
   const runsByDate = new Map<string, CompletedRunRow[]>();
@@ -680,7 +725,11 @@ export async function getWorkspaceBrandPerformanceMetrics(params: {
   /** Cliente alternativo (p. ej. service role en el MCP). Por defecto, cookies. */
   client?: MetricsDbClient;
 }): Promise<WorkspaceBrandPerformanceMetrics> {
-  const { now, currentStart, previousStart } = getPeriodWindow(params.days);
+  const { now, currentStart, previousStart } = getPeriodWindow(
+    params.days,
+    new Date(),
+    getWorkspaceTimeZone(params.country)
+  );
 
   const runs = await fetchCompletedRuns({
     workspaceId: params.workspaceId,

@@ -319,6 +319,11 @@ export function PromptPerformanceTable({
         </p>
       )}
 
+      <p className="text-xs text-slate-500">
+        Posición, SOV, sentimiento y consistencia de cada prompt corresponden a su última
+        ejecución; las tarjetas superiores resumen los últimos 7 días.
+      </p>
+
       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
         <div className="max-h-[65vh] overflow-y-auto overflow-x-auto">
           <table className="w-full text-sm min-w-[1100px]">
