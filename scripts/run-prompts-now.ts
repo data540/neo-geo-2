@@ -81,6 +81,7 @@ async function main() {
     return;
   }
 
+  let stop = false;
   let done = 0;
   let failed = 0;
   let skipped = 0;
@@ -88,7 +89,7 @@ async function main() {
   const queue = [...jobs];
   await Promise.all(
     Array.from({ length: CONCURRENCY }, async () => {
-      for (let job = queue.shift(); job; job = queue.shift()) {
+      for (let job = queue.shift(); job && !stop; job = queue.shift()) {
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
           try {
             // biome-ignore lint/suspicious/noExplicitAny: llmKey validado contra llm_providers
@@ -97,6 +98,13 @@ async function main() {
             else done++;
             break;
           } catch (err) {
+            // Presupuesto/saldo de OpenRouter agotado: parar todo, reintentar no sirve
+            if (err instanceof Error && /budget|\(402\)|\(403\)|insufficient credits/i.test(err.message)) {
+              stop = true;
+              failed++;
+              console.error(`✗ OpenRouter sin presupuesto/saldo, se detiene: ${err.message.slice(0, 160)}`);
+              break;
+            }
             if (attempt === MAX_ATTEMPTS) {
               failed++;
               console.error(`✗ ${job.llmKey} ${job.promptId}: ${err instanceof Error ? err.message : err}`);
