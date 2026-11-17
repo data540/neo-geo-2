@@ -1,10 +1,17 @@
 import { notFound } from "next/navigation";
 import { PromptKpiCards } from "@/components/prompts/PromptKpiCards";
 import { PromptPerformanceCard } from "@/components/prompts/PromptPerformanceCard";
+import { ProductSelector } from "@/components/layout/ProductSelector";
 import { PromptsPageHeader } from "@/components/prompts/PromptsPageHeader";
 import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
+import {
+  countPromptsByProduct,
+  getWorkspaceProducts,
+  promptMatchesProduct,
+  resolveWorkspaceProduct,
+} from "@/lib/workspace-products";
 import type { PromptPerformanceRow, RunStatus, WorkspaceKpis, WorkspaceMemberRole } from "@/types";
 
 interface EnabledLlm {
@@ -14,14 +21,14 @@ interface EnabledLlm {
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string; country?: string }>;
+  searchParams: Promise<{ llm?: string; country?: string; product?: string }>;
 }
 
 const KPI_PERIOD_DAYS = 7;
 
 export default async function PromptsPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm, country } = await searchParams;
+  const { llm, country, product } = await searchParams;
 
   const supabase = await createClient();
 
@@ -49,6 +56,10 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     requestedCountry: country,
     userRole: (membership?.role as WorkspaceMemberRole | undefined) ?? null,
   });
+
+  // Producto (?product=): mismas palabras clave que el Dashboard.
+  const products = getWorkspaceProducts(slug);
+  const selectedProduct = resolveWorkspaceProduct(slug, product);
 
   // LLMs habilitados del workspace
   const { data: llmConfigs } = await supabase
@@ -86,6 +97,7 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     workspaceId: workspace.id,
     days: KPI_PERIOD_DAYS,
     country: countryFilter,
+    promptPattern: selectedProduct?.pattern ?? null,
     llmProviderId: focusLlmProviderId,
   });
 
@@ -96,7 +108,17 @@ export default async function PromptsPage({ params, searchParams }: Props) {
     .eq("workspace_id", workspace.id)
     .order("name");
 
-  const promptRows = (rows ?? []) as PromptPerformanceRow[];
+  const allPromptRows = (rows ?? []) as PromptPerformanceRow[];
+  const productCounts =
+    products.length > 0
+      ? countPromptsByProduct(
+          allPromptRows.map((r) => r.prompt_text ?? ""),
+          products
+        )
+      : undefined;
+  const promptRows = selectedProduct
+    ? allPromptRows.filter((r) => promptMatchesProduct(r.prompt_text ?? "", selectedProduct))
+    : allPromptRows;
   const promptIds = promptRows.map((r) => r.prompt_id);
 
   const promptTags: Record<string, { id: string; name: string; color: string }[]> = {};
@@ -161,6 +183,14 @@ export default async function PromptsPage({ params, searchParams }: Props) {
           workspaceCountry={workspace.country ?? "ES"}
           totalActive={activeCount}
         />
+
+        {products.length > 0 && (
+          <ProductSelector
+            products={products.map(({ key, label }) => ({ key, label }))}
+            selectedKey={selectedProduct?.key ?? null}
+            counts={productCounts}
+          />
+        )}
 
         <PromptKpiCards kpis={workspaceKpis} enabledLlms={enabledLlms} usagePct={usagePct} />
 

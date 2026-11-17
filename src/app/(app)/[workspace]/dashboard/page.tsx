@@ -14,6 +14,7 @@ import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Delta, fmtScore, sentimentLabel, Sparkline } from "@/components/dashboard/kpi-helpers";
+import { ProductSelector } from "@/components/layout/ProductSelector";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseAioContent } from "@/lib/aio/parseAioContent";
 import {
@@ -24,6 +25,7 @@ import {
 } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
+import { countPromptsByProduct, getWorkspaceProducts, resolveWorkspaceProduct } from "@/lib/workspace-products";
 import type {
   LlmComparisonRow,
   LlmProviderKey,
@@ -37,7 +39,7 @@ import type {
 
 interface Props {
   params: Promise<{ workspace: string }>;
-  searchParams: Promise<{ llm?: string; range?: string; country?: string }>;
+  searchParams: Promise<{ llm?: string; range?: string; country?: string; product?: string }>;
 }
 
 // ── Range config ───────────────────────────────────────────────────────────────
@@ -55,7 +57,7 @@ const VALID_RANGES = RANGE_OPTIONS.map((r) => String(r.value));
 
 export default async function DashboardPage({ params, searchParams }: Props) {
   const { workspace: slug } = await params;
-  const { llm, range = "7", country } = await searchParams;
+  const { llm, range = "7", country, product } = await searchParams;
   const llmKey = llm ?? null;
 
   const supabase = await createClient();
@@ -95,6 +97,34 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     userRole: (membership?.role as WorkspaceMemberRole | undefined) ?? null,
   });
 
+  // Producto (agrupación de prompts por palabras clave del texto, p. ej. Ocaso:
+  // decesos / hogar). Un ?product= desconocido se ignora.
+  const products = getWorkspaceProducts(slug);
+  const selectedProduct = resolveWorkspaceProduct(slug, product);
+  const promptPattern = selectedProduct?.pattern ?? null;
+  // Solo se envía p_prompt_pattern con un producto elegido: sin producto, la
+  // llamada es idéntica a la de antes de la migración 0049.
+  const productRpcArg = promptPattern ? { p_prompt_pattern: promptPattern } : {};
+  let productCounts: Record<string, number> | undefined;
+  if (products.length > 0) {
+    let countQuery = supabase.from("prompts").select("text").eq("workspace_id", workspace.id);
+    if (countryFilter) countQuery = countQuery.eq("country", countryFilter);
+    const { data: productPrompts } = await countQuery;
+    productCounts = countPromptsByProduct(
+      (productPrompts ?? []).map((p) => (p.text as string | null) ?? ""),
+      products
+    );
+  }
+  const dashboardHref = (overrides: { range?: number; product?: string | null }) => {
+    const qs = new URLSearchParams();
+    if (llm) qs.set("llm", llm);
+    if (country) qs.set("country", country);
+    qs.set("range", String(overrides.range ?? days));
+    const productKey = overrides.product === undefined ? selectedProduct?.key : overrides.product;
+    if (productKey) qs.set("product", productKey);
+    return `/${slug}/dashboard?${qs.toString()}`;
+  };
+
   // Resolver provider solo si hay un LLM concreto. "All LLMs" (llmKey === null)
   // agrega métricas de todos los proveedores.
   let providerId: string | null = null;
@@ -113,12 +143,14 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
     country: countryFilter,
+    promptPattern,
     days,
     llmProviderId: providerId,
   });
   const brandVisibilityTrendMetrics = await getWorkspaceBrandVisibilityTrendMetrics({
     workspaceId: workspace.id,
     country: countryFilter,
+    promptPattern,
     days,
     llmProviderId: providerId,
     ownBrandName: workspace.brand_name,
@@ -177,6 +209,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   if (countryFilter) {
     recentRunsQuery = recentRunsQuery.eq("prompts.country", countryFilter);
   }
+  if (promptPattern) {
+    recentRunsQuery = recentRunsQuery.filter("prompts.text", "imatch", promptPattern);
+  }
   const { data: recentRuns } = await recentRunsQuery;
 
   // ── Dashboard analytics (RPC parallel fetch) ──────────────────────────────
@@ -211,14 +246,15 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   };
 
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
-    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter }),
-    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter }),
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter, ...productRpcArg }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter, ...productRpcArg }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: slug,
       days,
       limit_n: 5,
       llm_key: llmKey,
       p_country_filter: countryFilter,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: slug,
@@ -226,8 +262,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
       limit_n: 5,
       llm_key: llmKey,
       p_country_filter: countryFilter,
+      ...productRpcArg,
     }),
-    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: countryFilter }),
+    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: countryFilter, ...productRpcArg }),
   ]);
 
   const marketShare: MarketShareEntry[] = ((marketShareRes.data ?? []) as MarketShareRow[]).map(
@@ -310,7 +347,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     for (let offset = 0; ; offset += 1000) {
       let aioQuery = supabase
         .from("prompt_runs")
-        .select("raw_response, prompts!inner(country)")
+        .select("raw_response, prompts!inner(country, text)")
         .eq("workspace_id", workspace.id)
         .eq("llm_provider_id", providerId)
         .eq("status", "completed")
@@ -319,6 +356,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         .order("completed_at", { ascending: true })
         .range(offset, offset + 999);
       if (countryFilter) aioQuery = aioQuery.eq("prompts.country", countryFilter);
+      if (promptPattern) aioQuery = aioQuery.filter("prompts.text", "imatch", promptPattern);
       const { data: aioRuns, error: aioError } = await aioQuery;
       if (aioError) throw aioError;
       for (const r of aioRuns ?? []) {
@@ -334,13 +372,15 @@ export default async function DashboardPage({ params, searchParams }: Props) {
     // el snapshot SERP es semanal (no diario) y filtrar por el período activo
     // hace que los datos desaparezcan cuando el último cron lleva >7 días.
     const serpLookbackStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const { data: serpRows } = await supabase
+    let serpQuery = supabase
       .from("prompt_serp_cache")
-      .select("prompt_id, ai_overview_present, ai_overview_serp_position, ai_overview_sections, ai_mode_present, ai_mode_serp_position")
+      .select("prompt_id, ai_overview_present, ai_overview_serp_position, ai_overview_sections, ai_mode_present, ai_mode_serp_position, prompts!inner(text)")
       .eq("workspace_id", workspace.id)
       .gte("fetched_at", serpLookbackStart.toISOString())
       .order("fetched_at", { ascending: false })
       .limit(2000);
+    if (promptPattern) serpQuery = serpQuery.filter("prompts.text", "imatch", promptPattern);
+    const { data: serpRows } = await serpQuery;
 
     // Dedup: solo el snapshot más reciente por prompt (query ordenada desc por fetched_at)
     type SerpRow = {
@@ -429,7 +469,7 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 return (
                   <Link
                     key={value}
-                    href={`/${slug}/dashboard?${llm ? `llm=${llm}&` : ""}range=${value}`}
+                    href={dashboardHref({ range: value })}
                     className={[
                       "px-3 py-1 rounded-full text-xs font-medium transition-colors",
                       active
@@ -442,7 +482,12 @@ export default async function DashboardPage({ params, searchParams }: Props) {
                 );
               })}
             </div>
-            <ExportDashboardButton workspaceSlug={slug} days={days} llmKey={llmKey} />
+            <ExportDashboardButton
+              workspaceSlug={slug}
+              days={days}
+              llmKey={llmKey}
+              productKey={selectedProduct?.key ?? null}
+            />
             {/* Live data badge */}
             <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 border border-emerald-200 bg-emerald-50 rounded-full px-3 py-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
@@ -456,6 +501,14 @@ export default async function DashboardPage({ params, searchParams }: Props) {
             />
           </div>
         </div>
+
+        {products.length > 0 && (
+          <ProductSelector
+            products={products.map(({ key, label }) => ({ key, label }))}
+            selectedKey={selectedProduct?.key ?? null}
+            counts={productCounts}
+          />
+        )}
 
         {isAiOverview ? (
           <AiOverviewDashboard

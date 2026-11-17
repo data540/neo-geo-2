@@ -4,6 +4,7 @@ import * as XLSX from "xlsx";
 import { getWorkspaceBrandPerformanceMetrics } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
+import { resolveWorkspaceProduct } from "@/lib/workspace-products";
 import type { ActionResult, WorkspaceMemberRole } from "@/types";
 
 interface ExportResult {
@@ -14,7 +15,8 @@ interface ExportResult {
 export async function exportDashboardAction(
   workspaceSlug: string,
   days: number,
-  llmKey: string | null
+  llmKey: string | null,
+  productKey: string | null = null
 ): Promise<ActionResult<ExportResult>> {
   const supabase = await createClient();
 
@@ -46,9 +48,16 @@ export async function exportDashboardAction(
     workspaceSlug,
     userRole: (membership.role as WorkspaceMemberRole | undefined) ?? null,
   });
+  // Mismo filtro de producto que el Dashboard (?product=).
+  const selectedProduct = resolveWorkspaceProduct(workspaceSlug, productKey);
+  const promptPattern = selectedProduct?.pattern ?? null;
+  // Solo se envía p_prompt_pattern con un producto elegido: sin producto, la
+  // llamada es idéntica a la de antes de la migración 0049.
+  const productRpcArg = promptPattern ? { p_prompt_pattern: promptPattern } : {};
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
     country: countryFilter,
+    promptPattern,
     days,
     llmProviderId: provider?.id ?? null,
   });
@@ -59,12 +68,14 @@ export async function exportDashboardAction(
       days,
       llm_key: llmKey,
       p_country_filter: countryFilter,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_mention_breakdown", {
       workspace_slug: workspaceSlug,
       days,
       llm_key: llmKey,
       p_country_filter: countryFilter,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: workspaceSlug,
@@ -72,6 +83,7 @@ export async function exportDashboardAction(
       limit_n: 10,
       llm_key: llmKey,
       p_country_filter: countryFilter,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: workspaceSlug,
@@ -79,11 +91,13 @@ export async function exportDashboardAction(
       limit_n: 10,
       llm_key: llmKey,
       p_country_filter: countryFilter,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_llm_comparison", {
       workspace_slug: workspaceSlug,
       days,
       p_country_filter: countryFilter,
+      ...productRpcArg,
     }),
   ]);
 
@@ -96,6 +110,7 @@ export async function exportDashboardAction(
       Rango: `Últimos ${days} días`,
       LLM: llmKey ?? "Todos",
       País: countryFilter ?? "Todos",
+      Producto: selectedProduct?.label ?? "Todos los prompts",
       "Queries completadas": current.completedRuns,
       "Queries con marca": current.runsWithOwnBrand,
       "Visibilidad (%)": current.visibilityPct ?? "",
@@ -214,7 +229,7 @@ export async function exportDashboardAction(
 
   const base64 = XLSX.write(wb, { type: "base64", bookType: "xlsx" });
   const today = new Date().toISOString().slice(0, 10);
-  const filename = `${workspaceSlug}_dashboard_${today}.xlsx`;
+  const filename = `${workspaceSlug}_dashboard${selectedProduct ? `_${selectedProduct.key}` : ""}_${today}.xlsx`;
 
   return { success: true, data: { filename, base64 } };
 }
