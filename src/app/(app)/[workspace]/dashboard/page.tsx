@@ -166,8 +166,13 @@ export default async function DashboardPage({ params, searchParams }: Props) {
 
   const visibilityDelta = brandPerformanceMetrics.visibilityDeltaPct;
   const avgPositionDelta = brandPerformanceMetrics.avgPositionDelta;
+  // Sin respuestas en el periodo anterior no hay comparación posible (igual que
+  // visibilidad y posición): evita mostrar "↑799" frente a un periodo vacío.
   const mentionsDelta =
-    mentionsTotal > 0 || prevMentionsTotal > 0 ? mentionsTotal - prevMentionsTotal : null;
+    brandPerformanceMetrics.previous.completedRuns > 0 &&
+    (mentionsTotal > 0 || prevMentionsTotal > 0)
+      ? mentionsTotal - prevMentionsTotal
+      : null;
 
   // ── Sentiment (mismas respuestas y ventana que el resto de KPIs) ────────────
   const avgSentiment = brandPerformanceMetrics.current.avgSentiment;
