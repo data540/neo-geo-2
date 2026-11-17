@@ -10,6 +10,7 @@ interface Props {
   workspaceSlug: string;
   days: number;
   llmKey: string | null;
+  productKey?: string | null;
 }
 
 function base64ToBlob(base64: string, mimeType: string): Blob {
@@ -19,12 +20,12 @@ function base64ToBlob(base64: string, mimeType: string): Blob {
   return new Blob([bytes], { type: mimeType });
 }
 
-export function ExportDashboardButton({ workspaceSlug, days, llmKey }: Props) {
+export function ExportDashboardButton({ workspaceSlug, days, llmKey, productKey = null }: Props) {
   const [pending, startTransition] = useTransition();
 
   function handleExport() {
     startTransition(async () => {
-      const res = await exportDashboardAction(workspaceSlug, days, llmKey);
+      const res = await exportDashboardAction(workspaceSlug, days, llmKey, productKey);
       if (!res.success || !res.data) {
         toast.error(res.error ?? "No se pudo generar el archivo");
         return;

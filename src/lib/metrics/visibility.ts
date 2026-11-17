@@ -544,20 +544,28 @@ async function fetchCompletedRuns(params: {
   sinceIso?: string | null;
   untilIso?: string | null;
   country?: string | null;
+  /** Patrón de producto (ver workspace-products): solo prompts cuyo texto coincide. */
+  promptPattern?: string | null;
   client?: MetricsDbClient;
 }): Promise<CompletedRunRow[]> {
   const supabase = params.client ?? (await createClient());
   const rows: CompletedRunRow[] = [];
 
   // Filtro de país: obtener prompt_ids del país indicado
+  // Filtro de país y/o producto: obtener los prompt_ids que cumplen ambos
   let countryPromptIds: string[] | null = null;
-  if (params.country) {
-    const { data: countryPrompts } = await supabase
+  if (params.country || params.promptPattern) {
+    let promptsQuery = supabase
       .from("prompts")
-      .select("id")
-      .eq("workspace_id", params.workspaceId)
-      .eq("country", params.country);
-    countryPromptIds = (countryPrompts ?? []).map((p) => p.id as string);
+      .select("id, text")
+      .eq("workspace_id", params.workspaceId);
+    if (params.country) promptsQuery = promptsQuery.eq("country", params.country);
+    const { data: countryPrompts, error: promptsError } = await promptsQuery;
+    if (promptsError) throw promptsError;
+    const productRegex = params.promptPattern ? new RegExp(params.promptPattern, "i") : null;
+    countryPromptIds = (countryPrompts ?? [])
+      .filter((p) => !productRegex || productRegex.test((p.text as string | null) ?? ""))
+      .map((p) => p.id as string);
     if (countryPromptIds.length === 0) return [];
   }
 
@@ -723,6 +731,7 @@ async function fetchOwnMentionRunIds(params: {
 export async function getWorkspaceBrandPerformanceMetrics(params: {
   workspaceId: string;
   country?: string | null;
+  promptPattern?: string | null;
   days: number;
   llmProviderId?: string | null;
   /** Cliente alternativo (p. ej. service role en el MCP). Por defecto, cookies. */
@@ -740,6 +749,7 @@ export async function getWorkspaceBrandPerformanceMetrics(params: {
     sinceIso: previousStart.toISOString(),
     untilIso: now.toISOString(),
     country: params.country ?? null,
+    promptPattern: params.promptPattern ?? null,
     client: params.client,
   });
 
@@ -789,6 +799,7 @@ export async function getWorkspaceBrandPerformanceMetrics(params: {
 export async function getWorkspaceBrandVisibilityTrendMetrics(params: {
   workspaceId: string;
   country?: string | null;
+  promptPattern?: string | null;
   days: number;
   llmProviderId?: string | null;
   ownBrandName?: string | null;
@@ -807,6 +818,7 @@ export async function getWorkspaceBrandVisibilityTrendMetrics(params: {
     sinceIso: paddedSince ? dateFromKey(paddedSince).toISOString() : null,
     untilIso: new Date().toISOString(),
     country: params.country ?? null,
+    promptPattern: params.promptPattern ?? null,
   });
 
   const runDateKeys = runs
