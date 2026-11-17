@@ -29,7 +29,10 @@ export const runPromptScheduled = inngest.createFunction(
     // descontando los ya ejecutados hoy. Cada run hace 2 llamadas LLM (respuesta +
     // análisis combinado sentiment/posición). El cap global de dailyCap.ts protege
     // contra picos. Coste esperado: céntimos/día con la config actual.
-    triggers: [{ cron: "0 6 * * *" }],
+    // El disparo diario lo hace ahora pg_cron (Supabase) → /api/internal/cron-run-prompts
+    // (migración 0050), sin consumir ejecuciones de Inngest. Esta función queda
+    // solo como disparo manual por evento.
+    triggers: [{ event: "prompt/run.scheduled" }],
   },
   async ({ step }) => {
     const supabase = getServiceClient();
