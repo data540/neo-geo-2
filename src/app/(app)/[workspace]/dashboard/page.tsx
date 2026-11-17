@@ -14,6 +14,7 @@ import { SourcePowerRanking } from "@/components/dashboard/SourcePowerRanking";
 import { TopCompetitorsPanel } from "@/components/dashboard/TopCompetitorsPanel";
 import { TrendChart } from "@/components/dashboard/TrendChart";
 import { Delta, fmtScore, sentimentLabel, Sparkline } from "@/components/dashboard/kpi-helpers";
+import { ProductSelector } from "@/components/layout/ProductSelector";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseAioContent } from "@/lib/aio/parseAioContent";
 import {
@@ -24,7 +25,7 @@ import {
 } from "@/lib/metrics/visibility";
 import { createClient } from "@/lib/supabase/server";
 import { resolveWorkspaceCountryFilter } from "@/lib/workspace-country";
-import { getWorkspaceProducts, resolveWorkspaceProduct } from "@/lib/workspace-products";
+import { countPromptsByProduct, getWorkspaceProducts, resolveWorkspaceProduct } from "@/lib/workspace-products";
 import type {
   LlmComparisonRow,
   LlmProviderKey,
@@ -104,6 +105,16 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   // Solo se envía p_prompt_pattern con un producto elegido: sin producto, la
   // llamada es idéntica a la de antes de la migración 0049.
   const productRpcArg = promptPattern ? { p_prompt_pattern: promptPattern } : {};
+  let productCounts: Record<string, number> | undefined;
+  if (products.length > 0) {
+    let countQuery = supabase.from("prompts").select("text").eq("workspace_id", workspace.id);
+    if (countryFilter) countQuery = countQuery.eq("country", countryFilter);
+    const { data: productPrompts } = await countQuery;
+    productCounts = countPromptsByProduct(
+      (productPrompts ?? []).map((p) => (p.text as string | null) ?? ""),
+      products
+    );
+  }
   const dashboardHref = (overrides: { range?: number; product?: string | null }) => {
     const qs = new URLSearchParams();
     if (llm) qs.set("llm", llm);
@@ -492,35 +503,11 @@ export default async function DashboardPage({ params, searchParams }: Props) {
         </div>
 
         {products.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Producto
-            </span>
-            <div className="flex flex-wrap items-center gap-1 bg-slate-100 rounded-full px-1 py-1">
-              {[{ key: null, label: "Todos los prompts" }, ...products].map((p) => {
-                const active = (selectedProduct?.key ?? null) === p.key;
-                return (
-                  <Link
-                    key={p.key ?? "all"}
-                    href={dashboardHref({ product: p.key })}
-                    className={[
-                      "px-3 py-1 rounded-full text-xs font-medium transition-colors",
-                      active
-                        ? "bg-indigo-600 text-white shadow-sm"
-                        : "text-slate-600 hover:text-slate-900",
-                    ].join(" ")}
-                  >
-                    {p.label}
-                  </Link>
-                );
-              })}
-            </div>
-            {selectedProduct && (
-              <span className="text-xs text-slate-400">
-                Métricas solo de los prompts de {selectedProduct.label.toLowerCase()}
-              </span>
-            )}
-          </div>
+          <ProductSelector
+            products={products.map(({ key, label }) => ({ key, label }))}
+            selectedKey={selectedProduct?.key ?? null}
+            counts={productCounts}
+          />
         )}
 
         {isAiOverview ? (

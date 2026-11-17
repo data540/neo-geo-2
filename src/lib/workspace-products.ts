@@ -41,3 +41,15 @@ export function resolveWorkspaceProduct(
 export function promptMatchesProduct(text: string, product: WorkspaceProduct): boolean {
   return new RegExp(product.pattern, "i").test(text);
 }
+
+/** Nº de prompts por producto; la clave "all" cuenta todos. */
+export function countPromptsByProduct(
+  texts: string[],
+  products: WorkspaceProduct[]
+): Record<string, number> {
+  const counts: Record<string, number> = { all: texts.length };
+  for (const product of products) {
+    counts[product.key] = texts.filter((t) => promptMatchesProduct(t, product)).length;
+  }
+  return counts;
+}
