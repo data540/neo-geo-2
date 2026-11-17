@@ -22,6 +22,10 @@ export const maxDuration = 300;
 const CONCURRENCY = 6;
 /** Deja de coger trabajos nuevos pasado este tiempo (margen hasta maxDuration). */
 const TIME_BUDGET_MS = 200_000;
+/** Errores de OpenRouter que no se arreglan reintentando (presupuesto/saldo). */
+const BUDGET_ERROR = /budget|\(402\)|\(403\)|insufficient credits/i;
+/** Tras un error de presupuesto, no se intenta nada durante este tiempo. */
+const BUDGET_COOLDOWN_MS = 60 * 60 * 1000;
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -45,7 +49,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Corte: si en la última hora OpenRouter devolvió error de presupuesto/saldo,
+  // no lanzar nada (cada intento crearía un prompt_run fallido).
+  const { data: recentFailures } = await supabase
+    .from("prompt_runs")
+    .select("error_message")
+    .eq("status", "failed")
+    .gte("completed_at", new Date(Date.now() - BUDGET_COOLDOWN_MS).toISOString())
+    .order("completed_at", { ascending: false })
+    .limit(20);
+  if ((recentFailures ?? []).some((r) => BUDGET_ERROR.test((r.error_message as string) ?? ""))) {
+    console.warn("[cron-run-prompts] presupuesto de OpenRouter agotado: llamada omitida");
+    return NextResponse.json({ skipped: "openrouter_budget" });
+  }
+
   const started = Date.now();
+  let stop = false;
   const pending = await listPendingScheduledRuns(supabase);
   const queue = [...pending];
   let ok = 0;
@@ -55,7 +74,7 @@ export async function POST(request: Request) {
 
   await Promise.all(
     Array.from({ length: CONCURRENCY }, async () => {
-      while (Date.now() - started < TIME_BUDGET_MS) {
+      while (!stop && Date.now() - started < TIME_BUDGET_MS) {
         const job = queue.shift();
         if (!job) return;
         try {
@@ -65,6 +84,7 @@ export async function POST(request: Request) {
           if (res.workspaceSlug) slugs.add(res.workspaceSlug);
         } catch (err) {
           failed++;
+          if (err instanceof Error && BUDGET_ERROR.test(err.message)) stop = true;
           console.error(
             `[cron-run-prompts] ${job.llmKey} ${job.promptId}:`,
             err instanceof Error ? err.message : err
