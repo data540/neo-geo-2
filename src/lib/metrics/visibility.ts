@@ -513,9 +513,13 @@ function buildDailyMetrics(
 
     // currentEnd es exclusivo (medianoche de hoy): el último día es ayer.
     const lastKey = formatDateKey(new Date(currentEnd.getTime() - 1), timeZone);
+    // currentStart es medianoche local (p. ej. 23:00 UTC del día anterior en
+    // Madrid): el cursor a mediodía UTC caería en la víspera, así que se descarta
+    // todo día anterior al primero del periodo.
+    const firstKey = formatDateKey(currentStart, timeZone);
     while (cursor < currentEnd) {
       const key = formatDateKey(cursor, timeZone);
-      if (key <= lastKey) keys.add(key);
+      if (key >= firstKey && key <= lastKey) keys.add(key);
       cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     keys.add(lastKey);
