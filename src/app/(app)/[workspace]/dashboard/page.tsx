@@ -101,6 +101,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   const products = getWorkspaceProducts(slug);
   const selectedProduct = resolveWorkspaceProduct(slug, product);
   const promptPattern = selectedProduct?.pattern ?? null;
+  // Solo se envía p_prompt_pattern con un producto elegido: sin producto, la
+  // llamada es idéntica a la de antes de la migración 0049.
+  const productRpcArg = promptPattern ? { p_prompt_pattern: promptPattern } : {};
   const dashboardHref = (overrides: { range?: number; product?: string | null }) => {
     const qs = new URLSearchParams();
     if (llm) qs.set("llm", llm);
@@ -232,15 +235,15 @@ export default async function DashboardPage({ params, searchParams }: Props) {
   };
 
   const [marketShareRes, breakdownRes, competitorsRes, sourcesRes, llmRes] = await Promise.all([
-    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter, p_prompt_pattern: promptPattern }),
-    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter, p_prompt_pattern: promptPattern }),
+    supabase.rpc("get_workspace_market_share", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter, ...productRpcArg }),
+    supabase.rpc("get_workspace_mention_breakdown", { workspace_slug: slug, days, llm_key: llmKey, p_country_filter: countryFilter, ...productRpcArg }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: slug,
       days,
       limit_n: 5,
       llm_key: llmKey,
       p_country_filter: countryFilter,
-      p_prompt_pattern: promptPattern,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: slug,
@@ -248,9 +251,9 @@ export default async function DashboardPage({ params, searchParams }: Props) {
       limit_n: 5,
       llm_key: llmKey,
       p_country_filter: countryFilter,
-      p_prompt_pattern: promptPattern,
+      ...productRpcArg,
     }),
-    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: countryFilter, p_prompt_pattern: promptPattern }),
+    supabase.rpc("get_workspace_llm_comparison", { workspace_slug: slug, days, p_country_filter: countryFilter, ...productRpcArg }),
   ]);
 
   const marketShare: MarketShareEntry[] = ((marketShareRes.data ?? []) as MarketShareRow[]).map(

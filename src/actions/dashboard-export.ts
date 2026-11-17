@@ -51,6 +51,9 @@ export async function exportDashboardAction(
   // Mismo filtro de producto que el Dashboard (?product=).
   const selectedProduct = resolveWorkspaceProduct(workspaceSlug, productKey);
   const promptPattern = selectedProduct?.pattern ?? null;
+  // Solo se envía p_prompt_pattern con un producto elegido: sin producto, la
+  // llamada es idéntica a la de antes de la migración 0049.
+  const productRpcArg = promptPattern ? { p_prompt_pattern: promptPattern } : {};
   const brandPerformanceMetrics = await getWorkspaceBrandPerformanceMetrics({
     workspaceId: workspace.id,
     country: countryFilter,
@@ -65,14 +68,14 @@ export async function exportDashboardAction(
       days,
       llm_key: llmKey,
       p_country_filter: countryFilter,
-      p_prompt_pattern: promptPattern,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_mention_breakdown", {
       workspace_slug: workspaceSlug,
       days,
       llm_key: llmKey,
       p_country_filter: countryFilter,
-      p_prompt_pattern: promptPattern,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_top_competitors", {
       workspace_slug: workspaceSlug,
@@ -80,7 +83,7 @@ export async function exportDashboardAction(
       limit_n: 10,
       llm_key: llmKey,
       p_country_filter: countryFilter,
-      p_prompt_pattern: promptPattern,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_top_sources", {
       workspace_slug: workspaceSlug,
@@ -88,13 +91,13 @@ export async function exportDashboardAction(
       limit_n: 10,
       llm_key: llmKey,
       p_country_filter: countryFilter,
-      p_prompt_pattern: promptPattern,
+      ...productRpcArg,
     }),
     supabase.rpc("get_workspace_llm_comparison", {
       workspace_slug: workspaceSlug,
       days,
       p_country_filter: countryFilter,
-      p_prompt_pattern: promptPattern,
+      ...productRpcArg,
     }),
   ]);
 
